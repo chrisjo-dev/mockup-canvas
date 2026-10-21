@@ -1,0 +1,236 @@
+"""Board thumbnails for the viewer's low-zoom level of detail: route, auth, cache key, queue."""
+import os
+import threading
+import time
+import unittest
+from unittest import mock
+
+from helpers import ServerCase, TempHomeCase, canvas
+
+PNG = b'\x89PNG\r\n\x1a\nfake'
+
+
+class FakeQueue:
+    def __init__(self, ok=True):
+        self.calls, self.ok = [], ok
+
+    def request(self, *args):
+        self.calls.append(args)
+        return self.ok
+
+
+class ThumbRoute(ServerCase):
+    def setUp(self):
+        super().setUp()
+        self.design = os.path.join(self.home, 'p', 'design')
+        self.idea = self.make_idea(self.design, 'demo', boards=('A01-One.html', 'A02-Two.html'))
+        self.queue = FakeQueue()
+        patcher = mock.patch.object(canvas, '_THUMBS', self.queue)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def serve(self, **kw):
+        attrs = dict(design_dir=self.design, share_token='', share_edit=True, read_only=False)
+        attrs.update(kw)
+        self.start_server(canvas.CanvasHandler, **attrs)
+
+    def target(self, name='A01-One.html'):
+        return canvas._thumb_target(self.idea, name)
+
+    def test_missing_thumbnail_is_queued_then_served_with_etag(self):
+        self.serve()
+        status, _, body = self.request('GET', '/demo/thumbs/A01-One.png')
+        self.assertEqual(status, 202)
+        (src, w, h, out, key, fname), = self.queue.calls
+        self.assertEqual((src, w, h, key, fname),
+                         (os.path.join(self.idea, 'boards', 'A01-One.html'), 390, 844, 'demo', 'A01-One.html'))
+        self.assertEqual(os.path.dirname(out), os.path.join(self.idea, 'render', '.thumbs'))
+        self.assertRegex(os.path.basename(out), r'^A01-One-390x844-[0-9a-f]+-[0-9a-f]+\.png$')
+        os.makedirs(os.path.dirname(out))
+        with open(out, 'wb') as f:
+            f.write(PNG)
+        status, headers, body = self.request('GET', '/demo/thumbs/A01-One.png?v=1.2')
+        self.assertEqual((status, body), (200, PNG))
+        self.assertEqual(headers['Content-Type'], 'image/png')
+        self.assertEqual(headers['X-Content-Type-Options'], 'nosniff')
+        self.assertEqual(headers['Cache-Control'], 'no-cache')
+        status, _, body = self.request('GET', '/demo/thumbs/A01-One.png', headers={'If-None-Match': headers['ETag']})
+        self.assertEqual((status, body), (304, b''))
+        self.assertEqual(len(self.queue.calls), 1)
+
+    def test_key_follows_board_tokens_and_size(self):
+        first = self.target()[3]
+        board = os.path.join(self.idea, 'boards', 'A01-One.html')
+        st = os.stat(board)
+        os.utime(board, ns=(st.st_atime_ns, st.st_mtime_ns + 1000))
+        second = self.target()[3]
+        self.assertNotEqual(first, second)
+        tok = os.path.join(self.idea, 'shared', 'tokens.css')
+        st = os.stat(tok)
+        os.utime(tok, ns=(st.st_atime_ns, st.st_mtime_ns + 1000))
+        third = self.target()[3]
+        self.assertNotEqual(second, third)
+        cj = os.path.join(self.idea, 'canvas.json')
+        data = self.read_json(cj)
+        data['boards']['A01-One.html']['h'] = 900
+        self.write_json(cj, data)
+        self.assertIn('-390x900-', self.target()[3])
+
+    def test_only_registered_boards_inside_the_idea(self):
+        self.serve()
+        with open(os.path.join(self.idea, 'boards', 'Z99-Loose.html'), 'w') as f:
+            f.write('<p>not registered</p>')
+        for path in ('/demo/thumbs/Z99-Loose.png', '/demo/thumbs/A01-One.html', '/demo/thumbs/A01-One',
+                     '/demo/thumbs/..%2Fcanvas.png', '/demo/thumbs/%2e%2e%2F%2e%2e%2Fsecret.png',
+                     '/nope/thumbs/A01-One.png', '/demo/thumbs/x/A01-One.png'):
+            self.assertEqual(self.request('GET', path)[0], 404, path)
+        self.assertEqual(self.queue.calls, [])
+        self.assertIsNone(canvas._thumb_target(self.idea, '../canvas.json'))
+
+    def test_failed_thumbnail_is_404(self):
+        self.queue.ok = False
+        self.serve()
+        self.assertEqual(self.request('GET', '/demo/thumbs/A01-One.png')[0], 404)
+
+    def test_share_mode_needs_the_token_and_read_only_can_read(self):
+        token = 'tok_ABCdef123456'
+        self.serve(share_token=token, share_edit=False)
+        self.assertEqual(self.request('GET', '/demo/thumbs/A01-One.png')[0], 401)
+        cookie = {'Cookie': 'canvas_token=' + token}
+        self.assertEqual(self.request('GET', '/demo/thumbs/A01-One.png', headers=cookie)[0], 202)
+        # The keyed asset prefix for sandboxed boards does not reach thumbnails
+        h = canvas.CanvasHandler.__new__(canvas.CanvasHandler)
+        h.share_token = token
+        key = h._asset_key()
+        self.assertEqual(self.request('GET', f'/_k/{key}/demo/thumbs/A01-One.png')[0], 404)
+        status, _, _ = self.request('GET', '/demo/thumbs/A01-One.png',
+                                    headers=dict(cookie, Host='evil.example:%d' % self.port))
+        self.assertEqual(status, 421)
+
+    def test_registry_route_uses_project_key(self):
+        self.write_json(os.path.join(self.data_dir, 'roots.json'), {'roots': [{'name': 'p', 'path': self.design}]})
+        self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
+        self.assertEqual(self.request('GET', '/p/demo/thumbs/A02-Two.png')[0], 202)
+        self.assertEqual(self.queue.calls[0][4:], ('p/demo', 'A02-Two.html'))
+        self.assertEqual(self.request('GET', '/p/demo/thumbs/..%2F..%2Fx.png')[0], 404)
+
+
+class FakeSession:
+    instances = []
+
+    def __init__(self, *a, **kw):
+        self.closed = False
+        self.captured = []
+        FakeSession.instances.append(self)
+
+    def capture(self, url, w, h, wait_ms, out, full_page=False, timeout=60, scale=1):
+        self.captured.append((url, w, h, scale))
+        if 'Broken' in url:
+            raise canvas.CdpError('boom')
+        with open(out, 'wb') as f:
+            f.write(PNG)
+
+    def close(self):
+        self.closed = True
+
+
+class ThumbQueue(TempHomeCase):
+    def setUp(self):
+        super().setUp()
+        FakeSession.instances = []
+        self.idea = self.make_idea(os.path.join(self.home, 'p', 'design'), 'demo',
+                                   boards=('A01-One.html', 'A01-One-Two.html', 'B02-Broken.html'))
+        self.events = []
+        self.done = threading.Event()
+
+        def broadcast(key, data):
+            self.events.append((key, data))
+            self.done.set()
+        for target, value in (('_CdpSession', FakeSession), ('_broadcast', broadcast), ('THUMB_IDLE_SECS', 0.2)):
+            p = mock.patch.object(canvas, target, value)
+            p.start()
+            self.addCleanup(p.stop)
+        self.q = canvas._ThumbQueue(workers=2)
+        self.addCleanup(self.q.close_all)
+
+    def wait_until(self, cond, secs=5):
+        end = time.monotonic() + secs
+        while not cond() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(cond())
+
+    def test_renders_once_broadcasts_and_drops_stale_versions(self):
+        src, w, h, out = canvas._thumb_target(self.idea, 'A01-One.html')
+        folder = os.path.dirname(out)
+        os.makedirs(folder)
+        for stale in ('A01-One-390x844-1-2.png', 'A01-One-200x100-ab.png'):
+            open(os.path.join(folder, stale), 'wb').close()
+        keep = os.path.join(folder, 'A01-One-Two-390x844-1-2.png')   # another board with a longer id
+        open(keep, 'wb').close()
+        self.assertTrue(self.q.request(src, w, h, out, 'demo', 'A01-One.html'))
+        self.assertTrue(self.q.request(src, w, h, out, 'demo', 'A01-One.html'))   # deduped while queued
+        self.assertTrue(self.done.wait(5))
+        self.assertEqual(self.events, [('demo', {'type': 'thumb', 'file': 'A01-One.html'})])
+        self.assertEqual(sorted(os.listdir(folder)), sorted([os.path.basename(out), os.path.basename(keep)]))
+        captured = [c for s in FakeSession.instances for c in s.captured]
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0][0].startswith('file://'))
+        self.assertEqual(captured[0][1:], (390, 844, canvas.THUMB_SCALE))
+        # idle workers stop and close their Chrome
+        self.wait_until(lambda: all(s.closed for s in FakeSession.instances) and self.q.started == 0)
+
+    def test_failure_is_not_retried(self):
+        src, w, h, out = canvas._thumb_target(self.idea, 'B02-Broken.html')
+        with mock.patch('sys.stderr'):
+            self.assertTrue(self.q.request(src, w, h, out, 'demo', 'B02-Broken.html'))
+            self.wait_until(lambda: out in self.q.failed)
+        self.assertFalse(self.q.request(src, w, h, out, 'demo', 'B02-Broken.html'))
+        self.assertEqual(self.events, [])
+        self.assertFalse(os.path.exists(out))
+        self.wait_until(lambda: self.q.started == 0)
+        self.assertTrue(all(s.closed for s in FakeSession.instances))
+
+    def test_at_most_two_workers(self):
+        gate = threading.Event()
+        orig = FakeSession.capture
+
+        def slow(self_, *a, **kw):
+            gate.wait(5)
+            return orig(self_, *a, **kw)
+        with mock.patch.object(FakeSession, 'capture', slow):
+            for name in ('A01-One.html', 'A01-One-Two.html'):
+                t = canvas._thumb_target(self.idea, name)
+                self.q.request(*t, 'demo', name)
+            for i in range(5):
+                self.q.request(t[0], 390, 844, t[3] + f'.{i}.png', 'demo', 'A01-One-Two.html')
+            time.sleep(0.2)
+            self.assertLessEqual(self.q.started, 2)
+            self.assertLessEqual(len(FakeSession.instances), 2)
+            gate.set()
+            self.wait_until(lambda: not self.q.pending)
+
+    def test_close_all_kills_sessions_and_stops_for_good(self):
+        s = FakeSession()
+        self.q.sessions.append(s)
+        gate = threading.Event()
+        orig = FakeSession.capture
+
+        def slow(self_, *a, **kw):
+            gate.wait(5)
+            return orig(self_, *a, **kw)
+        with mock.patch.object(FakeSession, 'capture', slow):
+            t = canvas._thumb_target(self.idea, 'A01-One.html')
+            self.q.request(*t, 'demo', 'A01-One.html')
+            self.q.request(t[0], 390, 844, t[3] + '.2.png', 'demo', 'A01-One.html')
+            self.wait_until(lambda: len(FakeSession.instances) == 3)   # mine + two workers
+            self.q.close_all()
+            gate.set()
+            self.wait_until(lambda: self.q.started == 0)
+        self.assertTrue(all(x.closed for x in FakeSession.instances))
+        self.assertEqual((self.q.sessions, self.q.jobs), ([], []))
+        self.assertFalse(self.q.request(*t, 'demo', 'A01-One.html'))   # no new work after close
+        self.assertEqual(len(FakeSession.instances), 3)
+
+
+if __name__ == '__main__':
+    unittest.main()

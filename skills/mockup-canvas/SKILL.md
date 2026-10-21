@@ -24,7 +24,7 @@ Usage for each command: `canvas <command> -h`.
                    ID = first letter of the idea in upper case + two digits (W01, W02...). Follow existing screen IDs if the project has them
   shared/tokens.css  color, type, spacing, radius. Every artboard links it
   assets/          images, fonts
-  render/          PNGs for checking (generated, ignored by git)
+  render/          PNGs for checking, and render/.thumbs/ for the canvas at low zoom (generated, ignored by git)
 ```
 
 User data lives in `$MOCKUP_CANVAS_HOME` (default `~/.mockup-canvas/`):

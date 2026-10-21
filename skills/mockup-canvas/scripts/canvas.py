@@ -322,7 +322,7 @@ def _copytree_inside(src, dst, root):
 
 def _chrome_args(profile_dir, w, h, budget_ms):
     """Headless Chrome flags for render/overview. No file-access flags; throwaway profile."""
-    return [_get_chrome(), '--headless=new', f'--user-data-dir={profile_dir}',
+    return [_get_chrome(), '--headless=new', '--use-mock-keychain', f'--user-data-dir={profile_dir}',
             '--no-first-run', '--no-default-browser-check',
             # Keep sandboxed board iframes in-process so --screenshot captures them
             # (they stay sandboxed with an opaque origin either way)
@@ -462,6 +462,7 @@ def _ws_mask(data, mask):
 class _Cdp:
     def __init__(self, ws, deadline):
         self.ws, self.deadline, self.next_id, self.events = ws, deadline, 0, []
+        self.sink = None   # set to a list to keep every event message (perf tracing)
 
     def _recv(self):
         left = self.deadline - time.monotonic()
@@ -484,19 +485,28 @@ class _Cdp:
                     raise CdpError(f'{method}: {msg["error"].get("message", msg["error"])}')
                 return msg.get('result', {})
             if 'method' in msg:
-                self.events.append(msg['method'])
+                self._event(msg)
+
+    def _event(self, msg):
+        self.events.append(msg['method'])
+        if self.sink is not None:
+            self.sink.append(msg)
 
     def wait_event(self, name):
         if name in self.events:
             return
-        while self._recv().get('method') != name:
-            pass
+        while True:
+            msg = self._recv()
+            if 'method' in msg:
+                self._event(msg)
+                if msg['method'] == name:
+                    return
 
 
 def _cdp_launch_args(profile_dir):
     """Headless Chrome flags for the DevTools path. No file-access flags; throwaway profile;
     DevTools listens on a random localhost port that only this run uses."""
-    return [_get_chrome(), '--headless=new', f'--user-data-dir={profile_dir}',
+    return [_get_chrome(), '--headless=new', '--use-mock-keychain', f'--user-data-dir={profile_dir}',
             '--no-first-run', '--no-default-browser-check',
             '--disable-features=IsolateSandboxedIframes', '--hide-scrollbars',
             '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', 'about:blank']
@@ -516,19 +526,28 @@ def _cdp_page_ws(port, timeout):
     raise ConnectionError('no page target')
 
 
-def _cdp_capture(url, w, h, wait_ms, out, full_page, timeout):
-    """Capture url into out over DevTools. Raises CdpConnectError, CdpError, or TimeoutError."""
-    deadline = time.monotonic() + timeout
-    profile = tempfile.mkdtemp(prefix='mockup-canvas-chrome-')
-    proc = ws = None
-    try:
+class _CdpSession:
+    """One headless Chrome with a throwaway profile, driven over DevTools.
+
+    Raises CdpConnectError when DevTools cannot be reached. close() always kills Chrome and
+    deletes the profile. capture() can be called many times (thumbnails reuse one Chrome)."""
+
+    def __init__(self, connect_timeout=20):
+        self.profile = tempfile.mkdtemp(prefix='mockup-canvas-chrome-')
+        self.proc = self.ws = self.cdp = None
         try:
-            proc = subprocess.Popen(_cdp_launch_args(profile),
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._start(time.monotonic() + connect_timeout)
+        except BaseException:
+            self.close()
+            raise
+
+    def _start(self, connect_by):
+        try:
+            self.proc = subprocess.Popen(_cdp_launch_args(self.profile),
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
             raise CdpConnectError(f'cannot start Chrome: {e}')
-        port_file = os.path.join(profile, 'DevToolsActivePort')
-        connect_by = min(deadline, time.monotonic() + 20)
+        port_file = os.path.join(self.profile, 'DevToolsActivePort')
         while True:
             try:
                 with open(port_file) as f:
@@ -536,17 +555,25 @@ def _cdp_capture(url, w, h, wait_ms, out, full_page, timeout):
                 break
             except (OSError, ValueError):
                 pass
-            if proc.poll() is not None:
-                raise CdpConnectError(f'Chrome exited with code {proc.returncode} before DevTools started')
+            if self.proc.poll() is not None:
+                raise CdpConnectError(f'Chrome exited with code {self.proc.returncode} before DevTools started')
             if time.monotonic() > connect_by:
                 raise CdpConnectError('DevToolsActivePort did not appear')
             time.sleep(0.05)
         try:
-            ws = _WebSocket('127.0.0.1', port, _cdp_page_ws(port, 10), 10)
+            self.ws = _WebSocket('127.0.0.1', port, _cdp_page_ws(port, 10), 10)
         except (OSError, ValueError) as e:
             raise CdpConnectError(f'DevTools connection failed: {e}')
-        cdp = _Cdp(ws, deadline)
-        cdp.call('Page.enable')
+        self.cdp = _Cdp(self.ws, time.monotonic() + 30)
+        self.cdp.call('Page.enable')
+
+    def call(self, method, **params):
+        return self.cdp.call(method, **params)
+
+    def goto(self, url, w, h, deadline):
+        """Lay the page out at exactly w x h CSS px and load url (waits for the load event)."""
+        cdp = self.cdp
+        cdp.deadline = deadline
         cdp.call('Emulation.setDeviceMetricsOverride', width=w, height=h,
                  deviceScaleFactor=1, mobile=w < 768)
         cdp.events.clear()
@@ -564,39 +591,71 @@ def _cdp_capture(url, w, h, wait_ms, out, full_page, timeout):
                 cdp.events.clear()
                 cdp.call('Page.reload')
                 cdp.wait_event('Page.loadEventFired')
-        pause = wait_ms / 1000
-        if time.monotonic() + pause > deadline:
-            raise TimeoutError
-        time.sleep(pause)
-        shot = {'format': 'png'}
-        if full_page:
-            r = cdp.call('Runtime.evaluate', returnByValue=True, expression=(
-                'Math.max(document.documentElement.scrollHeight, '
-                'document.body ? document.body.scrollHeight : 0)'))
-            full_h = max(h, int(r.get('result', {}).get('value') or h))
-            shot.update(captureBeyondViewport=True,
-                        clip={'x': 0, 'y': 0, 'width': w, 'height': full_h, 'scale': 1})
-        data = base64.b64decode(cdp.call('Page.captureScreenshot', **shot)['data'])
-        with open(out, 'wb') as f:
-            f.write(data)
-    except (OSError, ValueError, KeyError) as e:
-        if isinstance(e, TimeoutError):
+
+    def capture(self, url, w, h, wait_ms, out, full_page=False, timeout=60, scale=1):
+        """Write a PNG of url at w x h into out. Raises CdpError or TimeoutError."""
+        deadline = time.monotonic() + timeout
+        try:
+            self.goto(url, w, h, deadline)
+            pause = wait_ms / 1000
+            if time.monotonic() + pause > deadline:
+                raise TimeoutError
+            time.sleep(pause)
+            # Two animation frames: what the page has drawn is painted before the capture
+            self.cdp.call('Runtime.evaluate', awaitPromise=True, expression=(
+                'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(1))))'))
+            shot = {'format': 'png'}
+            full_h = h
+            if full_page:
+                r = self.cdp.call('Runtime.evaluate', returnByValue=True, expression=(
+                    'Math.max(document.documentElement.scrollHeight, '
+                    'document.body ? document.body.scrollHeight : 0)'))
+                full_h = max(h, int(r.get('result', {}).get('value') or h))
+                shot['captureBeyondViewport'] = True
+            if full_page or scale != 1:
+                shot['clip'] = {'x': 0, 'y': 0, 'width': w, 'height': full_h, 'scale': scale}
+            data = base64.b64decode(self.cdp.call('Page.captureScreenshot', **shot)['data'])
+            tmp = out + '.part'
+            with open(tmp, 'wb') as f:
+                f.write(data)
+            os.replace(tmp, out)
+        except TimeoutError:
             raise
-        raise CdpError(str(e) or e.__class__.__name__)
-    finally:
-        if ws:
+        except (OSError, ValueError, KeyError) as e:
+            raise CdpError(str(e) or e.__class__.__name__)
+
+    def close(self):
+        if self.ws:
             try:
-                ws.close()
+                self.ws.close()
             except OSError:
                 pass
-        if proc and proc.poll() is None:
-            proc.kill()
-        if proc:
+            self.ws = None
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+        if self.proc:
             try:
-                proc.wait(10)
+                self.proc.wait(10)
             except subprocess.TimeoutExpired:
                 pass
-        shutil.rmtree(profile, ignore_errors=True)
+        shutil.rmtree(self.profile, ignore_errors=True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+def _cdp_capture(url, w, h, wait_ms, out, full_page, timeout):
+    """Capture url into out over DevTools. Raises CdpConnectError, CdpError, or TimeoutError."""
+    start = time.monotonic()
+    try:
+        session = _CdpSession(connect_timeout=min(20, timeout))
+    except TimeoutError:
+        raise CdpConnectError('DevTools connection timed out')
+    with session:
+        session.capture(url, w, h, wait_ms, out, full_page, timeout - (time.monotonic() - start))
 
 
 def _capture(url, w, h, wait_ms, out, full_page=False):
@@ -760,6 +819,150 @@ def _watch_thread(design_dirs):
             except Exception:
                 pass
         time.sleep(1)
+
+# ── Board thumbnails (viewer level of detail) ──────────────────────────────
+# At low zoom the viewer shows PNG thumbnails instead of live iframes. They are rendered lazily
+# with the DevTools capture, a few at a time in background threads that reuse one Chrome each,
+# and cached in <idea>/render/.thumbs/ under a name keyed by the board file's mtime, the
+# tokens.css mtime, and the board size, so an edit makes a new thumbnail.
+
+THUMB_SCALE = 0.6
+THUMB_WORKERS = 2
+THUMB_IDLE_SECS = 15
+
+
+def _thumb_target(idea_dir, fname):
+    """-> (board path, w, h, cached png path) for a registered board, or None."""
+    if not fname.endswith('.html'):
+        return None
+    try:
+        b = load_canvas(idea_dir).get('boards', {}).get(fname)
+    except Exception:
+        return None
+    src = _safe_path(idea_dir, 'boards', fname)
+    if not isinstance(b, dict) or not src or not os.path.isfile(src):
+        return None
+    try:
+        w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
+        if not (0 < w <= 8000 and 0 < h <= 8000):
+            return None
+        key = f'{os.stat(src).st_mtime_ns:x}'
+        tok = os.path.join(idea_dir, 'shared', 'tokens.css')
+        if os.path.isfile(tok):
+            key += f'-{os.stat(tok).st_mtime_ns:x}'
+    except (OSError, TypeError, ValueError):
+        return None
+    out = os.path.join(idea_dir, 'render', '.thumbs', f'{fname[:-5]}-{w}x{h}-{key}.png')
+    return src, w, h, out
+
+
+class _ThumbQueue:
+    def __init__(self, workers=THUMB_WORKERS):
+        self.cv = threading.Condition()
+        self.jobs, self.pending, self.failed = [], set(), set()
+        self.sessions, self.workers, self.started = [], workers, 0
+        self.closed = False
+
+    def request(self, src, w, h, out, sse_key, fname):
+        """Queue a render unless it is queued, running, or failed before."""
+        with self.cv:
+            if self.closed:
+                return False
+            if out in self.pending or out in self.failed:
+                return out not in self.failed
+            self.pending.add(out)
+            self.jobs.append((src, w, h, out, sse_key, fname))
+            if self.started < self.workers:
+                self.started += 1
+                threading.Thread(target=self._work, daemon=True).start()
+            self.cv.notify()
+        return True
+
+    def _work(self):
+        session = None
+        try:
+            while True:
+                with self.cv:
+                    if not self.jobs and not self.closed:
+                        self.cv.wait(THUMB_IDLE_SECS)
+                    if not self.jobs or self.closed:
+                        # idle: let Chrome go; a new request starts a new worker
+                        self.started -= 1
+                        return
+                    job = self.jobs.pop(0)
+                src, w, h, out, sse_key, fname = job
+                ok = False
+                try:
+                    if session is None:
+                        session = _CdpSession()
+                        with self.cv:
+                            self.sessions.append(session)
+                            if self.closed:   # shut down while Chrome was starting
+                                raise CdpError('thumbnail queue closed')
+                    os.makedirs(os.path.dirname(out), exist_ok=True)
+                    session.capture(pathlib.Path(src).as_uri(), w, h, 250, out, timeout=30, scale=THUMB_SCALE)
+                    ok = True
+                except CdpConnectError as e:
+                    print(f'[mockup-canvas] thumbnail: Chrome unavailable: {e}', file=sys.stderr, flush=True)
+                except (CdpError, TimeoutError, OSError) as e:
+                    if not self.closed:
+                        print(f'[mockup-canvas] thumbnail failed: {fname}: {e!r}', file=sys.stderr, flush=True)
+                    if session:   # a stuck page: start clean for the next job
+                        self._drop(session)
+                        session = None
+                if ok:
+                    # older thumbnails of this board: <board id>-<w>x<h>-<hex key>.png
+                    stale = re.compile(re.escape(fname[:-5]) + r'-\d+x\d+-[0-9a-f-]+\.png$')
+                    folder = os.path.dirname(out)
+                    for old in os.listdir(folder):
+                        if stale.match(old) and old != os.path.basename(out):
+                            try:
+                                os.remove(os.path.join(folder, old))
+                            except OSError:
+                                pass
+                with self.cv:
+                    self.pending.discard(out)
+                    if not ok:
+                        self.failed.add(out)
+                if ok:
+                    _broadcast(sse_key, {'type': 'thumb', 'file': fname})
+        finally:
+            if session:
+                self._drop(session)
+
+    def _drop(self, session):
+        with self.cv:
+            if session in self.sessions:
+                self.sessions.remove(session)
+        session.close()
+
+    def close_all(self):
+        """Stop for good: drop queued jobs, wake idle workers, and kill every Chrome."""
+        with self.cv:
+            self.closed = True
+            self.jobs.clear()
+            self.pending.clear()
+            sessions, self.sessions = list(self.sessions), []
+            self.cv.notify_all()
+        for s in sessions:
+            s.close()
+
+
+_THUMBS = _ThumbQueue()
+__import__('atexit').register(_THUMBS.close_all)
+
+
+def _stop_on_sigterm():
+    """`kill <pid>` exits through atexit too, so thumbnail Chrome processes are not left behind."""
+    import signal
+
+    def stop(*_):
+        raise KeyboardInterrupt
+    try:
+        signal.signal(signal.SIGTERM, stop)
+    except ValueError:   # not the main thread (tests run servers in threads)
+        pass
+
 
 # ── HTTP handler ───────────────────────────────────────────────────────────
 
@@ -992,6 +1195,27 @@ class CanvasHandler(BaseHTTPRequestHandler):
         extra['Referrer-Policy'] = 'no-referrer'
         self._serve_file(path, mt, extra)
 
+    def _serve_thumb(self, idea_dir, name, sse_key):
+        """thumbs/<board id>.png: the cached thumbnail (ETag), or 202 while it is being rendered."""
+        target = _thumb_target(idea_dir, name[:-4] + '.html') if name.endswith('.png') else None
+        if not target:
+            self._404(); return
+        src, w, h, out = target
+        etag = '"' + os.path.basename(out) + '"'
+        if os.path.isfile(out):
+            if self.headers.get('If-None-Match') == etag:
+                self.send_response(304)
+                self.send_header('ETag', etag)
+                self._add_root_header()
+                self.end_headers()
+                return
+            self._serve_file(out, 'image/png', {'X-Content-Type-Options': 'nosniff', 'ETag': etag},
+                             cache='no-cache')
+            return
+        if not _THUMBS.request(src, w, h, out, sse_key, name[:-4] + '.html'):
+            self._404(); return
+        self._json({'pending': True}, 202)
+
     def do_GET(self):
         parts = self._gate_get()
         if parts is None:
@@ -1017,6 +1241,10 @@ class CanvasHandler(BaseHTTPRequestHandler):
 
         if parts[1] == 'api' and len(parts) == 3 and parts[2] == 'events':
             self._serve_sse(idea)
+            return
+
+        if parts[1] == 'thumbs' and len(parts) == 3:
+            self._serve_thumb(idea_dir, parts[2], idea)
             return
 
         if parts[1] == 'boards' and len(parts) == 3:
@@ -1126,7 +1354,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _serve_file(self, path, content_type, extra_headers=None):
+    def _serve_file(self, path, content_type, extra_headers=None, cache='no-store'):
         if not path or not os.path.isfile(path):
             self._404(); return
         try:
@@ -1137,7 +1365,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(data)))
-        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Cache-Control', cache)
         for k, v in (extra_headers or {}).items():
             self.send_header(k, v)
         self._add_root_header()
@@ -1394,6 +1622,10 @@ class RegistryHandler(CanvasHandler):
         if rest[0] == 'api' and len(rest) == 2 and rest[1] == 'events':
             sse_key = project + '/' + idea
             self._serve_sse(sse_key)
+            return
+
+        if rest[0] == 'thumbs' and len(rest) == 2:
+            self._serve_thumb(idea_dir, rest[1], project + '/' + idea)
             return
 
         if rest[0] == 'boards' and len(rest) == 2:
@@ -1739,6 +1971,7 @@ def cmd_serve(args):
     else:
         print(f'Server started: http://127.0.0.1:{port}/', flush=True)
 
+    _stop_on_sigterm()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -1816,6 +2049,7 @@ def _cmd_serve_registry(args):
             exists = 'ok' if os.path.isdir(r['path']) else 'missing'
             print(f'  {r["name"]}: {r["path"]} [{exists}]', flush=True)
 
+    _stop_on_sigterm()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

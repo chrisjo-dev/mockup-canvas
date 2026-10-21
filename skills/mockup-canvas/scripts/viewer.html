@@ -27,7 +27,16 @@
     .grp-arrow { font-size: 9px; opacity: 0.7; }
 
     /* Artboards */
-    .board { position: absolute; }
+    /* A board is a white card with its title until its content (live iframe or thumbnail) is shown */
+    /* No blurred shadow: re-rastering 24px blurs on every board made zoom drop frames */
+    .board { position: absolute; background: #fff; border-radius: 0 0 4px 4px;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.5), 0 6px 0 rgba(0,0,0,0.25); contain: layout style; }
+    .board .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      padding: 24px; text-align: center; color: #9a9a9a; font-size: 28px; font-weight: 600;
+      overflow: hidden; pointer-events: none; }
+    .board img.thumb { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+      border-radius: 0 0 4px 4px; pointer-events: none; opacity: 0; }
+    .board img.thumb.ok { opacity: 1; }
     .board-bar {
       position: absolute; top: -30px; left: 0; right: 0; height: 28px;
       background: rgba(42,42,42,0.92); backdrop-filter: blur(4px);
@@ -42,12 +51,12 @@
     }
     .board-title-text { color: rgba(255,255,255,0.85); overflow: hidden; text-overflow: ellipsis; }
     .board iframe {
-      display: block; border: none;
+      position: absolute; left: 0; top: 0; display: block; border: none;
       border-radius: 0 0 4px 4px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.45);
       background: #fff; pointer-events: none;
     }
-    .board.collapsed iframe { display: none; }
+    .board.collapsed { background: none; box-shadow: none; }
+    .board.collapsed iframe, .board.collapsed img.thumb, .board.collapsed .ph { display: none; }
     .board.collapsed .board-bar { border-radius: 6px; }
 
     /* Status badges */
@@ -136,7 +145,7 @@
 </head>
 <body>
 <div id="loading">Loading...</div>
-<div id="stage"><div id="canvas"><svg id="arrow-svg" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
+<div id="stage"><div id="canvas"><div id="grp-layer"></div><div id="board-layer"></div><svg id="arrow-svg" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
 <div id="toolbar">
   <span class="idea-name" id="idea-lbl"></span>
   <span class="sep">|</span>
@@ -218,27 +227,143 @@
   let canvasData = null;
   let vx = 0, vy = 0, sc = 0.35;
   let panning = false, panRef = null;
-  let dragging = null;  // {file, el, sx, sy, ox, oy}
+  let dragging = null;  // {file, el, sx, sy, ox, oy, x, y, dirty}
   let collapsed = new Set();
-  let boardEls = {};
+  // file -> {file, div, bar, iframe, img, kind: 'none'|'live'|'thumb', ver, thumbState, hidden}
+  let recs = {};
   let toastTimer = null;
   let showArrows = true;
+  let arrowEls = [];   // one per drawn link: {lnk, path, text}
 
   const stage   = document.getElementById('stage');
   const cvs     = document.getElementById('canvas');
+  const grpLayer = document.getElementById('grp-layer');
+  const boardLayer = document.getElementById('board-layer');
   const arrowSvg = document.getElementById('arrow-svg');
   const toast   = document.getElementById('toast');
   const zoomLbl = document.getElementById('zoom-lbl');
 
+  // Level of detail: below this zoom, boards show cached PNG thumbnails (server mode) instead of
+  // live iframes. Only boards near the viewport keep a live iframe at any zoom. The overview
+  // render needs every board live, so it keeps them all.
+  const LOD_ZOOM = 0.35;
+  const THUMBS = !STATIC;
+  const VIRTUAL = !OVERVIEW;
+  let SW = stage.clientWidth, SH = stage.clientHeight;
+  window.addEventListener('resize', () => { SW = stage.clientWidth; SH = stage.clientHeight; visDirty = true; schedule(); });
+
+  function thumbUrl(file, v) {
+    return BASE + '/thumbs/' + encodeURIComponent(file.replace(/\.html$/, '')) + '.png?v=' + v;
+  }
+
+  // ── Frame scheduler: input handlers only update state; DOM writes happen once per frame ──
+  let frameReq = 0, xformDirty = false, visDirty = false, moving = false, settleTimer = 0;
+  function schedule() { if (!frameReq) frameReq = requestAnimationFrame(frame); }
+  function frame() {
+    frameReq = 0;
+    if (xformDirty) {
+      xformDirty = false;
+      cvs.style.transform = `translate(${vx}px,${vy}px) scale(${sc})`;
+      // Keep a GPU layer only while moving, then drop it so the browser repaints sharply at the current zoom
+      // (a permanent will-change stretches the bitmap painted at the first zoom, e.g. 5%, and looks blurry)
+      if (moving) cvs.classList.add('moving');
+      zoomLbl.textContent = Math.round(sc * 100) + '%';
+    }
+    if (dragging && dragging.dirty) {
+      dragging.dirty = false;
+      dragging.el.style.transform = `translate(${dragging.x - dragging.ox}px,${dragging.y - dragging.oy}px)`;
+      updateArrowsFor(dragging.file);
+    }
+    if (visDirty) { visDirty = false; updateVisibility(); }
+  }
+
   // ── Transform ────────────────────────────────────────────────────────────
   function applyXform() {
-    cvs.style.transform = `translate(${vx}px,${vy}px) scale(${sc})`;
-    // Keep a GPU layer only while moving, then drop it so the browser repaints sharply at the current zoom
-    // (a permanent will-change stretches the bitmap painted at the first zoom, e.g. 5%, and looks blurry)
-    cvs.classList.add('moving');
-    clearTimeout(applyXform.t);
-    applyXform.t = setTimeout(() => cvs.classList.remove('moving'), 150);
-    zoomLbl.textContent = Math.round(sc * 100) + '%';
+    xformDirty = true; visDirty = true; moving = true;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(settle, 150);
+    schedule();
+  }
+  function settle() {
+    moving = false;
+    cvs.classList.remove('moving');
+    visDirty = true;
+    schedule();
+  }
+
+  // ── Virtualization ───────────────────────────────────────────────────────
+  function updateVisibility() {
+    if (!canvasData) return;
+    const mx = SW * 0.5 / sc, my = SH * 0.5 / sc;   // keep boards half a screen beyond the edges
+    const x0 = -vx / sc - mx, y0 = -vy / sc - my, x1 = (SW - vx) / sc + mx, y1 = (SH - vy) / sc + my;
+    const low = THUMBS && sc < LOD_ZOOM;
+    for (const file in recs) {
+      const r = recs[file], b = canvasData.boards[file];
+      if (!b) continue;
+      const vis = !r.hidden && b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0;
+      const want = !VIRTUAL ? 'live' : !vis ? 'off' : low ? 'thumb' : 'live';
+      if (want === 'live') {
+        // New iframes are created only once the view rests: loading a board mid-gesture drops frames
+        if (r.kind !== 'live') { if (moving) standIn(r); else mountLive(r); }
+      } else if (r.kind === 'live') {
+        if (!moving) { if (want === 'thumb') showThumb(r); else standIn(r); }
+      } else if (want === 'thumb') {
+        showThumb(r);
+      }
+    }
+  }
+
+  function dropIframe(r) {
+    if (r.iframe) { r.iframe.remove(); r.iframe = null; }
+  }
+
+  function mountLive(r) {
+    const b = canvasData.boards[r.file];
+    if (r.img) r.img.remove();
+    const iframe = document.createElement('iframe');
+    iframe.src = boardUrl(r.file) + (r.ver ? '?_=' + r.ver : '');
+    iframe.width = b.w;
+    iframe.height = b.h;
+    // Boards run in an opaque origin: their scripts cannot call this server's APIs.
+    // A file:// page (overview, an export opened from disk) has no server to protect, and an
+    // opaque origin there could not load ../shared/*.css, so it keeps the file origin.
+    iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups' +
+                        (location.protocol === 'file:' ? ' allow-same-origin' : ''));
+    iframe.setAttribute('loading', 'lazy');
+    iframe.setAttribute('scrolling', 'no');
+    iframe.tabIndex = -1;
+    r.div.appendChild(iframe);
+    r.iframe = iframe;
+    r.kind = 'live';
+  }
+
+  // Cheap content while a board is off screen or the view is moving: its thumbnail if one is
+  // already loaded, otherwise the white card with the title
+  function standIn(r) {
+    dropIframe(r);
+    if (r.img && r.thumbState === 'ok') { if (!r.img.isConnected) r.div.appendChild(r.img); r.kind = 'thumb'; }
+    else { if (r.img) r.img.remove(); r.kind = 'none'; }
+  }
+
+  function showThumb(r) {
+    dropIframe(r);
+    if (!r.img) {
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.alt = '';
+      img.decoding = 'async';
+      img.draggable = false;
+      img.addEventListener('load', () => { r.thumbState = 'ok'; img.classList.add('ok'); });
+      // 202 while the server renders it: a 'thumb' event arrives when it is ready
+      img.addEventListener('error', () => { r.thumbState = 'pending'; img.classList.remove('ok'); });
+      r.img = img;
+    }
+    if (!r.thumbState || r.thumbState === 'stale') {
+      r.thumbState = 'loading';
+      r.img.src = thumbUrl(r.file, r.ver + '.' + (++r.tv));
+    }
+    if (!r.img.isConnected) r.div.appendChild(r.img);
+    r.kind = 'thumb';
   }
 
   // ── Toast ────────────────────────────────────────────────────────────────
@@ -261,10 +386,9 @@
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
+  // Updates boards in place: an iframe that is moved or recreated reloads its board, so a
+  // canvas.json change (for example a saved drag) must not rebuild them.
   function renderAll() {
-    cvs.innerHTML = '';
-    cvs.appendChild(arrowSvg);   // innerHTML='' detaches it; put it back first
-    boardEls = {};
     const { boards = {}, groups = [] } = canvasData;
 
     // Compute group background boxes
@@ -281,6 +405,7 @@
     }
 
     // Render groups (bottom layer)
+    grpLayer.textContent = '';
     for (const grp of groups) {
       const gb = gBounds[grp.id];
       if (!gb) continue;
@@ -291,7 +416,7 @@
       bg.style.cssText =
         `left:${gb.x1}px;top:${gb.y1}px;width:${gw}px;height:${gh}px;` +
         `background:${safeColor(grp.color, 'rgba(255,255,255,0.04)')};`;
-      cvs.appendChild(bg);
+      grpLayer.appendChild(bg);
 
       const hdr = document.createElement('div');
       hdr.className = 'grp-hdr';
@@ -299,105 +424,159 @@
       const isCol = collapsed.has(grp.id);
       hdr.innerHTML = `<span class="grp-arrow">${isCol ? '▶' : '▼'}</span><span>${escHtml(grp.label || grp.id)}</span>`;
       hdr.addEventListener('click', () => toggleGroup(grp.id));
-      cvs.appendChild(hdr);
+      grpLayer.appendChild(hdr);
     }
 
     // Render artboards
-    for (const [file, b] of Object.entries(boards)) {
-      const isHidden = b.group && collapsed.has(b.group);
-      const div = document.createElement('div');
-      div.className = 'board' + (isHidden ? ' collapsed' : '');
-      div.dataset.file = file;
-      div.style.cssText = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;`;
-
-      const bar = document.createElement('div');
-      bar.className = 'board-bar';
-      const badgeHtml = b.status === 'approved'
-        ? '<span class="status-badge approved"></span>'
-        : b.status === 'rejected'
-          ? '<span class="status-badge rejected"></span>'
-          : '';
-      const titleClass = b.status === 'rejected' ? ' rejected' : '';
-      bar.innerHTML =
-        `<span class="board-id">${escHtml(file.replace('.html', ''))}</span>` +
-        badgeHtml +
-        `<span class="board-title-text${titleClass}">${escHtml(b.title || '')}</span>`;
-      if (b.note) bar.title = b.note;
-      if (b.impl) {
-        const built = document.createElement('span');
-        built.className = 'built-badge';
-        built.textContent = 'built';
-        built.title = 'Route: ' + String(b.impl.route == null ? '' : b.impl.route);
-        bar.appendChild(built);
-      }
-      if (b.comments.length) {
-        const cb = document.createElement('button');
-        cb.type = 'button';
-        cb.className = 'cmt-badge';
-        cb.title = b.comments.length + ' comment(s)';
-        cb.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6l-3 3v-3H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/></svg>';
-        cb.appendChild(document.createTextNode(String(b.comments.length)));
-        cb.addEventListener('mousedown', (e) => e.stopPropagation());
-        cb.addEventListener('dblclick', (e) => e.stopPropagation());
-        cb.addEventListener('click', (e) => { e.stopPropagation(); openComments(file, cb); });
-        bar.appendChild(cb);
-      }
-
-      // Click: copy the file ID
-      bar.addEventListener('click', (e) => {
-        if (dragging) return;
-        const id = file.replace('.html', '');
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(id)
-            .then(() => showToast('Copied: ' + id))
-            .catch(() => showToast(id));
-        } else {
-          showToast(id);
-        }
-        e.stopPropagation();
-      });
-
-      // Double click: open in a new tab
-      bar.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        window.open(boardUrl(file), '_blank', 'noopener');
-      });
-
-      // Drag by the title bar (unless read-only)
-      if (!READ_ONLY) {
-        bar.addEventListener('mousedown', (e) => {
-          if (e.button !== 0) return;
-          e.stopPropagation();
-          dragging = { file, el: div, sx: e.clientX, sy: e.clientY, ox: b.x, oy: b.y };
-          e.preventDefault();
-        });
-      }
-
-      const iframe = document.createElement('iframe');
-      iframe.src = boardUrl(file);
-      iframe.width = b.w;
-      iframe.height = b.h;
-      // Boards run in an opaque origin: their scripts cannot call this server's APIs.
-      // A file:// page (overview, an export opened from disk) has no server to protect, and an
-      // opaque origin there could not load ../shared/*.css, so it keeps the file origin.
-      iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups' +
-                          (location.protocol === 'file:' ? ' allow-same-origin' : ''));
-      iframe.setAttribute('loading', 'lazy');
-      iframe.setAttribute('scrolling', 'no');
-      iframe.tabIndex = -1;
-
-      div.appendChild(bar);
-      div.appendChild(iframe);
-      cvs.appendChild(div);
-      boardEls[file] = div;
+    for (const file of Object.keys(recs)) {
+      if (!boards[file]) { recs[file].div.remove(); delete recs[file]; }
     }
-    cvs.appendChild(arrowSvg); // draw above the artboards
+    for (const [file, b] of Object.entries(boards)) {
+      const r = recs[file] || createBoard(file);
+      const isHidden = !!(b.group && collapsed.has(b.group));
+      r.hidden = isHidden;
+      r.div.className = 'board' + (isHidden ? ' collapsed' : '');
+      if (!dragging || dragging.file !== file) {
+        r.div.style.cssText = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;`;
+      }
+      if (r.iframe && (+r.iframe.width !== b.w || +r.iframe.height !== b.h)) {
+        r.iframe.width = b.w; r.iframe.height = b.h;
+      }
+      if (r.sizeKey !== b.w + 'x' + b.h) {   // a resized board needs a new thumbnail
+        if (r.sizeKey && r.thumbState) r.thumbState = 'stale';
+        r.sizeKey = b.w + 'x' + b.h;
+      }
+      fillBar(r, b);
+    }
     renderArrows();
+    // The overview screenshot waits for the page load event, so its iframes must exist before it
+    if (!VIRTUAL) updateVisibility();
+    else { visDirty = true; schedule(); }
+  }
+
+  function createBoard(file) {
+    const div = document.createElement('div');
+    div.dataset.file = file;
+    const ph = document.createElement('div');
+    ph.className = 'ph';
+    ph.textContent = file.replace('.html', '');
+    const bar = document.createElement('div');
+    bar.className = 'board-bar';
+    div.appendChild(ph);
+    div.appendChild(bar);
+    const r = { file, div, bar, iframe: null, img: null, kind: 'none', ver: 0, tv: 0, thumbState: '', hidden: false };
+
+    // Click: copy the file ID
+    bar.addEventListener('click', (e) => {
+      if (dragging) return;
+      const id = file.replace('.html', '');
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(id)
+          .then(() => showToast('Copied: ' + id))
+          .catch(() => showToast(id));
+      } else {
+        showToast(id);
+      }
+      e.stopPropagation();
+    });
+
+    // Double click: open in a new tab
+    bar.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      window.open(boardUrl(file), '_blank', 'noopener');
+    });
+
+    // Drag by the title bar (unless read-only)
+    if (!READ_ONLY) {
+      bar.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        const b = canvasData.boards[file];
+        if (!b) return;
+        e.stopPropagation();
+        dragging = { file, el: div, sx: e.clientX, sy: e.clientY, ox: b.x, oy: b.y, x: b.x, y: b.y, dirty: false };
+        e.preventDefault();
+      });
+    }
+
+    boardLayer.appendChild(div);
+    recs[file] = r;
+    return r;
+  }
+
+  function fillBar(r, b) {
+    const bar = r.bar, file = r.file;
+    const badgeHtml = b.status === 'approved'
+      ? '<span class="status-badge approved"></span>'
+      : b.status === 'rejected'
+        ? '<span class="status-badge rejected"></span>'
+        : '';
+    const titleClass = b.status === 'rejected' ? ' rejected' : '';
+    bar.innerHTML =
+      `<span class="board-id">${escHtml(file.replace('.html', ''))}</span>` +
+      badgeHtml +
+      `<span class="board-title-text${titleClass}">${escHtml(b.title || '')}</span>`;
+    if (b.note) bar.title = b.note; else bar.removeAttribute('title');
+    if (b.impl) {
+      const built = document.createElement('span');
+      built.className = 'built-badge';
+      built.textContent = 'built';
+      built.title = 'Route: ' + String(b.impl.route == null ? '' : b.impl.route);
+      bar.appendChild(built);
+    }
+    if (b.comments.length) {
+      const cb = document.createElement('button');
+      cb.type = 'button';
+      cb.className = 'cmt-badge';
+      cb.title = b.comments.length + ' comment(s)';
+      cb.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6l-3 3v-3H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/></svg>';
+      cb.appendChild(document.createTextNode(String(b.comments.length)));
+      cb.addEventListener('mousedown', (e) => e.stopPropagation());
+      cb.addEventListener('dblclick', (e) => e.stopPropagation());
+      cb.addEventListener('click', (e) => { e.stopPropagation(); openComments(file, cb); });
+      bar.appendChild(cb);
+    }
   }
 
   // ── Render arrows ────────────────────────────────────────────────────────
+  function arrowGeometry(lnk, boards, all) {
+    const fb = boards[lnk.from], tb = boards[lnk.to];
+    let sx, sy, tx, ty, cx1, cy1, cx2, cy2;
+    if (tb.x >= fb.x + fb.w) {
+      // Forward: right edge -> left edge
+      sx = fb.x + fb.w; sy = fb.y + fb.h / 2;
+      tx = tb.x;        ty = tb.y + tb.h / 2;
+      const off = Math.max(24, Math.abs(tx - sx) * 0.4);
+      cx1 = sx + off; cy1 = sy; cx2 = tx - off; cy2 = ty;
+    } else if (tb.y >= fb.y + fb.h || tb.y + tb.h <= fb.y) {
+      // Vertical: bottom edge -> top edge (or top -> bottom when the target is above)
+      const down = tb.y >= fb.y + fb.h;
+      sx = fb.x + fb.w / 2; sy = down ? fb.y + fb.h : fb.y;
+      tx = tb.x + tb.w / 2; ty = down ? tb.y : tb.y + tb.h;
+      const off = Math.max(24, Math.abs(ty - sy) * 0.4) * (down ? 1 : -1);
+      cx1 = sx; cy1 = sy + off; cx2 = tx; cy2 = ty - off;
+    } else {
+      // Backward on the same row: leave the bottom edge, pass below every board in between, enter the bottom edge
+      sx = fb.x + fb.w / 2; sy = fb.y + fb.h;
+      tx = tb.x + tb.w / 2; ty = tb.y + tb.h;
+      const left = Math.min(fb.x, tb.x), right = Math.max(fb.x + fb.w, tb.x + tb.w);
+      let low = Math.max(sy, ty);
+      for (const b of all) {
+        if (b.x < right && b.x + b.w > left) low = Math.max(low, b.y + b.h);
+      }
+      low += 60;
+      // A cubic with both control points at y=c bottoms out at 0.25*start + 0.75*c
+      const c = (low - 0.25 * Math.max(sy, ty)) / 0.75;
+      cx1 = sx; cy1 = c; cx2 = tx; cy2 = c;
+    }
+    return { d: `M${sx},${sy} C${cx1},${cy1} ${cx2},${cy2} ${tx},${ty}`,
+             // cubic bezier midpoint at t=0.5
+             mx: 0.125*sx + 0.375*cx1 + 0.375*cx2 + 0.125*tx,
+             my: 0.125*sy + 0.375*cy1 + 0.375*cy2 + 0.125*ty };
+  }
+
   function renderArrows() {
     while (arrowSvg.lastChild) arrowSvg.removeChild(arrowSvg.lastChild);
+    arrowEls = [];
     arrowSvg.classList.toggle('hidden', !showArrows);
     if (!showArrows || !canvasData) return;
     const { boards = {}, links = [] } = canvasData;
@@ -419,52 +598,21 @@
     arrowSvg.appendChild(defs);
 
     for (const lnk of links) {
-      const fb = boards[lnk.from], tb = boards[lnk.to];
-      if (!fb || !tb) continue;
-      let sx, sy, tx, ty, cx1, cy1, cx2, cy2;
-      if (tb.x >= fb.x + fb.w) {
-        // Forward: right edge -> left edge
-        sx = fb.x + fb.w; sy = fb.y + fb.h / 2;
-        tx = tb.x;        ty = tb.y + tb.h / 2;
-        const off = Math.max(24, Math.abs(tx - sx) * 0.4);
-        cx1 = sx + off; cy1 = sy; cx2 = tx - off; cy2 = ty;
-      } else if (tb.y >= fb.y + fb.h || tb.y + tb.h <= fb.y) {
-        // Vertical: bottom edge -> top edge (or top -> bottom when the target is above)
-        const down = tb.y >= fb.y + fb.h;
-        sx = fb.x + fb.w / 2; sy = down ? fb.y + fb.h : fb.y;
-        tx = tb.x + tb.w / 2; ty = down ? tb.y : tb.y + tb.h;
-        const off = Math.max(24, Math.abs(ty - sy) * 0.4) * (down ? 1 : -1);
-        cx1 = sx; cy1 = sy + off; cx2 = tx; cy2 = ty - off;
-      } else {
-        // Backward on the same row: leave the bottom edge, pass below every board in between, enter the bottom edge
-        sx = fb.x + fb.w / 2; sy = fb.y + fb.h;
-        tx = tb.x + tb.w / 2; ty = tb.y + tb.h;
-        const left = Math.min(fb.x, tb.x), right = Math.max(fb.x + fb.w, tb.x + tb.w);
-        let low = Math.max(sy, ty);
-        for (const b of all) {
-          if (b.x < right && b.x + b.w > left) low = Math.max(low, b.y + b.h);
-        }
-        low += 60;
-        // A cubic with both control points at y=c bottoms out at 0.25*start + 0.75*c
-        const c = (low - 0.25 * Math.max(sy, ty)) / 0.75;
-        cx1 = sx; cy1 = c; cx2 = tx; cy2 = c;
-      }
-
+      if (!boards[lnk.from] || !boards[lnk.to]) continue;
+      const g = arrowGeometry(lnk, boards, all);
       const path = document.createElementNS(NS, 'path');
-      path.setAttribute('d', `M${sx},${sy} C${cx1},${cy1} ${cx2},${cy2} ${tx},${ty}`);
+      path.setAttribute('d', g.d);
       path.setAttribute('stroke', '#ffb547');
       path.setAttribute('stroke-width', '3');
       path.setAttribute('fill', 'none');
       path.setAttribute('marker-end', 'url(#ah)');
       arrowSvg.appendChild(path);
 
+      let txt = null;
       if (lnk.label) {
-        // cubic bezier midpoint at t=0.5
-        const mx = 0.125*sx + 0.375*cx1 + 0.375*cx2 + 0.125*tx;
-        const my = 0.125*sy + 0.375*cy1 + 0.375*cy2 + 0.125*ty;
-        const txt = document.createElementNS(NS, 'text');
-        txt.setAttribute('x', mx);
-        txt.setAttribute('y', my - 6);
+        txt = document.createElementNS(NS, 'text');
+        txt.setAttribute('x', g.mx);
+        txt.setAttribute('y', g.my - 6);
         txt.setAttribute('fill', '#ffb547');
         txt.setAttribute('font-size', '14');
         txt.setAttribute('font-weight', '700');
@@ -476,6 +624,19 @@
         txt.textContent = lnk.label;
         arrowSvg.appendChild(txt);
       }
+      arrowEls.push({ lnk, path, text: txt });
+    }
+  }
+
+  // While dragging, only the arrows that touch the dragged board move
+  function updateArrowsFor(file) {
+    if (!showArrows || !arrowEls.length) return;
+    const boards = canvasData.boards, all = Object.values(boards);
+    for (const a of arrowEls) {
+      if (a.lnk.from !== file && a.lnk.to !== file) continue;
+      const g = arrowGeometry(a.lnk, boards, all);
+      a.path.setAttribute('d', g.d);
+      if (a.text) { a.text.setAttribute('x', g.mx); a.text.setAttribute('y', g.my - 6); }
     }
   }
 
@@ -536,7 +697,7 @@
     const maxX = Math.max(...bds.map(b => b.x + b.w));
     const maxY = Math.max(...bds.map(b => b.y + b.h));
     const cw = maxX - minX + 96, ch = maxY - minY + 120;
-    const sw = stage.clientWidth, sh = stage.clientHeight;
+    const sw = SW, sh = SH;
     const ns = Math.min(sw / cw, sh / ch, OVERVIEW ? Infinity : 1);
     sc = Math.max(0.05, ns);
     vx = (sw - cw * sc) / 2 - minX * sc + 48 * sc;
@@ -562,16 +723,12 @@
       vy = e.clientY - panRef.y;
       applyXform();
     } else if (dragging) {
-      const dx = (e.clientX - dragging.sx) / sc;
-      const dy = (e.clientY - dragging.sy) / sc;
-      const nx = dragging.ox + dx, ny = dragging.oy + dy;
-      dragging.el.style.left = nx + 'px';
-      dragging.el.style.top  = ny + 'px';
-      if (canvasData.boards[dragging.file]) {
-        canvasData.boards[dragging.file].x = nx;
-        canvasData.boards[dragging.file].y = ny;
-      }
-      renderArrows();
+      const nx = dragging.ox + (e.clientX - dragging.sx) / sc;
+      const ny = dragging.oy + (e.clientY - dragging.sy) / sc;
+      dragging.x = nx; dragging.y = ny; dragging.dirty = true;
+      const b = canvasData.boards[dragging.file];
+      if (b) { b.x = nx; b.y = ny; }
+      schedule();
     }
   });
 
@@ -581,11 +738,17 @@
     if (!dragging) return;
     const { file, el, sx, sy, ox, oy } = dragging;
     dragging = null;
+    el.style.transform = '';
     const dx = (e.clientX - sx) / sc;
     const dy = (e.clientY - sy) / sc;
     const nx = Math.round(ox + dx);
     const ny = Math.round(oy + dy);
-    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+      const b = canvasData.boards[file];
+      if (b) { b.x = ox; b.y = oy; }
+      el.style.left = ox + 'px'; el.style.top = oy + 'px';
+      return;
+    }
     undoStack.push({ file, ox, oy, nx, ny });
     if (undoStack.length > 100) undoStack.shift();
     redoStack.length = 0;
@@ -599,17 +762,18 @@
     const b = canvasData.boards[file];
     if (!b) return;
     b.x = x; b.y = y;
-    const el = boardEls[file];
-    if (el) { el.style.left = x + 'px'; el.style.top = y + 'px'; }
+    const r = recs[file];
+    if (r) { r.div.style.left = x + 'px'; r.div.style.top = y + 'px'; }
     renderArrows();
+    visDirty = true; schedule();
     try {
-      const r = await fetch(BASE + '/api/layout', {
+      const resp = await fetch(BASE + '/api/layout', {
         method: 'POST',
         // The server checks this exact Content-Type and the browser-sent Origin
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ board: file, x, y })
       });
-      if (!r.ok) showToast('Could not save position (' + r.status + ')');
+      if (!resp.ok) showToast('Could not save position (' + resp.status + ')');
     } catch (_) {
       showToast('Could not save position: server disconnected');
     }
@@ -708,25 +872,45 @@
   });
 
   // ── SSE (server mode only) ───────────────────────────────────────────────
+  // Changes arrive in bursts (an agent writing many boards, every saved drag), so they are
+  // collected for a moment and applied once; only boards that show content reload.
+  let changedBoards = new Set(), canvasChanged = false, sseTimer = 0;
+  function flushChanges() {
+    sseTimer = 0;
+    for (const file of changedBoards) {
+      const r = recs[file];
+      if (!r) continue;
+      r.ver++;
+      if (r.thumbState) r.thumbState = 'stale';
+      if (r.kind === 'live') r.iframe.src = boardUrl(file) + '?_=' + r.ver;
+      else if (r.kind === 'thumb') showThumb(r);
+    }
+    changedBoards.clear();
+    if (canvasChanged) { canvasChanged = false; loadCanvas(true); }
+  }
+  function onThumbReady(file) {
+    const r = recs[file];
+    if (!r || !r.img) return;
+    r.thumbState = 'stale';
+    if (r.kind === 'thumb') showThumb(r);
+  }
+  let es = null;
   function setupSSE() {
     if (STATIC) return;
     if (new URLSearchParams(window.location.search).get('static') === '1') return;
-    const es = new EventSource(BASE + '/api/events');
+    if (es) es.close();
+    es = new EventSource(BASE + '/api/events');
     es.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data);
-        if (d.type === 'board' && d.file) {
-          const el = boardEls[d.file];
-          if (el) {
-            const iframe = el.querySelector('iframe');
-            if (iframe) iframe.src = iframe.src.split('?')[0] + '?_=' + Date.now();
-          }
-        } else if (d.type === 'canvas') {
-          loadCanvas(true);
-        }
+        if (d.type === 'board' && d.file) changedBoards.add(d.file);
+        else if (d.type === 'canvas') canvasChanged = true;
+        else if (d.type === 'thumb' && d.file) { onThumbReady(d.file); return; }
+        else return;
+        if (!sseTimer) sseTimer = setTimeout(flushChanges, 250);
       } catch (_) {}
     };
-    es.onerror = () => setTimeout(setupSSE, 3000);
+    es.onerror = () => { es.close(); setTimeout(setupSSE, 3000); };
   }
 
   // ── Start ────────────────────────────────────────────────────────────────
