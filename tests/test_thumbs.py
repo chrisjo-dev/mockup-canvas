@@ -209,6 +209,46 @@ class ThumbQueue(TempHomeCase):
             gate.set()
             self.wait_until(lambda: not self.q.pending)
 
+    def test_most_recent_request_renders_first(self):
+        gate, started = threading.Event(), threading.Event()
+        orig = FakeSession.capture
+
+        def slow(self_, url, *a, **kw):
+            if not started.is_set():
+                started.set()
+                gate.wait(5)
+            return orig(self_, url, *a, **kw)
+        q = canvas._ThumbQueue(workers=1)
+        self.addCleanup(q.close_all)
+        t = canvas._thumb_target(self.idea, 'A01-One.html')
+        with mock.patch.object(FakeSession, 'capture', slow):
+            q.request(t[0], 390, 844, t[3] + '.busy.png', 'demo', 'A01-One.html')
+            self.assertTrue(started.wait(5))
+            for i in range(3):
+                q.request(t[0], 390, 844, t[3] + f'.{i}.png', 'demo', f'A0{i}.html')
+            q.request(t[0], 390, 844, t[3] + '.0.png', 'demo', 'A00.html')   # asked again: to the front
+            gate.set()
+            self.wait_until(lambda: not q.pending)
+        order = [d['file'] for _, d in self.events]
+        self.assertEqual(order, ['A01-One.html', 'A00.html', 'A02.html', 'A01.html'])
+
+    def test_one_worker_by_default_with_a_background_chrome(self):
+        self.assertEqual(canvas._ThumbQueue().workers, 1)
+        t = canvas._thumb_target(self.idea, 'A01-One.html')
+        with mock.patch.object(canvas, '_CdpSession', mock.MagicMock(wraps=FakeSession)) as cls:
+            self.q.request(*t, 'demo', 'A01-One.html')
+            self.wait_until(lambda: not self.q.pending)
+        cls.assert_called_once_with(background=True)
+        with mock.patch.object(canvas, '_get_chrome', return_value='chrome'):
+            fg = canvas._cdp_launch_args('/p')
+            bg = canvas._cdp_launch_args('/p', background=True)
+        self.assertNotIn('--disable-gpu', fg)
+        self.assertEqual(fg[0], 'chrome')
+        self.assertIn('--disable-gpu', bg)
+        self.assertIn('--renderer-process-limit=1', bg)
+        if bg[0] != 'chrome':
+            self.assertEqual(bg[1:4], ['-n', '10', 'chrome'])
+
     def test_close_all_kills_sessions_and_stops_for_good(self):
         s = FakeSession()
         self.q.sessions.append(s)

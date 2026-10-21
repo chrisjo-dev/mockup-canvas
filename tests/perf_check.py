@@ -7,6 +7,10 @@ display; --dpr 1 for a plain one), and measures:
 
   fit        time from navigation start until the fit view is shown (loading screen gone)
   full       time until every board in the viewport shows its content (iframe or image loaded)
+  bursts-lod 12 s of 1.5 s wheel-zoom bursts with 0.4 s rests between the fit view and about 4x it
+             (thumbnail zoom levels; on --cold, while the server renders the thumbnails); only
+             frames inside the bursts count
+  bursts-live the same up to about 23x the fit view, so each rest above 35% mounts live boards
   pan-fit    3 s of continuous mouse pan at the fit zoom
   zoom       3 s of wheel zoom in and out around the viewport center (in-page wheel events, one per frame)
   pan-60     3 s of continuous pan at about 60% zoom (live boards)
@@ -14,10 +18,13 @@ display; --dpr 1 for a plain one), and measures:
 Per interaction: average FPS of frames the compositor actually presented (trace events
 Display::FrameDisplayed), p95 and max time between presented frames, dropped frames, long tasks
 (count over 50 ms and the longest), plus requestAnimationFrame FPS and input-to-frame latency. Targets: FPS >= 55, p95 <= 25 ms,
-no long task > 100 ms, fit <= 1.5 s.
+no frame > 50 ms, no long task > 100 ms, fit <= 1.5 s.
 
-Usage: python3 tests/perf_check.py [IDEA_DIR] [--json OUT] [--runs N] [--warm] [--canvas CANVAS_PY] [--dpr 2]
+Usage: python3 tests/perf_check.py [IDEA_DIR] [--json OUT] [--runs N] [--warm | --cold] [--canvas CANVAS_PY] [--dpr 2]
   IDEA_DIR defaults to examples/trailmate. --warm runs once untimed first (thumbnail cache).
+  --cold is a first open: before each run the server restarts with render/.thumbs cleared, and the
+  interactions start one second after the fit view while the thumbnails are still being rendered
+  (full_ms is then measured after the interactions).
   --canvas serves with another copy of canvas.py (and the viewer.html next to it), for before/after.
 Everything runs in a temp dir (MOCKUP_CANVAS_HOME too); the server and Chrome are stopped at the end.
 """
@@ -105,6 +112,25 @@ window.__wheelFor = (ms) => new Promise((done) => {
   };
   requestAnimationFrame(step);
 });
+window.__burst = (ms, n) => {
+  // One zoom burst of the bursts check: marked so its frames can be picked out of one trace.
+  // n wheel steps in, then n out (about 1.27x each); the pattern continues across bursts, so the
+  // zoom stays between fit and fit * 1.27^n.
+  performance.mark('burst-start');
+  const stage = document.getElementById('stage');
+  const t0 = performance.now();
+  return new Promise((done) => {
+    const step = () => {
+      const i = window.__burstI = (window.__burstI || 0) + 1;
+      const dy = (Math.floor((i - 1) / n) % 2 === 0) ? -120 : 120;
+      stage.dispatchEvent(new WheelEvent('wheel', { deltaY: dy, clientX: innerWidth / 2, clientY: innerHeight / 2,
+                                                     bubbles: true, cancelable: true }));
+      if (performance.now() - t0 < ms) requestAnimationFrame(step);
+      else { performance.mark('burst-end'); done([t0, performance.now()]); }
+    };
+    requestAnimationFrame(step);
+  });
+};
 window.__zoom = () => { const m = /scale\(([\d.e-]+)\)/.exec(document.getElementById('canvas').style.transform); return m ? +m[1] : null; };
 '''
 
@@ -132,7 +158,7 @@ def start_trace(session):
     session.cdp.sink = []
     session.cdp.deadline = time.monotonic() + 60
     session.call('Tracing.start', transferMode='ReportEvents', traceConfig={'includedCategories': [
-        'disabled-by-default-devtools.timeline.frame', 'benchmark', 'input']})
+        'disabled-by-default-devtools.timeline.frame', 'benchmark', 'input', 'blink.user_timing']})
 
 
 def stop_trace(session):
@@ -212,6 +238,43 @@ def zoom(session, seconds=3.0):
     return out
 
 
+def bursts(session, seconds=16.0, burst=1.5, rest=0.4, steps=6):
+    """Zoom in bursts of `burst` s with `rest` s pauses (longer than the viewer's idle delay, so
+    thumbnails are requested and swapped in between) for `seconds`, in one trace. On a cold open
+    this covers the background thumbnail rendering. 6 steps keep the zoom between the fit view
+    and about 4x it, below the 35% level of detail, so every rest shows thumbnails. Frames,
+    dropped frames and long tasks count only inside the bursts."""
+    start_trace(session)
+    ev(session, '__perf.longtasks = []; window.__burstI = 0')
+    windows = []
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        windows.append(ev(session, f'__burst({int(burst * 1000)}, {steps})'))
+        time.sleep(rest)
+    lts = ev(session, '__perf.longtasks')
+    trace = stop_trace(session)
+    marks = sorted((e['ts'], e['name']) for e in trace if e['name'] in ('burst-start', 'burst-end')
+                   and e.get('ph') in ('R', 'I', 'n', 'b', 'e'))
+    spans, t = [], None
+    for ts, name in marks:
+        if name == 'burst-start':
+            t = ts
+        elif t is not None:
+            spans.append((t, ts)); t = None
+    if not spans:
+        return {'error': 'no burst marks in the trace'}
+    inside = lambda ts: any(a <= ts <= b for a, b in spans)
+    shown = sorted(e['ts'] for e in trace if e['name'] == 'Display::FrameDisplayed' and inside(e['ts']))
+    deltas = [(b - a) / 1000 for a, b in zip(shown, shown[1:]) if any(s <= a and b <= e for s, e in spans)]
+    dur = sum(b - a for a, b in spans) / 1e6
+    lt = [d for s, d in lts if any(a <= s + d and s <= b for a, b in windows)]
+    return {'fps': round(len(shown) / dur, 1) if dur else 0,
+            'p95_ms': round(pct(deltas, 0.95), 1), 'max_ms': round(max(deltas), 1) if deltas else None,
+            'dropped': sum(1 for e in trace if e['name'] == 'DroppedFrame' and inside(e['ts'])),
+            'raf_fps': None, 'input_latency_p95_ms': None, 'bursts': len(spans), 'seconds': round(dur, 1),
+            'longtasks': len(lt), 'longest_ms': round(max(lt), 1) if lt else 0}
+
+
 def wait_full(session, t_limit=60):
     """ms from navigation start until every visible board shows content (None on timeout)."""
     end = time.monotonic() + t_limit
@@ -232,7 +295,7 @@ def navigate(session, url):
     session.cdp.wait_event('Page.loadEventFired')
 
 
-def run_once(session, url):
+def run_once(session, url, cold=False):
     navigate(session, url)
     t_end = time.monotonic() + 30
     fit = None
@@ -241,9 +304,22 @@ def run_once(session, url):
         if fit is not None:
             break
         time.sleep(0.02)
-    full, visible = wait_full(session)
-    out = {'fit_ms': round(fit) if fit is not None else None, 'full_ms': full, 'visible_boards': visible,
-           'fit_zoom': ev(session, '__zoom()')}
+    if cold:
+        full, visible = None, None
+        out = {'ready_at_start': ev(session, '__visibleReady()')}
+    else:
+        full, visible = wait_full(session)
+        out = {}
+    out.update({'fit_ms': round(fit) if fit is not None else None, 'full_ms': full, 'visible_boards': visible,
+                'fit_zoom': ev(session, '__zoom()')})
+    time.sleep(1.0)
+    out['bursts_lod'] = bursts(session, seconds=12, steps=6)
+    if cold:
+        out['ready_after_bursts'] = ev(session, '__visibleReady()')
+    ev(session, "window.dispatchEvent(new KeyboardEvent('keydown', {key: 'f'}))")
+    time.sleep(1.0)
+    out['bursts_live'] = bursts(session, seconds=12, steps=13)
+    ev(session, "window.dispatchEvent(new KeyboardEvent('keydown', {key: 'f'}))")
     time.sleep(1.0)
     out['pan_fit'] = pan(session)
     time.sleep(1.0)
@@ -262,19 +338,27 @@ def run_once(session, url):
     out['pan_60_ready'] = full60 is not None
     time.sleep(1.0)
     out['pan_60'] = pan(session)
+    if cold:
+        # back to the fit view: when did every board there show its thumbnail?
+        session.cdp.deadline = time.monotonic() + 60
+        ev(session, "window.dispatchEvent(new KeyboardEvent('keydown', {key: 'f'}))")
+        time.sleep(0.5)   # past the settle and idle delays
+        out['full_ms'], out['visible_boards'] = wait_full(session, 120)
     return out
 
 
 def main():
     args = sys.argv[1:]
     json_out = None
-    runs, warm = 1, False
+    runs, warm, cold = 1, False, False
     if '--json' in args:
         i = args.index('--json'); json_out = args[i + 1]; del args[i:i + 2]
     if '--runs' in args:
         i = args.index('--runs'); runs = int(args[i + 1]); del args[i:i + 2]
     if '--warm' in args:
         args.remove('--warm'); warm = True
+    if '--cold' in args:
+        args.remove('--cold'); cold = True
     script = CANVAS_PY
     global DPR
     if '--dpr' in args:
@@ -289,31 +373,54 @@ def main():
         design = os.path.join(tmp, 'design')
         shutil.copytree(src, os.path.join(design, idea), ignore=shutil.ignore_patterns('render', 'compare'))
         env = dict(os.environ, MOCKUP_CANVAS_HOME=os.path.join(tmp, 'home'))
-        port = free_port()
-        server = subprocess.Popen([sys.executable, script, 'serve', design, '--port', str(port)],
-                                  env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        line = server.stdout.readline()
-        if 'Server started' not in line:
-            raise SystemExit(f'server did not start: {line}')
-        url = f'http://127.0.0.1:{port}/{idea}/'
+
+        def start_server():
+            port = free_port()
+            proc = subprocess.Popen([sys.executable, script, 'serve', design, '--port', str(port)],
+                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            line = proc.stdout.readline()
+            if 'Server started' not in line:
+                raise SystemExit(f'server did not start: {line}')
+            return proc, f'http://127.0.0.1:{port}/{idea}/'
+
+        def stop_server(proc):
+            proc.terminate()
+            try:
+                proc.wait(10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
         n_boards = len(json.load(open(os.path.join(design, idea, 'canvas.json')))['boards'])
         results = []
         with canvas._CdpSession() as s:
             s.call('Page.addScriptToEvaluateOnNewDocument', source=INSTRUMENT)
-            if warm:
-                run_once(s, url)
-            for _ in range(runs):
-                results.append(run_once(s, url))
-        report = {'idea': idea, 'boards': n_boards, 'viewport': f'{W}x{H}@{DPR:g}x', 'runs': results}
+            if cold:
+                for _ in range(runs):
+                    # a fresh server too: thumbnails it was rendering must not land in the cleared folder
+                    shutil.rmtree(os.path.join(design, idea, 'render', '.thumbs'), ignore_errors=True)
+                    server, url = start_server()
+                    s.call('Network.clearBrowserCache')
+                    results.append(run_once(s, url, cold=True))
+                    stop_server(server)
+                    server = None
+            else:
+                server, url = start_server()
+                if warm:
+                    run_once(s, url)
+                for _ in range(runs):
+                    results.append(run_once(s, url))
+        report = {'idea': idea, 'boards': n_boards, 'viewport': f'{W}x{H}@{DPR:g}x', 'cold': cold, 'runs': results}
         for i, r in enumerate(results):
-            print(f'run {i + 1} ({W}x{H}@{DPR:g}x): {n_boards} boards, fit {r["fit_ms"]} ms, all visible boards shown {r["full_ms"]} ms '
-                  f'({r["visible_boards"]} visible, fit zoom {r["fit_zoom"]:.3f})')
-            for k in ('pan_fit', 'zoom', 'pan_60'):
+            print(f'run {i + 1} ({W}x{H}@{DPR:g}x{", cold" if cold else ""}): {n_boards} boards, fit {r["fit_ms"]} ms, '
+                  f'all visible boards shown {r["full_ms"]} ms ({r["visible_boards"]} visible, fit zoom {r["fit_zoom"]:.3f})'
+                  + (f', shown at start {r["ready_at_start"][0]}/{r["ready_at_start"][1]}, after the bursts '
+                     f'{r["ready_after_bursts"][0]}/{r["ready_after_bursts"][1]}' if cold else ''))
+            for k in ('bursts_lod', 'bursts_live', 'pan_fit', 'zoom', 'pan_60'):
                 m = r[k]
                 if 'error' in m:
                     print(f'  {k:8s} {m["error"]}'); continue
-                ok = m['fps'] >= 55 and m['p95_ms'] <= 25 and m['longest_ms'] <= 100
-                print(f'  {k:8s} {m["fps"]:5.1f} fps  p95 {m["p95_ms"]:5.1f} ms  max {m["max_ms"]} ms  '
+                ok = m['fps'] >= 55 and m['p95_ms'] <= 25 and (m['max_ms'] or 0) <= 50 and m['longest_ms'] <= 100
+                print(f'  {k:11s} {m["fps"]:5.1f} fps  p95 {m["p95_ms"]:5.1f} ms  max {m["max_ms"]} ms  '
                       f'dropped {m["dropped"]}  long tasks {m["longtasks"]} (longest {m["longest_ms"]} ms)  '
                       f'rAF {m["raf_fps"]} fps  input p95 {m["input_latency_p95_ms"]} ms  {"OK" if ok else "MISS"}')
             print(f'  pan_60 at zoom {r["zoom_60"]}, boards loaded before pan: {r["pan_60_ready"]}')
@@ -322,11 +429,7 @@ def main():
                 json.dump(report, f, indent=2)
     finally:
         if server:
-            server.terminate()
-            try:
-                server.wait(10)
-            except subprocess.TimeoutExpired:
-                server.kill()
+            stop_server(server)
         shutil.rmtree(tmp, ignore_errors=True)
 
 

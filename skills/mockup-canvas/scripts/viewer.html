@@ -34,9 +34,9 @@
     .board .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       padding: 24px; text-align: center; color: #9a9a9a; font-size: 28px; font-weight: 600;
       overflow: hidden; pointer-events: none; }
+    /* Only decoded thumbnails are attached (see loadThumb), so no fade or opacity layer */
     .board img.thumb { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
-      border-radius: 0 0 4px 4px; pointer-events: none; opacity: 0; }
-    .board img.thumb.ok { opacity: 1; }
+      border-radius: 0 0 4px 4px; pointer-events: none; }
     .board-bar {
       position: absolute; top: -30px; left: 0; right: 0; height: 28px;
       background: rgba(42,42,42,0.92); backdrop-filter: blur(4px);
@@ -258,6 +258,10 @@
 
   // ── Frame scheduler: input handlers only update state; DOM writes happen once per frame ──
   let frameReq = 0, xformDirty = false, visDirty = false, moving = false, settleTimer = 0;
+  // idle: the view has rested for about 300 ms. Thumbnails are requested and swapped in only then:
+  // a new image painted mid-gesture re-rasters the moving layer, and every request keeps the
+  // server's background Chrome busy while the user pans or zooms.
+  let idle = false, idleTimer = 0;
   function schedule() { if (!frameReq) frameReq = requestAnimationFrame(frame); }
   function frame() {
     frameReq = 0;
@@ -274,13 +278,14 @@
       dragging.el.style.transform = `translate(${dragging.x - dragging.ox}px,${dragging.y - dragging.oy}px)`;
       updateArrowsFor(dragging.file);
     }
-    if (visDirty) { visDirty = false; updateVisibility(); }
+    if (visDirty) { visDirty = false; updateVisibility(); if (visDirty) schedule(); }
   }
 
   // ── Transform ────────────────────────────────────────────────────────────
   function applyXform() {
-    xformDirty = true; visDirty = true; moving = true;
+    xformDirty = true; visDirty = true; moving = true; idle = false;
     clearTimeout(settleTimer);
+    clearTimeout(idleTimer);
     settleTimer = setTimeout(settle, 150);
     schedule();
   }
@@ -289,6 +294,7 @@
     cvs.classList.remove('moving');
     visDirty = true;
     schedule();
+    idleTimer = setTimeout(() => { idle = true; visDirty = true; schedule(); }, 150);
   }
 
   // ── Virtualization ───────────────────────────────────────────────────────
@@ -297,18 +303,24 @@
     const mx = SW * 0.5 / sc, my = SH * 0.5 / sc;   // keep boards half a screen beyond the edges
     const x0 = -vx / sc - mx, y0 = -vy / sc - my, x1 = (SW - vx) / sc + mx, y1 = (SH - vy) / sc + my;
     const low = THUMBS && sc < LOD_ZOOM;
+    let mounts = 0;
     for (const file in recs) {
       const r = recs[file], b = canvasData.boards[file];
       if (!b) continue;
       const vis = !r.hidden && b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0;
       const want = !VIRTUAL ? 'live' : !vis ? 'off' : low ? 'thumb' : 'live';
       if (want === 'live') {
-        // New iframes are created only once the view rests: loading a board mid-gesture drops frames
-        if (r.kind !== 'live') { if (moving) standIn(r); else mountLive(r); }
+        // New iframes are created only once the view is idle, one per frame: loading boards
+        // mid-gesture drops frames, and a batch loading at once still runs into the next gesture.
+        // The overview render (not virtual) needs them all before its load event.
+        if (r.kind !== 'live') {
+          if (!VIRTUAL || (idle && !mounts)) { mountLive(r); mounts++; }
+          else { standIn(r); if (idle) visDirty = true; }
+        }
       } else if (r.kind === 'live') {
-        if (!moving) { if (want === 'thumb') showThumb(r); else standIn(r); }
+        if (!moving) { if (want === 'thumb' && idle) showThumb(r); else standIn(r); }
       } else if (want === 'thumb') {
-        showThumb(r);
+        if (idle) showThumb(r); else if (r.kind !== 'thumb' || r.fresh) standIn(r);
       }
     }
   }
@@ -337,33 +349,47 @@
     r.kind = 'live';
   }
 
-  // Cheap content while a board is off screen or the view is moving: its thumbnail if one is
-  // already loaded, otherwise the white card with the title
+  // Cheap content while a board is off screen or the view is moving: the thumbnail it already
+  // shows (r.img is always a decoded image), otherwise the white card with the title.
+  // No new request and no swap here.
   function standIn(r) {
     dropIframe(r);
-    if (r.img && r.thumbState === 'ok') { if (!r.img.isConnected) r.div.appendChild(r.img); r.kind = 'thumb'; }
-    else { if (r.img) r.img.remove(); r.kind = 'none'; }
+    if (r.img) { if (!r.img.isConnected) r.div.appendChild(r.img); r.kind = 'thumb'; }
+    else r.kind = 'none';
   }
 
+  // Called only while idle: swaps in a decoded thumbnail and requests a missing or stale one
   function showThumb(r) {
     dropIframe(r);
-    if (!r.img) {
-      const img = document.createElement('img');
-      img.className = 'thumb';
-      img.alt = '';
-      img.decoding = 'async';
-      img.draggable = false;
-      img.addEventListener('load', () => { r.thumbState = 'ok'; img.classList.add('ok'); });
-      // 202 while the server renders it: a 'thumb' event arrives when it is ready
-      img.addEventListener('error', () => { r.thumbState = 'pending'; img.classList.remove('ok'); });
-      r.img = img;
+    if (r.fresh) {
+      if (r.img) r.img.replaceWith(r.fresh); else r.div.appendChild(r.fresh);
+      r.img = r.fresh; r.fresh = null;
     }
-    if (!r.thumbState || r.thumbState === 'stale') {
-      r.thumbState = 'loading';
-      r.img.src = thumbUrl(r.file, r.ver + '.' + (++r.tv));
-    }
-    if (!r.img.isConnected) r.div.appendChild(r.img);
+    if (!r.thumbState || r.thumbState === 'stale') loadThumb(r);
+    if (r.img && !r.img.isConnected) r.div.appendChild(r.img);
     r.kind = 'thumb';
+  }
+
+  // Load and decode off the DOM, then let the next idle frame swap it in: decoding never lands
+  // on a frame of a gesture. A 202 (still rendering) fails to decode; a 'thumb' event follows.
+  function loadThumb(r) {
+    r.thumbState = 'loading';
+    const img = new Image();
+    img.className = 'thumb ok';
+    img.alt = '';
+    img.decoding = 'async';
+    img.draggable = false;
+    img.src = thumbUrl(r.file, r.ver + '.' + (++r.tv));
+    r.loader = img;
+    img.decode().then(() => {
+      if (r.loader !== img) return;
+      r.loader = null; r.fresh = img; r.thumbState = 'ok';
+      if (idle) { visDirty = true; schedule(); }
+    }, () => {
+      if (r.loader !== img) return;
+      r.loader = null;
+      if (r.thumbState === 'loading') r.thumbState = 'pending';
+    });
   }
 
   // ── Toast ────────────────────────────────────────────────────────────────
@@ -464,7 +490,8 @@
     bar.className = 'board-bar';
     div.appendChild(ph);
     div.appendChild(bar);
-    const r = { file, div, bar, iframe: null, img: null, kind: 'none', ver: 0, tv: 0, thumbState: '', hidden: false };
+    const r = { file, div, bar, iframe: null, img: null, fresh: null, loader: null, kind: 'none', ver: 0, tv: 0,
+                thumbState: '', hidden: false };
 
     // Click: copy the file ID
     bar.addEventListener('click', (e) => {
@@ -883,16 +910,16 @@
       r.ver++;
       if (r.thumbState) r.thumbState = 'stale';
       if (r.kind === 'live') r.iframe.src = boardUrl(file) + '?_=' + r.ver;
-      else if (r.kind === 'thumb') showThumb(r);
+      else if (r.kind === 'thumb') { visDirty = true; schedule(); }
     }
     changedBoards.clear();
     if (canvasChanged) { canvasChanged = false; loadCanvas(true); }
   }
   function onThumbReady(file) {
     const r = recs[file];
-    if (!r || !r.img) return;
+    if (!r || !r.thumbState) return;
     r.thumbState = 'stale';
-    if (r.kind === 'thumb') showThumb(r);
+    if (r.kind === 'thumb' || r.kind === 'none') { visDirty = true; schedule(); }
   }
   let es = null;
   function setupSSE() {
