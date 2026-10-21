@@ -22,7 +22,7 @@ class NewAddCommands(TempHomeCase):
                          {'boards': {}, 'groups': [], 'links': []})
         self.assertTrue(os.path.isfile(os.path.join(self.idea, 'shared', 'tokens.css')))
         with open(os.path.join(self.idea, '.gitignore')) as f:
-            self.assertEqual(f.read(), 'render/\n')
+            self.assertEqual(f.read(), 'render/\ncompare/\n')
         roots = self.read_json(os.path.join(self.data_dir, 'roots.json'))
         self.assertEqual(roots, {'roots': [{'name': 'proj', 'path': '~/proj/design'}]})
         self.assertIn('Registered design folder: proj', r.stdout)

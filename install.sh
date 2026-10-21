@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Manual install: link the mockup-canvas skill into Claude Code and/or Codex.
+# Manual install: link every skill in skills/ into Claude Code and/or Codex.
 # Usage: ./install.sh [--claude] [--codex] [--dry-run]
 # With neither --claude nor --codex, both are installed.
 # Anything already at a target that is not this link is moved to
@@ -7,7 +7,6 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILL_SRC="$REPO_DIR/skills/mockup-canvas"
 DATA_DIR="${MOCKUP_CANVAS_HOME:-$HOME/.mockup-canvas}"
 BACKUP_DIR="$DATA_DIR/backup/$(date +%Y%m%d_%H%M%S)"
 DO_CLAUDE=false
@@ -30,8 +29,8 @@ run() {
 }
 
 link_skill() {
-  local dst="$1" tool="$2"
-  if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$SKILL_SRC" ]; then
+  local src="$1" dst="$2" tool="$3"
+  if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
     echo "OK (already linked): $dst"
     return
   fi
@@ -41,12 +40,18 @@ link_skill() {
     run mv "$dst" "$BACKUP_DIR/$tool/"
   fi
   run mkdir -p "$(dirname "$dst")"
-  run ln -s "$SKILL_SRC" "$dst"
-  if $DRY_RUN; then echo "Would link: $dst -> $SKILL_SRC"; else echo "Linked: $dst -> $SKILL_SRC"; fi
+  run ln -s "$src" "$dst"
+  if $DRY_RUN; then echo "Would link: $dst -> $src"; else echo "Linked: $dst -> $src"; fi
 }
 
-if $DO_CLAUDE; then link_skill "$HOME/.claude/skills/mockup-canvas" claude; fi
-if $DO_CODEX; then link_skill "$HOME/.codex/skills/mockup-canvas" codex; fi
+# A skill is a folder under skills/ that has a SKILL.md
+for src in "$REPO_DIR"/skills/*/; do
+  src="${src%/}"
+  [ -f "$src/SKILL.md" ] || continue
+  name="$(basename "$src")"
+  if $DO_CLAUDE; then link_skill "$src" "$HOME/.claude/skills/$name" claude; fi
+  if $DO_CODEX; then link_skill "$src" "$HOME/.codex/skills/$name" codex; fi
+done
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "Warning: python3 not found. mockup-canvas needs Python 3." >&2

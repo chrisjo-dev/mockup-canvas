@@ -45,6 +45,13 @@ User data lives in `~/.mockup-canvas/` (override the folder with `MOCKUP_CANVAS_
 9. **Old versions**: never delete them. Move them with `canvas group <idea> <file> "old drafts"` and mark them with `canvas status ... rejected`.
 10. **Approval**: for a screen the user approved, run `canvas status <idea> <file> approved --note "what was approved"`. That is the approval record. Simple praise is not approval.
 
+## After implementation
+
+- `canvas snap <url> --size mobile|tablet|desktop|WxH --out FILE.png [--wait MS]`: screenshot a running app page (http/https only; warns when the host is not localhost).
+- `canvas compare <idea> <file> --url URL` (or `--png FILE`): renders the board at its registered size, takes the app screen at the same size, and writes `board.png`, `app.png`, `diff.png` (mismatches in magenta), `side.png`, and `report.json` to `<idea>/compare/<board id>/`. Look at `side.png` and `diff.png` yourself; the mismatch percent alone is not a verdict.
+- `canvas impl <idea> <file> --route /path --file src/page.tsx`: record which route and files implement a board (paths relative to the project root). `canvas impl <idea> [--strict]` lists approved boards with or without an implementation.
+- `canvas comment <idea> <file> "text" [--by NAME]`: review notes on a board (`--clear` removes them, no text lists them). The canvas shows a comment count and a blue "built" badge.
+
 ## View on a phone
 
 - The default is a private hosted page if your environment offers one (for example a Claude artifact). Build a static bundle with `canvas export <idea> <output dir>` and upload it (`index.html` is the page, the rest are supporting files).
@@ -65,10 +72,10 @@ The first draft is done when every requested screen is drawn and `check` passes.
 - Reply to the user in the user's language.
 - If `config.json` lists `forbidden_chars`, do not use those characters in artboards, documents, or reports (`check` catches them in artboards).
 - Do not touch other ports the user is using. Stop a server you started only for checking by its PID or `lsof -ti:<your port>` (`pkill -f canvas.py` would also stop the user's server). Leave a `serve` started for the user running.
-- When drawing many screens at once, you may split the work across subagents by screen group. The main agent sets `tokens.css` first, and `canvas.json` is changed only through `canvas add`, `link`, `status`, and `group` (direct edits overwrite concurrent changes).
+- When drawing many screens at once, you may split the work across subagents by screen group. The main agent sets `tokens.css` first, and `canvas.json` is changed only through `canvas add`, `link`, `status`, `group`, `impl`, and `comment` (direct edits overwrite concurrent changes).
 
 ## Reference
 
-- `scripts/canvas.py`: serve, roots, new, add, group, link, status, artifact, render, overview, check, export
+- `scripts/canvas.py`: serve, roots, new, add, group, link, status, artifact, render, overview, check, export, snap, compare, impl, comment
 - `scripts/viewer.html`: the canvas page (drag to pan, wheel to zoom, F to fit, L to toggle arrows, click a title to copy its ID, double click to open alone, drag an artboard to move and save it, Cmd+Z undo, Cmd+Shift+Z redo)
 - `references/lessons.md`: log of approved improvements

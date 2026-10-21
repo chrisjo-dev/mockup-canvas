@@ -59,6 +59,32 @@
     .status-badge.rejected { background: #888; }
     .board-title-text.rejected { text-decoration: line-through; opacity: 0.5; }
 
+    /* Implementation and comment badges */
+    .built-badge {
+      flex-shrink: 0; background: #2a52d4; color: #fff; font-size: 9px; font-weight: 700;
+      padding: 1px 5px; border-radius: 4px; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .cmt-badge {
+      flex-shrink: 0; margin-left: auto; display: inline-flex; align-items: center; gap: 3px;
+      background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 9px;
+      padding: 1px 7px 1px 5px; font: 700 10px -apple-system, sans-serif; cursor: pointer;
+    }
+    .cmt-badge:hover { background: rgba(255,255,255,0.22); }
+    .cmt-badge svg { width: 11px; height: 11px; fill: currentColor; }
+    #cmt-panel {
+      position: fixed; z-index: 1500; width: 300px; max-width: calc(100vw - 24px); max-height: 50vh;
+      overflow: auto; background: #2a2a2a; color: #e0e0e0; border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px; box-shadow: 0 6px 28px rgba(0,0,0,0.55); padding: 10px 12px; font-size: 12px;
+      user-select: text;
+    }
+    #cmt-panel[hidden] { display: none; }
+    #cmt-panel .cmt-head { display: flex; justify-content: space-between; align-items: center;
+      font-weight: 700; color: #fff; margin-bottom: 6px; gap: 8px; }
+    #cmt-panel .cmt-close { background: none; border: none; color: #aaa; font-size: 16px; cursor: pointer; padding: 0 2px; }
+    #cmt-panel .cmt-item { border-top: 1px solid rgba(255,255,255,0.08); padding: 6px 0; }
+    #cmt-panel .cmt-meta { color: #888; font-size: 10px; margin-bottom: 2px; }
+    #cmt-panel .cmt-text { white-space: pre-wrap; word-break: break-word; }
+
     /* Flow arrows */
     #arrow-svg {
       position: absolute; top: 0; left: 0; overflow: visible;
@@ -122,6 +148,7 @@
   <span id="ro-badge" class="ro-badge" style="display:none">Read-only</span>
 </div>
 <div class="toast" id="toast"></div>
+<div id="cmt-panel" hidden></div>
 
 <script>
 (function () {
@@ -155,6 +182,8 @@
       if (!b || typeof b !== 'object') continue;
       b.x = num(b.x, 0); b.y = num(b.y, 0);
       b.w = num(b.w, 390); b.h = num(b.h, 844);
+      b.comments = Array.isArray(b.comments) ? b.comments.filter(c => c && typeof c === 'object') : [];
+      b.impl = (b.impl && typeof b.impl === 'object') ? b.impl : null;
     }
     data.boards = boards;
     if (!Array.isArray(data.groups)) data.groups = [];
@@ -294,6 +323,25 @@
         badgeHtml +
         `<span class="board-title-text${titleClass}">${escHtml(b.title || '')}</span>`;
       if (b.note) bar.title = b.note;
+      if (b.impl) {
+        const built = document.createElement('span');
+        built.className = 'built-badge';
+        built.textContent = 'built';
+        built.title = 'Route: ' + String(b.impl.route == null ? '' : b.impl.route);
+        bar.appendChild(built);
+      }
+      if (b.comments.length) {
+        const cb = document.createElement('button');
+        cb.type = 'button';
+        cb.className = 'cmt-badge';
+        cb.title = b.comments.length + ' comment(s)';
+        cb.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6l-3 3v-3H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/></svg>';
+        cb.appendChild(document.createTextNode(String(b.comments.length)));
+        cb.addEventListener('mousedown', (e) => e.stopPropagation());
+        cb.addEventListener('dblclick', (e) => e.stopPropagation());
+        cb.addEventListener('click', (e) => { e.stopPropagation(); openComments(file, cb); });
+        bar.appendChild(cb);
+      }
 
       // Click: copy the file ID
       bar.addEventListener('click', (e) => {
@@ -430,6 +478,47 @@
       }
     }
   }
+
+  // ── Comment panel ────────────────────────────────────────────────────────
+  const cmtPanel = document.getElementById('cmt-panel');
+  function closeComments() { cmtPanel.hidden = true; cmtPanel.textContent = ''; }
+  function openComments(file, anchor) {
+    const b = canvasData && canvasData.boards[file];
+    if (!b) return;
+    cmtPanel.textContent = '';
+    const head = document.createElement('div');
+    head.className = 'cmt-head';
+    const ttl = document.createElement('span');
+    ttl.textContent = file.replace('.html', '') + ' comments';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'cmt-close';
+    close.textContent = '\u00d7';
+    close.setAttribute('aria-label', 'Close');
+    close.addEventListener('click', closeComments);
+    head.appendChild(ttl); head.appendChild(close);
+    cmtPanel.appendChild(head);
+    for (const c of b.comments) {
+      const item = document.createElement('div');
+      item.className = 'cmt-item';
+      const meta = document.createElement('div');
+      meta.className = 'cmt-meta';
+      meta.textContent = [c.by, c.created].filter(v => v != null && v !== '').map(String).join(', ');
+      const text = document.createElement('div');
+      text.className = 'cmt-text';
+      text.textContent = String(c.text == null ? '' : c.text);
+      item.appendChild(meta); item.appendChild(text);
+      cmtPanel.appendChild(item);
+    }
+    cmtPanel.hidden = false;
+    const r = anchor.getBoundingClientRect();
+    const pw = cmtPanel.offsetWidth, ph = cmtPanel.offsetHeight;
+    cmtPanel.style.left = Math.max(12, Math.min(window.innerWidth - pw - 12, r.right - pw)) + 'px';
+    cmtPanel.style.top = Math.max(12, Math.min(window.innerHeight - ph - 12, r.bottom + 6)) + 'px';
+  }
+  cmtPanel.addEventListener('mousedown', (e) => e.stopPropagation());
+  cmtPanel.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+  window.addEventListener('mousedown', () => { if (!cmtPanel.hidden) closeComments(); });
 
   function toggleGroup(gid) {
     if (collapsed.has(gid)) collapsed.delete(gid);
@@ -609,6 +698,7 @@
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'Escape') closeComments();
     if (e.key === 'f' || e.key === 'F') fitToView();
     if (e.key === 'l' || e.key === 'L') {
       showArrows = !showArrows;

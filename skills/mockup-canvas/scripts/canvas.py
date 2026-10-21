@@ -17,6 +17,11 @@ Commands:
   link <idea dir> <from file> <to file> [--label TEXT]
   status <idea dir> <file> <draft|approved|rejected> [--note TEXT]
   artifact <idea dir> [url]
+  snap <url> --out FILE.png [--size mobile|tablet|desktop|WxH] [--wait MS]
+  compare <idea dir> <file> (--url URL | --png FILE) [--out DIR] [--threshold N]
+  impl <idea dir> [--strict]
+  impl <idea dir> <file> --route PATH [--file PATH]... | --clear
+  comment <idea dir> <file> [TEXT [--by NAME] | --clear]
 
 Run any command with -h/--help to see its usage.
 
@@ -324,11 +329,11 @@ def _chrome_args(profile_dir, w, h, budget_ms):
             f'--window-size={w},{h}', '--hide-scrollbars',
             f'--virtual-time-budget={budget_ms}']
 
-def _run_chrome(w, h, budget_ms, out_png, url):
+def _run_chrome(w, h, budget_ms, out_png, url, timeout=None):
     profile = tempfile.mkdtemp(prefix='mockup-canvas-chrome-')
     try:
         return subprocess.run(_chrome_args(profile, w, h, budget_ms) + [f'--screenshot={out_png}', url],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
     finally:
         shutil.rmtree(profile, ignore_errors=True)
 
@@ -1715,7 +1720,7 @@ def cmd_new(args):
     gitignore = os.path.join(idea_dir, '.gitignore')
     if not os.path.exists(gitignore):
         with open(gitignore, 'w', encoding='utf-8') as f:
-            f.write('render/\n')
+            f.write('render/\ncompare/\n')
 
     print(f'Created: {idea_dir}')
 
@@ -1953,8 +1958,24 @@ def cmd_check(args):
             if lnk.get(end) not in boards:
                 errors.append(f'link {end} is not a registered board: {lnk.get("from")} -> {lnk.get("to")}')
 
+    # impl files are paths in the project that holds the design folder (<project>/<design>/<idea>)
+    project_root = os.path.dirname(os.path.dirname(idea_dir))
+    for fname, b in boards.items():
+        impl = b.get('impl')
+        if not isinstance(impl, dict):
+            continue
+        for f in impl.get('files') or []:
+            if not os.path.exists(os.path.join(project_root, str(f))):
+                errors.append(f'impl file not found: {fname} -> {f}')
+
     approved = sum(1 for b in boards.values() if b.get('status') == 'approved')
     print(f'Approved boards: {approved}/{len(boards)}')
+    commented = [(f, len(b['comments'])) for f, b in boards.items()
+                 if isinstance(b.get('comments'), list) and b['comments']]
+    if commented:
+        print(f'Comments: {sum(n for _, n in commented)} on {len(commented)} board(s)')
+        for f, n in commented:
+            print(f'  {f}: {n}')
 
     if errors:
         for e in errors:
@@ -2136,6 +2157,506 @@ def cmd_export(args):
         proc.terminate()
         proc.wait()
 
+# ── PNG (stdlib only) ──────────────────────────────────────────────────────
+# Enough PNG for compare: decode 8-bit RGB/RGBA non-interlaced images (what Chrome writes)
+# and encode 8-bit RGB. Rows are kept as bytes objects so whole-row operations stay fast.
+
+_PNG_SIG = b'\x89PNG\r\n\x1a\n'
+
+
+class PngError(ValueError):
+    pass
+
+
+def _png_add(a, b):
+    """Byte-wise (a + b) mod 256 of two equal-length byte strings, computed on big-int lanes."""
+    n = len(a)
+    if not n:
+        return b''
+    x, y = int.from_bytes(a, 'big'), int.from_bytes(b, 'big')
+    lo = int.from_bytes(b'\x7f' * n, 'big')
+    hi = int.from_bytes(b'\x80' * n, 'big')
+    return (((x & lo) + (y & lo)) ^ ((x ^ y) & hi)).to_bytes(n, 'big')
+
+
+def png_read(path):
+    """Decode a PNG -> (w, h, channels, rows); each row is w*channels bytes."""
+    import zlib
+    with open(path, 'rb') as f:
+        data = f.read()
+    if data[:8] != _PNG_SIG:
+        raise PngError(f'not a PNG file: {path}')
+    pos, ihdr, idat = 8, None, []
+    while pos + 8 <= len(data):
+        length = int.from_bytes(data[pos:pos + 4], 'big')
+        ctype = data[pos + 4:pos + 8]
+        body = data[pos + 8:pos + 8 + length]
+        pos += 12 + length
+        if ctype == b'IHDR':
+            ihdr = body
+        elif ctype == b'IDAT':
+            idat.append(body)
+        elif ctype == b'IEND':
+            break
+    if not ihdr or len(ihdr) < 13:
+        raise PngError(f'missing IHDR chunk: {path}')
+    w = int.from_bytes(ihdr[0:4], 'big')
+    h = int.from_bytes(ihdr[4:8], 'big')
+    depth, color, interlace = ihdr[8], ihdr[9], ihdr[12]
+    if depth != 8 or color not in (2, 6):
+        raise PngError(f'unsupported PNG format (bit depth {depth}, color type {color}); '
+                       f'only 8-bit RGB or RGBA is supported: {path}')
+    if interlace:
+        raise PngError(f'interlaced PNG is not supported: {path}')
+    ch = 3 if color == 2 else 4
+    stride = w * ch
+    try:
+        raw = zlib.decompress(b''.join(idat))
+    except zlib.error as e:
+        raise PngError(f'corrupt PNG data: {path}: {e}')
+    if len(raw) < (stride + 1) * h:
+        raise PngError(f'truncated PNG data: {path}')
+    rows = []
+    prev = bytes(stride)
+    for y in range(h):
+        off = y * (stride + 1)
+        ft = raw[off]
+        line = raw[off + 1:off + 1 + stride]
+        if ft == 0:      # None
+            cur = line
+        elif ft == 2:    # Up
+            cur = _png_add(line, prev)
+        elif ft == 1:    # Sub
+            cur = bytearray(line)
+            for i in range(ch, stride):
+                cur[i] = (cur[i] + cur[i - ch]) & 255
+            cur = bytes(cur)
+        elif ft == 3:    # Average
+            cur = bytearray(line)
+            for i in range(stride):
+                left = cur[i - ch] if i >= ch else 0
+                cur[i] = (cur[i] + ((left + prev[i]) >> 1)) & 255
+            cur = bytes(cur)
+        elif ft == 4:    # Paeth
+            cur = bytearray(line)
+            for i in range(stride):
+                b = prev[i]
+                if i >= ch:
+                    a, c = cur[i - ch], prev[i - ch]
+                else:
+                    a = c = 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                if pa <= pb and pa <= pc:
+                    pr = a
+                elif pb <= pc:
+                    pr = b
+                else:
+                    pr = c
+                cur[i] = (cur[i] + pr) & 255
+            cur = bytes(cur)
+        else:
+            raise PngError(f'bad PNG filter type {ft} in row {y}: {path}')
+        rows.append(cur)
+        prev = cur
+    return w, h, ch, rows
+
+
+def png_write(path, w, h, rows):
+    """Encode 8-bit RGB rows (w*3 bytes each) as a PNG (filter None, zlib)."""
+    import zlib
+
+    def chunk(kind, body):
+        return (len(body).to_bytes(4, 'big') + kind + body +
+                (zlib.crc32(kind + body) & 0xffffffff).to_bytes(4, 'big'))
+    ihdr = w.to_bytes(4, 'big') + h.to_bytes(4, 'big') + bytes([8, 2, 0, 0, 0])
+    raw = b''.join(b'\x00' + r for r in rows)
+    data = (_PNG_SIG + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(raw, 6)) +
+            chunk(b'IEND', b''))
+    with open(path, 'wb') as f:
+        f.write(data)
+
+
+def _rgb_rows(w, ch, rows):
+    """Drop the alpha channel (screens are compared as opaque)."""
+    if ch == 3:
+        return rows
+    out = []
+    for r in rows:
+        rgb = bytearray(w * 3)
+        rgb[0::3], rgb[1::3], rgb[2::3] = r[0::4], r[1::4], r[2::4]
+        out.append(bytes(rgb))
+    return out
+
+
+def _resize_nearest(rows, sw, sh, dw, dh):
+    """Nearest-neighbour resize of RGB rows from sw x sh to dw x dh."""
+    xs = [min(sw - 1, x * sw // dw) for x in range(dw)]
+    out = []
+    for y in range(dh):
+        src = rows[min(sh - 1, y * sh // dh)]
+        line = bytearray(dw * 3)
+        for x, sx in enumerate(xs):
+            line[x * 3:x * 3 + 3] = src[sx * 3:sx * 3 + 3]
+        out.append(bytes(line))
+    return out
+
+
+# Diff image: board pixels dimmed toward gray, mismatches in magenta
+_DIM = bytes(96 + v * 3 // 8 for v in range(256))
+_MAGENTA = b'\xff\x00\xff'
+
+
+def _diff_rows(rows_a, rows_b, w, threshold):
+    """-> (diff rows, mismatched pixel count). A pixel differs if any channel differs by > threshold."""
+    out, bad = [], 0
+    for ra, rb in zip(rows_a, rows_b):
+        dim = ra.translate(_DIM)
+        if ra == rb:
+            out.append(dim)
+            continue
+        line = bytearray(dim)
+        for x in range(w):
+            i = x * 3
+            if ra[i:i + 3] == rb[i:i + 3]:
+                continue
+            if (abs(ra[i] - rb[i]) > threshold or abs(ra[i + 1] - rb[i + 1]) > threshold or
+                    abs(ra[i + 2] - rb[i + 2]) > threshold):
+                line[i:i + 3] = _MAGENTA
+                bad += 1
+        out.append(bytes(line))
+    return out, bad
+
+
+# ── args helper (snap, compare, impl, comment) ─────────────────────────────
+
+def _split_args(args, value_opts=(), flag_opts=()):
+    """-> (positionals, {opt: [values]}, {flag: bool}); None after printing an error."""
+    pos, vals, flags = [], {o: [] for o in value_opts}, {f: False for f in flag_opts}
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in vals:
+            if i + 1 >= len(args):
+                print(f'Error: {a} needs a value', file=sys.stderr)
+                return None
+            vals[a].append(args[i + 1])
+            i += 2
+            continue
+        if a in flags:
+            flags[a] = True
+        elif a.startswith('--'):
+            print(f'Error: unknown option: {a}', file=sys.stderr)
+            return None
+        else:
+            pos.append(a)
+        i += 1
+    return pos, vals, flags
+
+
+def _parse_size(sv):
+    if sv in SIZE_PRESETS:
+        return SIZE_PRESETS[sv]
+    m = re.match(r'^(\d+)[xX](\d+)$', sv)
+    if m and 0 < int(m.group(1)) <= 8000 and 0 < int(m.group(2)) <= 8000:
+        return int(m.group(1)), int(m.group(2))
+    return None
+
+
+def _require_board(canvas, file_arg):
+    """Board key for file_arg, or None after printing an error."""
+    key = _board_key(file_arg)
+    if key not in canvas.get('boards', {}):
+        print(f'Error: no such board registered: {key}', file=sys.stderr)
+        return None
+    return key
+
+
+def _now():
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+
+# ── snap ───────────────────────────────────────────────────────────────────
+
+_LOCAL_HOSTS = ('localhost', '127.0.0.1', '::1')
+
+
+def _check_app_url(url):
+    """Only http(s) URLs; warn when the host is not this machine. Returns False if rejected."""
+    try:
+        u = urlparse(url)
+        host = u.hostname
+    except ValueError:
+        u, host = None, None
+    if not u or u.scheme not in ('http', 'https') or not host:
+        print(f'Error: only http:// or https:// URLs are supported (got {url!r})', file=sys.stderr)
+        return False
+    if host.lower() not in _LOCAL_HOSTS:
+        print(f'Warning: {host} is not localhost; snap is meant for an app running on this machine',
+              file=sys.stderr)
+    return True
+
+
+def _snap(url, w, h, wait_ms, out):
+    """Screenshot url at w x h into out. True when a non-empty PNG was written."""
+    if os.path.exists(out):
+        os.remove(out)   # a stale file must not count as success
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    limit = wait_ms / 1000 + 60
+    try:
+        result = _run_chrome(w, h, wait_ms, out, url, timeout=limit)
+    except subprocess.TimeoutExpired:
+        # Virtual time stops while a request stays open (server-sent events, long polling)
+        print(f'Error: Chrome did not finish within {limit:.0f} s; the page may keep a request open '
+              '(server-sent events or long polling)', file=sys.stderr)
+        return False
+    return result.returncode == 0 and os.path.isfile(out) and os.path.getsize(out) > 0
+
+
+def cmd_snap(args):
+    usage = ('Usage: canvas.py snap <url> --out FILE.png [--size mobile|tablet|desktop|WxH] [--wait MS]\n'
+             '  Screenshot a running app page (http/https) with headless Chrome. Default size: mobile,\n'
+             '  default wait: 3000 ms.')
+    if not args or _is_help(args):
+        print(usage); return
+    parsed = _split_args(args, ('--out', '--size', '--wait'))
+    if parsed is None:
+        return 1
+    pos, vals, _ = parsed
+    if len(pos) != 1 or not vals['--out']:
+        print(usage, file=sys.stderr); return 1
+    url, out = pos[0], vals['--out'][-1]
+    size = _parse_size(vals['--size'][-1]) if vals['--size'] else SIZE_PRESETS['mobile']
+    if not size:
+        print(f'Error: unknown size: {vals["--size"][-1]} (use mobile|tablet|desktop|WxH)', file=sys.stderr)
+        return 1
+    try:
+        wait = int(vals['--wait'][-1]) if vals['--wait'] else 3000
+        if not 0 <= wait <= 120000:
+            raise ValueError
+    except ValueError:
+        print('Error: --wait must be a whole number of milliseconds from 0 to 120000', file=sys.stderr)
+        return 1
+    if not _check_app_url(url):
+        return 1
+    if not _snap(url, size[0], size[1], wait, out):
+        print(f'Error: snap failed (no PNG written): {url}', file=sys.stderr)
+        return 1
+    print(f'Snapped: {out}  ({size[0]}x{size[1]})')
+
+# ── compare ────────────────────────────────────────────────────────────────
+
+def cmd_compare(args):
+    usage = ('Usage: canvas.py compare <idea dir> <file> (--url URL | --png FILE) [--out DIR] [--threshold N] [--wait MS]\n'
+             '  Render the board at its registered size, get the app screen at the same size, and write\n'
+             '  board.png, app.png, diff.png, side.png, report.json to <idea>/compare/<board id>/ (or --out DIR).\n'
+             '  A pixel differs when any channel differs by more than the threshold (default 24).')
+    if len(args) < 2 or _is_help(args):
+        print(usage); return
+    parsed = _split_args(args, ('--url', '--png', '--out', '--threshold', '--wait'))
+    if parsed is None:
+        return 1
+    pos, vals, _ = parsed
+    url = vals['--url'][-1] if vals['--url'] else None
+    png = vals['--png'][-1] if vals['--png'] else None
+    if len(pos) != 2 or (url is None) == (png is None):
+        print(usage, file=sys.stderr); return 1
+    try:
+        threshold = int(vals['--threshold'][-1]) if vals['--threshold'] else 24
+        if not 0 <= threshold <= 255:
+            raise ValueError
+    except ValueError:
+        print('Error: --threshold must be a whole number from 0 to 255', file=sys.stderr); return 1
+    try:
+        wait = int(vals['--wait'][-1]) if vals['--wait'] else 3000
+        if not 0 <= wait <= 120000:
+            raise ValueError
+    except ValueError:
+        print('Error: --wait must be a whole number of milliseconds from 0 to 120000', file=sys.stderr)
+        return 1
+
+    idea_dir = os.path.abspath(pos[0])
+    canvas = load_canvas(idea_dir)
+    key = _require_board(canvas, pos[1])
+    if not key:
+        return 1
+    src = os.path.join(idea_dir, 'boards', key)
+    if not os.path.isfile(src):
+        print(f'Error: board file not found: {src}', file=sys.stderr); return 1
+    if url is not None and not _check_app_url(url):
+        return 1
+    if png is not None and not os.path.isfile(png):
+        print(f'Error: PNG not found: {png}', file=sys.stderr); return 1
+    b = canvas['boards'][key]
+    w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
+    board_id = key[:-5]
+    out_dir = os.path.abspath(vals['--out'][-1]) if vals['--out'] else os.path.join(idea_dir, 'compare', board_id)
+    os.makedirs(out_dir, exist_ok=True)
+
+    board_png = os.path.join(out_dir, 'board.png')
+    app_png = os.path.join(out_dir, 'app.png')
+    if not _snap(pathlib.Path(src).as_uri(), w, h, 3000, board_png):
+        print(f'Error: render failed ({key})', file=sys.stderr); return 1
+    if url is not None:
+        if not _snap(url, w, h, wait, app_png):
+            print(f'Error: snap failed (no PNG written): {url}', file=sys.stderr); return 1
+    elif os.path.realpath(png) != os.path.realpath(app_png):
+        shutil.copyfile(png, app_png)
+
+    try:
+        bw, bh, bch, brows = png_read(board_png)
+        aw, ah, ach, arows = png_read(app_png)
+    except (PngError, OSError) as e:
+        print(f'Error: {e}', file=sys.stderr); return 1
+    brows = _rgb_rows(bw, bch, brows)
+    arows = _rgb_rows(aw, ach, arows)
+    if (aw, ah) != (bw, bh):
+        print(f'Warning: app image is {aw}x{ah}, board is {bw}x{bh}; app image resized to compare',
+              file=sys.stderr)
+        arows = _resize_nearest(arows, aw, ah, bw, bh)
+
+    drows, bad = _diff_rows(brows, arows, bw, threshold)
+    png_write(os.path.join(out_dir, 'diff.png'), bw, bh, drows)
+    gap = 16
+    sep = b'\x1e' * (gap * 3)
+    png_write(os.path.join(out_dir, 'side.png'), bw * 3 + gap * 2, bh,
+              [r1 + sep + r2 + sep + r3 for r1, r2, r3 in zip(brows, arows, drows)])
+    percent = round(100.0 * bad / max(1, bw * bh), 2)
+    report = {'board': key, 'url': url, 'png': png, 'size': {'w': bw, 'h': bh},
+              'mismatch_percent': percent, 'threshold': threshold, 'created': _now()}
+    save_canvas_atomic(os.path.join(out_dir, 'report.json'), report)
+
+    # Keep comparison output out of git in ideas created before compare existed
+    gi = os.path.join(idea_dir, '.gitignore')
+    if not vals['--out'] and os.path.isfile(gi):
+        with open(gi, encoding='utf-8') as f:
+            content = f.read()
+        if not {'compare', 'compare/'} & {l.strip() for l in content.splitlines()}:
+            with open(gi, 'a', encoding='utf-8') as f:
+                f.write(('' if not content or content.endswith('\n') else '\n') + 'compare/\n')
+            print(f'Added compare/ to {gi}')
+
+    print(f'Mismatch: {percent}% of {bw}x{bh} pixels (threshold {threshold})')
+    print(f'Wrote: {out_dir}/{{board,app,diff,side}}.png, report.json')
+
+# ── impl ───────────────────────────────────────────────────────────────────
+
+def cmd_impl(args):
+    usage = ('Usage: canvas.py impl <idea dir> [--strict]\n'
+             '         list approved boards and whether each has an implementation\n'
+             '         (--strict: exit 1 if an approved board has none)\n'
+             '       canvas.py impl <idea dir> <file> --route PATH [--file PATH]...\n'
+             '         record the route and source files (relative to the project root) of a board\n'
+             '       canvas.py impl <idea dir> <file> --clear\n'
+             '       canvas.py impl <idea dir> <file>   show one board')
+    if not args or _is_help(args):
+        print(usage); return
+    parsed = _split_args(args, ('--route', '--file'), ('--clear', '--strict'))
+    if parsed is None:
+        return 1
+    pos, vals, flags = parsed
+    if not 1 <= len(pos) <= 2:
+        print(usage, file=sys.stderr); return 1
+    idea_dir = os.path.abspath(pos[0])
+    cj = os.path.join(idea_dir, 'canvas.json')
+    canvas = load_canvas(idea_dir)
+    boards = canvas.get('boards', {})
+
+    if len(pos) == 1:
+        if vals['--route'] or vals['--file'] or flags['--clear']:
+            print(usage, file=sys.stderr); return 1
+        missing = 0
+        approved = [(f, b) for f, b in boards.items() if b.get('status') == 'approved']
+        print(f'Approved boards: {len(approved)}/{len(boards)}')
+        for f, b in approved:
+            impl = b.get('impl')
+            if isinstance(impl, dict) and impl.get('route'):
+                print(f'  implemented  {f}  route {impl["route"]}  ({len(impl.get("files") or [])} file(s))')
+            else:
+                print(f'  missing      {f}')
+                missing += 1
+        for f, b in boards.items():
+            if b.get('status') != 'approved' and isinstance(b.get('impl'), dict):
+                print(f'Warning: {f} has an implementation but is not approved')
+        if missing:
+            print(f'{missing} approved board(s) without an implementation')
+            if flags['--strict']:
+                return 1
+        return
+
+    key = _require_board(canvas, pos[1])
+    if not key:
+        return 1
+    b = boards[key]
+    if flags['--clear']:
+        if vals['--route'] or vals['--file']:
+            print(usage, file=sys.stderr); return 1
+        b.pop('impl', None)
+        save_canvas_atomic(cj, canvas)
+        print(f'Implementation cleared: {key}')
+        return
+    if not vals['--route']:
+        if vals['--file']:
+            print('Error: --route is required to record an implementation', file=sys.stderr); return 1
+        impl = b.get('impl')
+        if not isinstance(impl, dict):
+            print(f'{key}: no implementation recorded'); return
+        print(f'{key}: route {impl.get("route")}  updated {impl.get("updated", "")}')
+        for f in impl.get('files') or []:
+            print(f'  {f}')
+        return
+    files = []
+    for f in vals['--file']:
+        f = os.path.normpath(f).replace(os.sep, '/')
+        if f not in files:
+            files.append(f)
+    b['impl'] = {'route': vals['--route'][-1], 'files': files, 'updated': _now()}
+    save_canvas_atomic(cj, canvas)
+    print(f'Implementation recorded: {key} -> {b["impl"]["route"]} ({len(files)} file(s))')
+
+# ── comment ────────────────────────────────────────────────────────────────
+
+def cmd_comment(args):
+    usage = ('Usage: canvas.py comment <idea dir> <file> TEXT [--by NAME]   add a comment\n'
+             '       canvas.py comment <idea dir> <file>                     list comments\n'
+             '       canvas.py comment <idea dir> <file> --clear             remove all comments')
+    if len(args) < 2 or _is_help(args):
+        print(usage); return
+    parsed = _split_args(args, ('--by',), ('--clear',))
+    if parsed is None:
+        return 1
+    pos, vals, flags = parsed
+    if not 2 <= len(pos) <= 3 or (flags['--clear'] and (len(pos) == 3 or vals['--by'])):
+        print(usage, file=sys.stderr); return 1
+    idea_dir = os.path.abspath(pos[0])
+    cj = os.path.join(idea_dir, 'canvas.json')
+    canvas = load_canvas(idea_dir)
+    key = _require_board(canvas, pos[1])
+    if not key:
+        return 1
+    b = canvas['boards'][key]
+    comments = b.get('comments') if isinstance(b.get('comments'), list) else []
+
+    if flags['--clear']:
+        b.pop('comments', None)
+        save_canvas_atomic(cj, canvas)
+        print(f'Comments cleared: {key} ({len(comments)} removed)')
+        return
+    if len(pos) == 2:
+        if not comments:
+            print(f'{key}: no comments'); return
+        for i, c in enumerate(comments, 1):
+            if isinstance(c, dict):
+                print(f'{i}. [{c.get("by", "")} {c.get("created", "")}] {c.get("text", "")}')
+        return
+    text = pos[2].strip()
+    if not text:
+        print('Error: comment text is empty', file=sys.stderr); return 1
+    entry = {'text': text, 'by': vals['--by'][-1] if vals['--by'] else 'user', 'created': _now()}
+    comments.append(entry)
+    b['comments'] = comments
+    save_canvas_atomic(cj, canvas)
+    print(f'Comment added: {key} ({len(comments)} total)')
+
 # ── main ───────────────────────────────────────────────────────────────────
 
 def main():
@@ -2151,6 +2672,8 @@ def main():
         'overview': cmd_overview, 'export': cmd_export,
         'link': cmd_link, 'status': cmd_status, 'artifact': cmd_artifact,
         'group': cmd_group,
+        'snap': cmd_snap, 'compare': cmd_compare,
+        'impl': cmd_impl, 'comment': cmd_comment,
     }
     if cmd in dispatch:
         ret = dispatch[cmd](sys.argv[2:])
