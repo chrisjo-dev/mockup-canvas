@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=390, initial-scale=1">
+<title>T02 - Trail Detail</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<style>
+  body { width: 390px; min-height: 844px; background: var(--color-bg); overflow-x: hidden; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px var(--space-5) 8px; position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    font-size: var(--text-xs); font-weight: var(--weight-semibold); color: #fff;
+  }
+  .status-time { font-size: 15px; font-weight: var(--weight-semibold); }
+  .status-icons { display: flex; gap: var(--space-1); align-items: center; }
+
+  /* Map hero */
+  .map-hero {
+    width: 390px; height: 260px; position: relative; overflow: hidden;
+    background: var(--color-sky-100);
+  }
+  .map-hero svg { width: 100%; height: 100%; display: block; }
+
+  /* Back button */
+  .back-btn {
+    position: absolute; top: 46px; left: var(--space-5); z-index: 20;
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    background: rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Bookmark */
+  .bookmark-btn {
+    position: absolute; top: 46px; right: var(--space-5); z-index: 20;
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    background: rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Trail info card */
+  .info-card {
+    background: var(--color-surface);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    margin-top: -20px; position: relative; z-index: 5;
+    padding: var(--space-5) var(--space-5) 0;
+    min-height: 604px;
+  }
+  .trail-name-row { display: flex; justify-content: space-between; align-items: flex-start; }
+  .trail-name { font-family: var(--font-display); font-size: var(--text-2xl); font-weight: var(--weight-bold); color: var(--color-text-primary); line-height: var(--leading-tight); }
+  .diff-badge {
+    background: var(--color-sand-100); color: var(--color-sand-700);
+    font-size: var(--text-xs); font-weight: var(--weight-semibold);
+    padding: 4px 10px; border-radius: var(--radius-full);
+    white-space: nowrap; margin-top: 4px;
+  }
+  .trail-location { display: flex; align-items: center; gap: var(--space-1); margin-top: var(--space-2);
+    font-size: var(--text-sm); color: var(--color-text-muted); }
+
+  /* Stats row */
+  .stats-row {
+    display: flex; gap: 0; margin: var(--space-5) 0;
+    background: var(--color-sand-50); border-radius: var(--radius-md);
+    overflow: hidden; border: 1px solid var(--color-border-subtle);
+  }
+  .stat {
+    flex: 1; padding: var(--space-3) var(--space-2); text-align: center;
+    border-right: 1px solid var(--color-border-subtle);
+  }
+  .stat:last-child { border-right: none; }
+  .stat-value { font-size: var(--text-md); font-weight: var(--weight-bold); color: var(--color-text-primary); }
+  .stat-label { font-size: var(--text-xs); color: var(--color-text-muted); margin-top: 2px; }
+
+  /* Elevation chart */
+  .section-title { font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--color-text-primary); margin-bottom: var(--space-3); }
+  .elevation-chart {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin-bottom: var(--space-5);
+  }
+  .elevation-chart svg { width: 100%; height: 80px; display: block; }
+
+  /* Friends going */
+  .friends-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--space-4) 0; border-top: 1px solid var(--color-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle); margin-bottom: var(--space-5);
+  }
+  .friends-label { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--color-text-primary); }
+  .avatar-stack { display: flex; align-items: center; gap: var(--space-2); }
+  .friend-avatars { display: flex; }
+  .fa {
+    width: 30px; height: 30px; border-radius: var(--radius-full);
+    border: 2px solid var(--color-surface);
+    font-size: 11px; font-weight: var(--weight-bold);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; margin-left: -8px;
+  }
+  .fa:first-child { margin-left: 0; }
+  .invite-btn {
+    font-size: var(--text-sm); font-weight: var(--weight-semibold);
+    color: var(--color-primary); padding: 6px 14px;
+    border: 1.5px solid var(--color-primary); border-radius: var(--radius-full);
+  }
+
+  /* CTA buttons */
+  .cta-row { display: flex; gap: var(--space-3); padding-bottom: var(--space-5); }
+  .btn-primary {
+    flex: 1; background: var(--color-forest-600); color: #fff;
+    padding: var(--space-4); border-radius: var(--radius-lg);
+    font-size: var(--text-base); font-weight: var(--weight-semibold);
+    text-align: center;
+  }
+  .btn-secondary {
+    background: var(--color-surface); color: var(--color-text-primary);
+    padding: var(--space-4) var(--space-5); border-radius: var(--radius-lg);
+    font-size: var(--text-base); font-weight: var(--weight-semibold);
+    border: 1.5px solid var(--color-border); text-align: center; white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<!-- Status Bar -->
+<div class="status-bar">
+  <span class="status-time">9:41</span>
+  <div class="status-icons">
+    <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+      <rect x="0" y="3" width="3" height="9" rx="1" fill="white"/>
+      <rect x="4" y="2" width="3" height="10" rx="1" fill="white"/>
+      <rect x="8" y="1" width="3" height="11" rx="1" fill="white"/>
+      <rect x="12" y="0" width="3" height="12" rx="1" fill="white"/>
+    </svg>
+    <svg width="25" height="12" viewBox="0 0 25 12" fill="none">
+      <rect x="0.5" y="0.5" width="21" height="11" rx="3.5" stroke="white" stroke-opacity="0.5"/>
+      <rect x="2" y="2" width="17" height="8" rx="2" fill="white"/>
+    </svg>
+  </div>
+</div>
+
+<!-- Map Hero (CSS/SVG map placeholder) -->
+<div class="map-hero">
+  <svg viewBox="0 0 390 260" xmlns="http://www.w3.org/2000/svg">
+    <!-- Sky gradient background -->
+    <defs>
+      <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#dff0fa"/>
+        <stop offset="100%" stop-color="#bfe0be"/>
+      </linearGradient>
+      <linearGradient id="hillGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#4d8c4a"/>
+        <stop offset="100%" stop-color="#2a5028"/>
+      </linearGradient>
+      <linearGradient id="waterGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#7ec5e8"/>
+        <stop offset="100%" stop-color="#2a8ec4"/>
+      </linearGradient>
+    </defs>
+
+    <!-- Sky / terrain bg -->
+    <rect width="390" height="260" fill="url(#skyGrad)"/>
+
+    <!-- Grid lines (topo-like) -->
+    <g stroke="#bfe0be" stroke-width="0.5" opacity="0.6">
+      <line x1="0" y1="52" x2="390" y2="52"/>
+      <line x1="0" y1="104" x2="390" y2="104"/>
+      <line x1="0" y1="156" x2="390" y2="156"/>
+      <line x1="0" y1="208" x2="390" y2="208"/>
+      <line x1="65" y1="0" x2="65" y2="260"/>
+      <line x1="130" y1="0" x2="130" y2="260"/>
+      <line x1="195" y1="0" x2="195" y2="260"/>
+      <line x1="260" y1="0" x2="260" y2="260"/>
+      <line x1="325" y1="0" x2="325" y2="260"/>
+    </g>
+
+    <!-- Topo contours -->
+    <path d="M30,200 Q80,185 140,190 Q200,195 260,175 Q310,165 380,180" stroke="#93c791" stroke-width="1" fill="none" opacity="0.8"/>
+    <path d="M10,215 Q70,205 130,210 Q200,215 270,198 Q320,188 385,200" stroke="#93c791" stroke-width="1" fill="none" opacity="0.6"/>
+    <path d="M0,230 Q60,222 130,228 Q200,232 280,218 Q330,210 390,222" stroke="#93c791" stroke-width="1" fill="none" opacity="0.5"/>
+
+    <!-- Terrain fill -->
+    <polygon points="0,260 0,220 50,200 100,210 160,185 220,175 280,190 330,170 390,185 390,260" fill="url(#hillGrad)" opacity="0.5"/>
+    <polygon points="0,260 0,240 60,230 120,240 180,228 240,235 310,225 370,235 390,240 390,260" fill="#1e3a1e" opacity="0.3"/>
+
+    <!-- Water body -->
+    <ellipse cx="185" cy="145" rx="55" ry="28" fill="url(#waterGrad)" opacity="0.65"/>
+    <ellipse cx="185" cy="145" rx="52" ry="25" fill="none" stroke="#2a8ec4" stroke-width="1" opacity="0.4"/>
+
+    <!-- Trail path -->
+    <path d="M50,240 Q80,220 110,195 Q130,178 155,155 Q170,140 185,140 Q210,135 235,150 Q260,168 285,160 Q310,152 345,158" stroke="#c94d1a" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-dasharray="6,3"/>
+
+    <!-- Trail markers / waypoints -->
+    <circle cx="50" cy="240" r="5" fill="#c94d1a" stroke="white" stroke-width="1.5"/>
+    <circle cx="185" cy="140" r="5" fill="#c94d1a" stroke="white" stroke-width="1.5"/>
+    <circle cx="345" cy="158" r="5" fill="#c94d1a" stroke="white" stroke-width="1.5"/>
+
+    <!-- Start label -->
+    <rect x="28" y="248" width="44" height="14" rx="4" fill="white" opacity="0.9"/>
+    <text x="50" y="258" text-anchor="middle" font-size="8" fill="#2a5028" font-family="Inter,sans-serif" font-weight="600">Start</text>
+
+    <!-- Summit label -->
+    <rect x="320" y="142" width="50" height="14" rx="4" fill="white" opacity="0.9"/>
+    <text x="345" y="152" text-anchor="middle" font-size="8" fill="#2a5028" font-family="Inter,sans-serif" font-weight="600">Summit</text>
+
+    <!-- Scale bar -->
+    <rect x="20" y="245" width="40" height="2" fill="#1e3a1e" opacity="0.5" rx="1"/>
+    <text x="40" y="242" text-anchor="middle" font-size="7" fill="#1e3a1e" opacity="0.7" font-family="Inter,sans-serif">0.5 mi</text>
+
+    <!-- Compass rose -->
+    <g transform="translate(355,30)">
+      <circle r="14" fill="white" opacity="0.8"/>
+      <polygon points="0,-10 3,0 0,-3 -3,0" fill="#2a5028"/>
+      <polygon points="0,10 3,0 0,3 -3,0" fill="#bfe0be"/>
+      <polygon points="-10,0 0,3 -3,0 0,-3" fill="#bfe0be"/>
+      <polygon points="10,0 0,3 3,0 0,-3" fill="#bfe0be"/>
+      <text y="4" text-anchor="middle" font-size="7" font-weight="700" fill="#2a5028" font-family="Inter,sans-serif">N</text>
+    </g>
+  </svg>
+</div>
+
+<!-- Back button -->
+<div class="back-btn">
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <path d="M11 14L6 9L11 4" stroke="var(--color-text-primary)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+</div>
+
+<!-- Bookmark button -->
+<div class="bookmark-btn">
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <path d="M4 3H14C14.6 3 15 3.4 15 4V16L9 13L3 16V4C3 3.4 3.4 3 4 3Z" stroke="var(--color-text-primary)" stroke-width="1.8" stroke-linejoin="round"/>
+  </svg>
+</div>
+
+<!-- Info card -->
+<div class="info-card">
+  <div class="trail-name-row">
+    <div class="trail-name">Pine Ridge Loop</div>
+    <div class="diff-badge">Moderate</div>
+  </div>
+  <div class="trail-location">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path d="M6.5 1C4.3 1 2.5 2.8 2.5 5C2.5 7.8 6.5 12 6.5 12C6.5 12 10.5 7.8 10.5 5C10.5 2.8 8.7 1 6.5 1Z" stroke="var(--color-text-muted)" stroke-width="1.2"/>
+      <circle cx="6.5" cy="5" r="1.5" fill="var(--color-text-muted)"/>
+    </svg>
+    Maplewood State Park, WI
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-row">
+    <div class="stat">
+      <div class="stat-value">7.2</div>
+      <div class="stat-label">miles</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">+1,340</div>
+      <div class="stat-label">elev. ft</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">3.5</div>
+      <div class="stat-label">hrs est.</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">4.7</div>
+      <div class="stat-label">rating</div>
+    </div>
+  </div>
+
+  <!-- Elevation chart -->
+  <div class="section-title">Elevation Profile</div>
+  <div class="elevation-chart">
+    <svg viewBox="0 0 340 80" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="elevGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#4d8c4a" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="#4d8c4a" stop-opacity="0.05"/>
+        </linearGradient>
+      </defs>
+      <!-- Y axis labels -->
+      <text x="0" y="10" font-size="7" fill="#9b7e5e" font-family="Inter,sans-serif">2,800</text>
+      <text x="0" y="45" font-size="7" fill="#9b7e5e" font-family="Inter,sans-serif">1,800</text>
+      <text x="0" y="76" font-size="7" fill="#9b7e5e" font-family="Inter,sans-serif">1,400</text>
+      <!-- Axis line -->
+      <line x1="30" y1="5" x2="30" y2="75" stroke="#e6d5be" stroke-width="1"/>
+      <line x1="30" y1="75" x2="340" y2="75" stroke="#e6d5be" stroke-width="1"/>
+      <!-- Grid lines -->
+      <line x1="30" y1="42" x2="340" y2="42" stroke="#f5eddf" stroke-width="1"/>
+      <!-- Elevation path -->
+      <path d="M30,68 L65,62 L95,55 L120,45 L145,38 L165,22 L185,18 L210,25 L235,32 L260,38 L285,50 L310,55 L340,60"
+            fill="none" stroke="#4d8c4a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M30,68 L65,62 L95,55 L120,45 L145,38 L165,22 L185,18 L210,25 L235,32 L260,38 L285,50 L310,55 L340,60 L340,75 L30,75Z"
+            fill="url(#elevGrad)"/>
+      <!-- Summit dot -->
+      <circle cx="185" cy="18" r="3" fill="#c94d1a"/>
+    </svg>
+  </div>
+
+  <!-- Friends -->
+  <div class="friends-row">
+    <div>
+      <div class="friends-label">Friends going</div>
+    </div>
+    <div class="avatar-stack">
+      <div class="friend-avatars">
+        <div class="fa" style="background:var(--color-forest-500)">S</div>
+        <div class="fa" style="background:var(--color-accent-400)">L</div>
+        <div class="fa" style="background:var(--color-sky-500)">J</div>
+        <div class="fa" style="background:var(--color-sand-500)">A</div>
+      </div>
+      <div class="invite-btn">+ Invite</div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta-row">
+    <div class="btn-primary">Join This Hike</div>
+    <div class="btn-secondary">Share</div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Mockup Canvas"
+  default_prompt: "Use $mockup-canvas to draw screen mockups for this idea as HTML artboards and lay them out on the local canvas."

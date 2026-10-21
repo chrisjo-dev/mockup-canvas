@@ -1,0 +1,131 @@
+/* TrailMate Design Tokens */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,700;1,9..144,400&display=swap');
+
+:root {
+  /* --- Palette --- */
+  /* Earthy greens */
+  --color-forest-900: #1a2e1a;
+  --color-forest-800: #1e3a1e;
+  --color-forest-700: #2a5028;
+  --color-forest-600: #3a6e38;
+  --color-forest-500: #4d8c4a;
+  --color-forest-400: #6aaa67;
+  --color-forest-300: #93c791;
+  --color-forest-200: #bfe0be;
+  --color-forest-100: #e4f2e4;
+  --color-forest-50:  #f1f9f1;
+
+  /* Sand / warm neutrals */
+  --color-sand-900: #2b2318;
+  --color-sand-800: #3d3223;
+  --color-sand-700: #5c4c34;
+  --color-sand-600: #7a6347;
+  --color-sand-500: #9b7e5e;
+  --color-sand-400: #b89878;
+  --color-sand-300: #d0b898;
+  --color-sand-200: #e6d5be;
+  --color-sand-100: #f5eddf;
+  --color-sand-50:  #faf6ef;
+
+  /* Accent: warm terracotta for CTAs */
+  --color-accent-700: #7a2e0f;
+  --color-accent-600: #a33d14;
+  --color-accent-500: #c94d1a;
+  --color-accent-400: #e06030;
+  --color-accent-300: #f08060;
+  --color-accent-100: #fde8de;
+
+  /* Sky blue for map / info */
+  --color-sky-600: #1e6fa0;
+  --color-sky-500: #2a8ec4;
+  --color-sky-300: #7ec5e8;
+  --color-sky-100: #dff0fa;
+
+  /* Status */
+  --color-success: #3a7c3a;
+  --color-warning: #c47a1a;
+  --color-danger:  #b83030;
+
+  /* Semantic */
+  --color-bg:        var(--color-sand-50);
+  --color-surface:   #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-border:    var(--color-sand-200);
+  --color-border-subtle: var(--color-sand-100);
+  --color-text-primary:   var(--color-sand-900);
+  --color-text-secondary: var(--color-sand-600);
+  --color-text-muted:     var(--color-sand-400);
+  --color-text-on-dark:   #ffffff;
+  --color-text-on-accent: #ffffff;
+
+  --color-primary:   var(--color-forest-600);
+  --color-primary-dark: var(--color-forest-700);
+  --color-primary-light: var(--color-forest-100);
+
+  /* --- Typography --- */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body:    'Inter', system-ui, sans-serif;
+
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   17px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  30px;
+  --text-3xl:  38px;
+  --text-4xl:  48px;
+
+  --weight-normal:   400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  --leading-tight:  1.2;
+  --leading-snug:   1.35;
+  --leading-normal: 1.5;
+  --leading-loose:  1.7;
+
+  /* --- Spacing --- */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* --- Radius --- */
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   16px;
+  --radius-xl:   24px;
+  --radius-2xl:  32px;
+  --radius-full: 9999px;
+
+  /* --- Shadows --- */
+  --shadow-xs: 0 1px 2px rgba(42,35,24,0.06);
+  --shadow-sm: 0 2px 6px rgba(42,35,24,0.08);
+  --shadow-md: 0 4px 16px rgba(42,35,24,0.10);
+  --shadow-lg: 0 8px 32px rgba(42,35,24,0.13);
+
+  /* --- Motion --- */
+  --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+}
+
+/* Base reset for boards */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+}

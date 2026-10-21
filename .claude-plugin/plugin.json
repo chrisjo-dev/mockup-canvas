@@ -1,0 +1,14 @@
+{
+  "name": "mockup-canvas",
+  "displayName": "Mockup Canvas",
+  "version": "0.1.0",
+  "description": "Claude Code skill for AI-drawn UI mockups: the agent draws HTML artboards and lays them out on a local Figma-like canvas with flow arrows, approval marks, live reload, and phone sharing.",
+  "author": {
+    "name": "chrisjo-dev",
+    "url": "https://github.com/chrisjo-dev"
+  },
+  "homepage": "https://github.com/chrisjo-dev/mockup-canvas",
+  "repository": "https://github.com/chrisjo-dev/mockup-canvas",
+  "license": "MIT",
+  "keywords": ["mockup", "wireframe", "prototyping", "ui-design", "design-tools", "html-mockup", "canvas", "figma-alternative", "screen-design", "codex", "skill"]
+}

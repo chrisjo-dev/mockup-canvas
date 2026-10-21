@@ -1,0 +1,84 @@
+{
+  "boards": {
+    "T01-Home.html": {
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "T01-Home",
+      "group": "v1",
+      "status": "approved",
+      "note": "Home feed composition approved; hero strip and card list works well"
+    },
+    "T02-TrailDetail.html": {
+      "x": 430,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "T02-TrailDetail",
+      "group": "v1",
+      "status": "approved",
+      "note": "Map CSS/SVG placeholder and elevation chart approved"
+    },
+    "T03-Invite.html": {
+      "x": 860,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "T03-Invite",
+      "group": "v1"
+    },
+    "T04-Plan.html": {
+      "x": 1290,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "T04-Plan",
+      "group": "v1"
+    },
+    "T05-Empty.html": {
+      "x": 1720,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "T05-Empty",
+      "group": "v1"
+    },
+    "T06-WebLanding.html": {
+      "x": 2150,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "T06-WebLanding",
+      "group": "v1"
+    }
+  },
+  "groups": [
+    {
+      "id": "v1",
+      "label": "v1"
+    }
+  ],
+  "links": [
+    {
+      "from": "T05-Empty.html",
+      "to": "T01-Home.html",
+      "label": "Create first hike"
+    },
+    {
+      "from": "T01-Home.html",
+      "to": "T02-TrailDetail.html",
+      "label": "Open trail"
+    },
+    {
+      "from": "T02-TrailDetail.html",
+      "to": "T03-Invite.html",
+      "label": "Invite friends"
+    },
+    {
+      "from": "T03-Invite.html",
+      "to": "T04-Plan.html",
+      "label": "Plan together"
+    }
+  ]
+}

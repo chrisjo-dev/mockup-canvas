@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canvas</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden;
+      background: #1e1e1e; font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif; }
+    body { user-select: none; touch-action: none; }
+
+    #stage { position: fixed; inset: 0; overflow: hidden; cursor: default; }
+    #canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+    #canvas.moving { will-change: transform; }
+
+    /* Groups */
+    .grp-bg {
+      position: absolute; border-radius: 14px; pointer-events: none;
+    }
+    .grp-hdr {
+      position: absolute; display: flex; align-items: center; gap: 6px;
+      font-size: 13px; font-weight: 700; cursor: pointer; padding: 2px 4px;
+      border-radius: 6px; pointer-events: auto; white-space: nowrap;
+    }
+    .grp-hdr:hover { background: rgba(255,255,255,0.05); }
+    .grp-arrow { font-size: 9px; opacity: 0.7; }
+
+    /* Artboards */
+    .board { position: absolute; }
+    .board-bar {
+      position: absolute; top: -30px; left: 0; right: 0; height: 28px;
+      background: rgba(42,42,42,0.92); backdrop-filter: blur(4px);
+      border-radius: 6px 6px 0 0;
+      display: flex; align-items: center; padding: 0 8px; gap: 6px;
+      cursor: grab; font-size: 11px; white-space: nowrap; overflow: hidden;
+    }
+    .board-bar:active { cursor: grabbing; }
+    .board-id {
+      color: rgba(255,255,255,0.4); font-size: 10px; flex-shrink: 0;
+      font-family: ui-monospace, monospace;
+    }
+    .board-title-text { color: rgba(255,255,255,0.85); overflow: hidden; text-overflow: ellipsis; }
+    .board iframe {
+      display: block; border: none;
+      border-radius: 0 0 4px 4px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.45);
+      background: #fff; pointer-events: none;
+    }
+    .board.collapsed iframe { display: none; }
+    .board.collapsed .board-bar { border-radius: 6px; }
+
+    /* Status badges */
+    .status-badge {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      flex-shrink: 0; margin-right: 1px;
+    }
+    .status-badge.approved { background: #4caf50; }
+    .status-badge.rejected { background: #888; }
+    .board-title-text.rejected { text-decoration: line-through; opacity: 0.5; }
+
+    /* Flow arrows */
+    #arrow-svg {
+      position: absolute; top: 0; left: 0; overflow: visible;
+      pointer-events: none; z-index: 5; width: 0; height: 0;
+    }
+    #arrow-svg.hidden { display: none; }
+
+    /* Toolbar */
+    #toolbar {
+      position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+      background: rgba(28,28,28,0.88); backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 22px; padding: 7px 18px;
+      display: flex; align-items: center; gap: 12px;
+      color: rgba(255,255,255,0.65); font-size: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.5);
+      z-index: 1000; white-space: nowrap;
+    }
+    #toolbar .idea-name { color: #fff; font-weight: 700; }
+    #toolbar kbd {
+      background: rgba(255,255,255,0.12); border-radius: 4px;
+      padding: 1px 6px; font-size: 11px; color: rgba(255,255,255,0.8);
+    }
+    #toolbar .sep { color: rgba(255,255,255,0.15); }
+    #toolbar .ro-badge {
+      background: #f59e0b; color: #1a1a1a; font-size: 10px; font-weight: 700;
+      padding: 2px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: .05em;
+    }
+    #zoom-lbl { color: rgba(255,255,255,0.45); font-size: 11px; min-width: 38px; text-align: right; }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 56px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.82); color: #fff; padding: 7px 16px;
+      border-radius: 18px; font-size: 12px; pointer-events: none;
+      opacity: 0; transition: opacity 0.18s; z-index: 2000;
+      max-width: 90vw; text-align: center;
+    }
+    .toast.on { opacity: 1; }
+
+    /* Loading */
+    #loading {
+      position: fixed; inset: 0; background: #1e1e1e; z-index: 3000;
+      display: flex; align-items: center; justify-content: center;
+      color: rgba(255,255,255,0.4); font-size: 14px;
+    }
+    #loading.gone { display: none; }
+  </style>
+</head>
+<body>
+<div id="loading">Loading...</div>
+<div id="stage"><div id="canvas"><svg id="arrow-svg" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
+<div id="toolbar">
+  <span class="idea-name" id="idea-lbl"></span>
+  <span class="sep">|</span>
+  <span><kbd>F</kbd> Fit</span>
+  <span class="sep">|</span>
+  <span><kbd>L</kbd> Arrows</span>
+  <span class="sep">|</span>
+  <span id="zoom-lbl">35%</span>
+  <span id="ro-badge" class="ro-badge" style="display:none">Read-only</span>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── XSS escaping helper ─────────────────────────────────────────────────
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Group colors go into style attributes: allow only plain color values
+  const SAFE_COLOR = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,30}|(rgb|rgba|hsl|hsla)\([0-9.,%\s/a-z+-]{1,60}\))$/;
+  function safeColor(c, fallback) {
+    return (typeof c === 'string' && SAFE_COLOR.test(c.trim()) && !/url|expression/i.test(c)) ? c.trim() : fallback;
+  }
+
+  // Board geometry is used in style strings: force numbers
+  function num(v, fallback) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function normalize(data) {
+    if (!data || typeof data !== 'object') data = {};
+    const boards = (data.boards && typeof data.boards === 'object') ? data.boards : {};
+    for (const b of Object.values(boards)) {
+      if (!b || typeof b !== 'object') continue;
+      b.x = num(b.x, 0); b.y = num(b.y, 0);
+      b.w = num(b.w, 390); b.h = num(b.h, 844);
+    }
+    data.boards = boards;
+    if (!Array.isArray(data.groups)) data.groups = [];
+    if (!Array.isArray(data.links)) data.links = [];
+    return data;
+  }
+
+  // ── Setup ───────────────────────────────────────────────────────────────
+  const STATIC = typeof STATIC_CANVAS !== 'undefined';
+  const OVERVIEW = new URLSearchParams(location.search).get('overview') === '1';
+  if (OVERVIEW) document.getElementById('toolbar').style.display = 'none';
+  // BASE detection works for both single-root (/idea/) and registry (/<project>/<idea>/) paths
+  const _pathParts = STATIC ? [] : window.location.pathname.replace(/\/+$/, '').split('/').filter(Boolean);
+  const IDEA = STATIC ? '' : (_pathParts[_pathParts.length - 1] || '');
+  const BASE = STATIC ? '' : ('/' + _pathParts.join('/'));
+  const READ_ONLY = STATIC || !!window.CANVAS_READ_ONLY;
+  // Share mode: sandboxed boards load their files through a keyed path (no cookie in an opaque origin)
+  const ASSET_PREFIX = (!STATIC && typeof window.CANVAS_ASSET_PREFIX === 'string' &&
+                        /^\/_k\/[0-9a-f]+$/.test(window.CANVAS_ASSET_PREFIX)) ? window.CANVAS_ASSET_PREFIX : '';
+  function boardUrl(file) {
+    return STATIC ? ('boards/' + encodeURIComponent(file)) : (ASSET_PREFIX + BASE + '/boards/' + encodeURIComponent(file));
+  }
+  if (READ_ONLY) {
+    const badge = document.getElementById('ro-badge');
+    if (badge) badge.style.display = '';
+  }
+
+  document.title = (IDEA || 'Exported canvas') + ' - Canvas';
+  document.getElementById('idea-lbl').textContent = IDEA || 'Canvas';
+
+  // ── State ────────────────────────────────────────────────────────────────
+  let canvasData = null;
+  let vx = 0, vy = 0, sc = 0.35;
+  let panning = false, panRef = null;
+  let dragging = null;  // {file, el, sx, sy, ox, oy}
+  let collapsed = new Set();
+  let boardEls = {};
+  let toastTimer = null;
+  let showArrows = true;
+
+  const stage   = document.getElementById('stage');
+  const cvs     = document.getElementById('canvas');
+  const arrowSvg = document.getElementById('arrow-svg');
+  const toast   = document.getElementById('toast');
+  const zoomLbl = document.getElementById('zoom-lbl');
+
+  // ── Transform ────────────────────────────────────────────────────────────
+  function applyXform() {
+    cvs.style.transform = `translate(${vx}px,${vy}px) scale(${sc})`;
+    // Keep a GPU layer only while moving, then drop it so the browser repaints sharply at the current zoom
+    // (a permanent will-change stretches the bitmap painted at the first zoom, e.g. 5%, and looks blurry)
+    cvs.classList.add('moving');
+    clearTimeout(applyXform.t);
+    applyXform.t = setTimeout(() => cvs.classList.remove('moving'), 150);
+    zoomLbl.textContent = Math.round(sc * 100) + '%';
+  }
+
+  // ── Toast ────────────────────────────────────────────────────────────────
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('on'), 1800);
+  }
+
+  // ── Load canvas ──────────────────────────────────────────────────────────
+  async function loadCanvas(redraw) {
+    if (STATIC) {
+      canvasData = normalize(STATIC_CANVAS);
+    } else {
+      const r = await fetch(BASE + '/canvas.json?_=' + Date.now());
+      canvasData = normalize(await r.json());
+    }
+    if (redraw !== false) renderAll();
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
+  function renderAll() {
+    cvs.innerHTML = '';
+    cvs.appendChild(arrowSvg);   // innerHTML='' detaches it; put it back first
+    boardEls = {};
+    const { boards = {}, groups = [] } = canvasData;
+
+    // Compute group background boxes
+    const gBounds = {};
+    for (const [, b] of Object.entries(boards)) {
+      const g = b.group;
+      if (!g) continue;
+      if (!gBounds[g]) gBounds[g] = { x1: Infinity, y1: Infinity, x2: -Infinity, y2: -Infinity };
+      const gb = gBounds[g];
+      gb.x1 = Math.min(gb.x1, b.x - 28);
+      gb.y1 = Math.min(gb.y1, b.y - 58);
+      gb.x2 = Math.max(gb.x2, b.x + b.w + 28);
+      gb.y2 = Math.max(gb.y2, b.y + b.h + 28);
+    }
+
+    // Render groups (bottom layer)
+    for (const grp of groups) {
+      const gb = gBounds[grp.id];
+      if (!gb) continue;
+      const gw = gb.x2 - gb.x1, gh = gb.y2 - gb.y1;
+
+      const bg = document.createElement('div');
+      bg.className = 'grp-bg';
+      bg.style.cssText =
+        `left:${gb.x1}px;top:${gb.y1}px;width:${gw}px;height:${gh}px;` +
+        `background:${safeColor(grp.color, 'rgba(255,255,255,0.04)')};`;
+      cvs.appendChild(bg);
+
+      const hdr = document.createElement('div');
+      hdr.className = 'grp-hdr';
+      hdr.style.cssText = `left:${gb.x1 + 10}px;top:${gb.y1 + 10}px;color:${safeColor(grp.textColor, '#999')};`;
+      const isCol = collapsed.has(grp.id);
+      hdr.innerHTML = `<span class="grp-arrow">${isCol ? '▶' : '▼'}</span><span>${escHtml(grp.label || grp.id)}</span>`;
+      hdr.addEventListener('click', () => toggleGroup(grp.id));
+      cvs.appendChild(hdr);
+    }
+
+    // Render artboards
+    for (const [file, b] of Object.entries(boards)) {
+      const isHidden = b.group && collapsed.has(b.group);
+      const div = document.createElement('div');
+      div.className = 'board' + (isHidden ? ' collapsed' : '');
+      div.dataset.file = file;
+      div.style.cssText = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;`;
+
+      const bar = document.createElement('div');
+      bar.className = 'board-bar';
+      const badgeHtml = b.status === 'approved'
+        ? '<span class="status-badge approved"></span>'
+        : b.status === 'rejected'
+          ? '<span class="status-badge rejected"></span>'
+          : '';
+      const titleClass = b.status === 'rejected' ? ' rejected' : '';
+      bar.innerHTML =
+        `<span class="board-id">${escHtml(file.replace('.html', ''))}</span>` +
+        badgeHtml +
+        `<span class="board-title-text${titleClass}">${escHtml(b.title || '')}</span>`;
+      if (b.note) bar.title = b.note;
+
+      // Click: copy the file ID
+      bar.addEventListener('click', (e) => {
+        if (dragging) return;
+        const id = file.replace('.html', '');
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(id)
+            .then(() => showToast('Copied: ' + id))
+            .catch(() => showToast(id));
+        } else {
+          showToast(id);
+        }
+        e.stopPropagation();
+      });
+
+      // Double click: open in a new tab
+      bar.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        window.open(boardUrl(file), '_blank', 'noopener');
+      });
+
+      // Drag by the title bar (unless read-only)
+      if (!READ_ONLY) {
+        bar.addEventListener('mousedown', (e) => {
+          if (e.button !== 0) return;
+          e.stopPropagation();
+          dragging = { file, el: div, sx: e.clientX, sy: e.clientY, ox: b.x, oy: b.y };
+          e.preventDefault();
+        });
+      }
+
+      const iframe = document.createElement('iframe');
+      iframe.src = boardUrl(file);
+      iframe.width = b.w;
+      iframe.height = b.h;
+      // Boards run in an opaque origin: their scripts cannot call this server's APIs.
+      // A file:// page (overview, an export opened from disk) has no server to protect, and an
+      // opaque origin there could not load ../shared/*.css, so it keeps the file origin.
+      iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups' +
+                          (location.protocol === 'file:' ? ' allow-same-origin' : ''));
+      iframe.setAttribute('loading', 'lazy');
+      iframe.setAttribute('scrolling', 'no');
+      iframe.tabIndex = -1;
+
+      div.appendChild(bar);
+      div.appendChild(iframe);
+      cvs.appendChild(div);
+      boardEls[file] = div;
+    }
+    cvs.appendChild(arrowSvg); // draw above the artboards
+    renderArrows();
+  }
+
+  // ── Render arrows ────────────────────────────────────────────────────────
+  function renderArrows() {
+    while (arrowSvg.lastChild) arrowSvg.removeChild(arrowSvg.lastChild);
+    arrowSvg.classList.toggle('hidden', !showArrows);
+    if (!showArrows || !canvasData) return;
+    const { boards = {}, links = [] } = canvasData;
+    if (!links.length) return;
+
+    const NS = 'http://www.w3.org/2000/svg';
+    // Chrome skips zero-sized SVGs, so size it to cover every artboard
+    const all = Object.values(boards);
+    const x1 = Math.min(...all.map(b => b.x)) - 400, y1 = Math.min(...all.map(b => b.y)) - 400;
+    const x2 = Math.max(...all.map(b => b.x + b.w)) + 400, y2 = Math.max(...all.map(b => b.y + b.h)) + 400;
+    arrowSvg.style.left = x1 + 'px'; arrowSvg.style.top = y1 + 'px';
+    arrowSvg.style.width = (x2 - x1) + 'px'; arrowSvg.style.height = (y2 - y1) + 'px';
+    arrowSvg.setAttribute('viewBox', `${x1} ${y1} ${x2 - x1} ${y2 - y1}`);
+    const defs = document.createElementNS(NS, 'defs');
+    defs.innerHTML =
+      '<marker id="ah" markerWidth="8" markerHeight="6" refX="7" refY="3" ' +
+      'orient="auto" markerUnits="strokeWidth">' +
+      '<path d="M0,0 L0,6 L8,3 z" fill="#ffb547"/></marker>';
+    arrowSvg.appendChild(defs);
+
+    for (const lnk of links) {
+      const fb = boards[lnk.from], tb = boards[lnk.to];
+      if (!fb || !tb) continue;
+      let sx, sy, tx, ty, cx1, cy1, cx2, cy2;
+      if (tb.x >= fb.x + fb.w) {
+        // Forward: right edge -> left edge
+        sx = fb.x + fb.w; sy = fb.y + fb.h / 2;
+        tx = tb.x;        ty = tb.y + tb.h / 2;
+        const off = Math.max(24, Math.abs(tx - sx) * 0.4);
+        cx1 = sx + off; cy1 = sy; cx2 = tx - off; cy2 = ty;
+      } else if (tb.y >= fb.y + fb.h || tb.y + tb.h <= fb.y) {
+        // Vertical: bottom edge -> top edge (or top -> bottom when the target is above)
+        const down = tb.y >= fb.y + fb.h;
+        sx = fb.x + fb.w / 2; sy = down ? fb.y + fb.h : fb.y;
+        tx = tb.x + tb.w / 2; ty = down ? tb.y : tb.y + tb.h;
+        const off = Math.max(24, Math.abs(ty - sy) * 0.4) * (down ? 1 : -1);
+        cx1 = sx; cy1 = sy + off; cx2 = tx; cy2 = ty - off;
+      } else {
+        // Backward on the same row: leave the bottom edge, pass below every board in between, enter the bottom edge
+        sx = fb.x + fb.w / 2; sy = fb.y + fb.h;
+        tx = tb.x + tb.w / 2; ty = tb.y + tb.h;
+        const left = Math.min(fb.x, tb.x), right = Math.max(fb.x + fb.w, tb.x + tb.w);
+        let low = Math.max(sy, ty);
+        for (const b of all) {
+          if (b.x < right && b.x + b.w > left) low = Math.max(low, b.y + b.h);
+        }
+        low += 60;
+        // A cubic with both control points at y=c bottoms out at 0.25*start + 0.75*c
+        const c = (low - 0.25 * Math.max(sy, ty)) / 0.75;
+        cx1 = sx; cy1 = c; cx2 = tx; cy2 = c;
+      }
+
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', `M${sx},${sy} C${cx1},${cy1} ${cx2},${cy2} ${tx},${ty}`);
+      path.setAttribute('stroke', '#ffb547');
+      path.setAttribute('stroke-width', '3');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('marker-end', 'url(#ah)');
+      arrowSvg.appendChild(path);
+
+      if (lnk.label) {
+        // cubic bezier midpoint at t=0.5
+        const mx = 0.125*sx + 0.375*cx1 + 0.375*cx2 + 0.125*tx;
+        const my = 0.125*sy + 0.375*cy1 + 0.375*cy2 + 0.125*ty;
+        const txt = document.createElementNS(NS, 'text');
+        txt.setAttribute('x', mx);
+        txt.setAttribute('y', my - 6);
+        txt.setAttribute('fill', '#ffb547');
+        txt.setAttribute('font-size', '14');
+        txt.setAttribute('font-weight', '700');
+        txt.setAttribute('stroke', '#1e1e1e');
+        txt.setAttribute('stroke-width', '4');
+        txt.setAttribute('paint-order', 'stroke');
+        txt.setAttribute('font-family', '-apple-system, sans-serif');
+        txt.setAttribute('text-anchor', 'middle');
+        txt.textContent = lnk.label;
+        arrowSvg.appendChild(txt);
+      }
+    }
+  }
+
+  function toggleGroup(gid) {
+    if (collapsed.has(gid)) collapsed.delete(gid);
+    else collapsed.add(gid);
+    renderAll();
+  }
+
+  // ── Fit to view ──────────────────────────────────────────────────────────
+  function fitToView() {
+    if (!canvasData) return;
+    const bds = Object.values(canvasData.boards || {});
+    if (!bds.length) return;
+    const minX = Math.min(...bds.map(b => b.x));
+    const minY = Math.min(...bds.map(b => b.y));
+    const maxX = Math.max(...bds.map(b => b.x + b.w));
+    const maxY = Math.max(...bds.map(b => b.y + b.h));
+    const cw = maxX - minX + 96, ch = maxY - minY + 120;
+    const sw = stage.clientWidth, sh = stage.clientHeight;
+    const ns = Math.min(sw / cw, sh / ch, OVERVIEW ? Infinity : 1);
+    sc = Math.max(0.05, ns);
+    vx = (sw - cw * sc) / 2 - minX * sc + 48 * sc;
+    vy = (sh - ch * sc) / 2 - minY * sc + 60 * sc;
+    applyXform();
+  }
+
+  // ── Mouse events ─────────────────────────────────────────────────────────
+  stage.addEventListener('mousedown', (e) => {
+    if (e.target === stage || e.target === cvs ||
+        e.target.closest?.('.grp-bg') || e.target.closest?.('.grp-hdr')) {
+      if (e.button !== 0) return;
+      panning = true;
+      panRef = { x: e.clientX - vx, y: e.clientY - vy };
+      stage.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (panning) {
+      vx = e.clientX - panRef.x;
+      vy = e.clientY - panRef.y;
+      applyXform();
+    } else if (dragging) {
+      const dx = (e.clientX - dragging.sx) / sc;
+      const dy = (e.clientY - dragging.sy) / sc;
+      const nx = dragging.ox + dx, ny = dragging.oy + dy;
+      dragging.el.style.left = nx + 'px';
+      dragging.el.style.top  = ny + 'px';
+      if (canvasData.boards[dragging.file]) {
+        canvasData.boards[dragging.file].x = nx;
+        canvasData.boards[dragging.file].y = ny;
+      }
+      renderArrows();
+    }
+  });
+
+  window.addEventListener('mouseup', async (e) => {
+    panning = false;
+    stage.style.cursor = '';
+    if (!dragging) return;
+    const { file, el, sx, sy, ox, oy } = dragging;
+    dragging = null;
+    const dx = (e.clientX - sx) / sc;
+    const dy = (e.clientY - sy) / sc;
+    const nx = Math.round(ox + dx);
+    const ny = Math.round(oy + dy);
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
+    undoStack.push({ file, ox, oy, nx, ny });
+    if (undoStack.length > 100) undoStack.shift();
+    redoStack.length = 0;
+    await moveBoard(file, nx, ny);
+  });
+
+  // ── Undo (artboard moves) ────────────────────────────────────────────────
+  const undoStack = [], redoStack = [];
+
+  async function moveBoard(file, x, y) {
+    const b = canvasData.boards[file];
+    if (!b) return;
+    b.x = x; b.y = y;
+    const el = boardEls[file];
+    if (el) { el.style.left = x + 'px'; el.style.top = y + 'px'; }
+    renderArrows();
+    try {
+      const r = await fetch(BASE + '/api/layout', {
+        method: 'POST',
+        // The server checks this exact Content-Type and the browser-sent Origin
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ board: file, x, y })
+      });
+      if (!r.ok) showToast('Could not save position (' + r.status + ')');
+    } catch (_) {
+      showToast('Could not save position: server disconnected');
+    }
+  }
+
+  async function undoMove(redo) {
+    const from = redo ? redoStack : undoStack, to = redo ? undoStack : redoStack;
+    const m = from.pop();
+    if (!m) { showToast(redo ? 'Nothing to redo' : 'Nothing to undo'); return; }
+    to.push(m);
+    const id = m.file.replace('.html', '');
+    if (redo) { await moveBoard(m.file, m.nx, m.ny); showToast('Redo: ' + id); }
+    else      { await moveBoard(m.file, m.ox, m.oy); showToast('Undo: ' + id); }
+  }
+
+  // Wheel zoom
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    // Scale by delta so a mouse wheel (large deltas) and a trackpad (many small deltas) zoom at the same speed
+    const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+    const factor = Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.002));
+    const ns = Math.max(0.04, Math.min(5, sc * factor));
+    vx = e.clientX - (e.clientX - vx) * ns / sc;
+    vy = e.clientY - (e.clientY - vy) * ns / sc;
+    sc = ns;
+    applyXform();
+  }, { passive: false });
+
+  // ── Touch (mobile) ───────────────────────────────────────────────────────
+  let touchPan = null, pinchDist = null, pinchMid = null;
+
+  stage.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      touchPan = { x: e.touches[0].clientX - vx, y: e.touches[0].clientY - vy };
+      pinchDist = null;
+    } else if (e.touches.length === 2) {
+      touchPan = null;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchDist = Math.hypot(dx, dy);
+      pinchMid = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+      };
+    }
+  }, { passive: true });
+
+  stage.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 1 && touchPan) {
+      e.preventDefault();
+      vx = e.touches[0].clientX - touchPan.x;
+      vy = e.touches[0].clientY - touchPan.y;
+      applyXform();
+    } else if (e.touches.length === 2 && pinchDist !== null) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const factor = dist / pinchDist;
+      const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const ns = Math.max(0.04, Math.min(5, sc * factor));
+      vx = mx - (mx - vx) * ns / sc;
+      vy = my - (my - vy) * ns / sc;
+      sc = ns;
+      pinchDist = dist;
+      pinchMid = { x: mx, y: my };
+      applyXform();
+    }
+  }, { passive: false });
+
+  stage.addEventListener('touchend', () => {
+    touchPan = null; pinchDist = null;
+  }, { passive: true });
+
+  // ── Keyboard ─────────────────────────────────────────────────────────────
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      if (!READ_ONLY) undoMove(e.shiftKey);
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+      e.preventDefault();
+      if (!READ_ONLY) undoMove(true);
+      return;
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'f' || e.key === 'F') fitToView();
+    if (e.key === 'l' || e.key === 'L') {
+      showArrows = !showArrows;
+      renderArrows();
+      showToast(showArrows ? 'Arrows shown' : 'Arrows hidden');
+    }
+  });
+
+  // ── SSE (server mode only) ───────────────────────────────────────────────
+  function setupSSE() {
+    if (STATIC) return;
+    if (new URLSearchParams(window.location.search).get('static') === '1') return;
+    const es = new EventSource(BASE + '/api/events');
+    es.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        if (d.type === 'board' && d.file) {
+          const el = boardEls[d.file];
+          if (el) {
+            const iframe = el.querySelector('iframe');
+            if (iframe) iframe.src = iframe.src.split('?')[0] + '?_=' + Date.now();
+          }
+        } else if (d.type === 'canvas') {
+          loadCanvas(true);
+        }
+      } catch (_) {}
+    };
+    es.onerror = () => setTimeout(setupSSE, 3000);
+  }
+
+  // ── Start ────────────────────────────────────────────────────────────────
+  applyXform();
+  loadCanvas().then(() => {
+    fitToView();
+    document.getElementById('loading').classList.add('gone');
+    setupSSE();
+  }).catch((err) => {
+    document.getElementById('loading').textContent = 'Failed to load: ' + err.message;
+  });
+
+})();
+</script>
+</body>
+</html>

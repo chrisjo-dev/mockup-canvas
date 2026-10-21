@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440">
+<title>T06 - Web Landing</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<style>
+  body { width: 1440px; min-height: 900px; background: var(--color-bg); overflow-x: hidden; }
+
+  /* ====== NAV ====== */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 80px; height: 68px;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-subtle);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .logo {
+    display: flex; align-items: center; gap: var(--space-2);
+    font-family: var(--font-display); font-size: var(--text-xl); font-weight: var(--weight-bold);
+    color: var(--color-forest-700);
+  }
+  .logo-icon {
+    width: 32px; height: 32px; border-radius: var(--radius-md);
+    background: var(--color-forest-600); display: flex; align-items: center; justify-content: center;
+  }
+  .nav-links { display: flex; gap: var(--space-8); align-items: center; }
+  .nav-link { font-size: var(--text-base); color: var(--color-text-secondary); font-weight: var(--weight-medium); }
+  .nav-link.active { color: var(--color-text-primary); font-weight: var(--weight-semibold); }
+  .nav-cta-row { display: flex; gap: var(--space-3); align-items: center; }
+  .btn-ghost { font-size: var(--text-base); color: var(--color-text-primary); font-weight: var(--weight-semibold); padding: 10px 20px; border-radius: var(--radius-md); }
+  .btn-primary-sm {
+    background: var(--color-forest-600); color: #fff; padding: 10px 22px;
+    border-radius: var(--radius-md); font-size: var(--text-base); font-weight: var(--weight-semibold);
+  }
+
+  /* ====== HERO ====== */
+  .hero {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    min-height: 620px; overflow: hidden;
+  }
+  .hero-content {
+    background: var(--color-surface);
+    padding: 96px 80px 80px 80px;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    background: var(--color-forest-100); color: var(--color-forest-700);
+    padding: 6px 14px; border-radius: var(--radius-full);
+    font-size: var(--text-sm); font-weight: var(--weight-semibold);
+    margin-bottom: var(--space-6); width: fit-content;
+  }
+  .hero-title {
+    font-family: var(--font-display); font-size: 54px; font-weight: var(--weight-bold);
+    color: var(--color-text-primary); line-height: 1.1; margin-bottom: var(--space-5);
+  }
+  .hero-title em { color: var(--color-forest-600); font-style: italic; }
+  .hero-body {
+    font-size: var(--text-lg); color: var(--color-text-secondary);
+    line-height: var(--leading-loose); margin-bottom: var(--space-8);
+    max-width: 480px;
+  }
+  .hero-actions { display: flex; gap: var(--space-4); align-items: center; }
+  .btn-hero {
+    background: var(--color-forest-600); color: #fff;
+    padding: 16px 32px; border-radius: var(--radius-lg);
+    font-size: var(--text-md); font-weight: var(--weight-semibold);
+    box-shadow: 0 4px 20px rgba(58,110,56,0.28);
+  }
+  .btn-hero-ghost {
+    color: var(--color-text-primary); padding: 16px 28px;
+    font-size: var(--text-md); font-weight: var(--weight-semibold);
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .hero-social-proof {
+    display: flex; align-items: center; gap: var(--space-4); margin-top: var(--space-8);
+    padding-top: var(--space-8); border-top: 1px solid var(--color-border-subtle);
+  }
+  .proof-avatars { display: flex; }
+  .proof-av {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    border: 2px solid var(--color-surface);
+    font-size: var(--text-sm); font-weight: var(--weight-bold);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; margin-left: -10px;
+  }
+  .proof-av:first-child { margin-left: 0; }
+  .proof-text { font-size: var(--text-sm); color: var(--color-text-secondary); }
+  .proof-text strong { color: var(--color-text-primary); font-weight: var(--weight-semibold); }
+
+  /* Hero illustration panel */
+  .hero-visual {
+    background: var(--color-forest-800); position: relative; overflow: hidden;
+  }
+  .hero-visual svg { width: 100%; height: 100%; display: block; }
+
+  /* ====== FEATURES ====== */
+  .features {
+    padding: 96px 80px; background: var(--color-surface);
+    border-top: 1px solid var(--color-border-subtle);
+  }
+  .features-header { text-align: center; margin-bottom: 64px; }
+  .features-label {
+    font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--color-forest-600); font-weight: var(--weight-semibold); margin-bottom: var(--space-3);
+  }
+  .features-title {
+    font-family: var(--font-display); font-size: var(--text-3xl); font-weight: var(--weight-bold);
+    color: var(--color-text-primary); line-height: var(--leading-tight);
+  }
+  .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; }
+  .feature-card {
+    background: var(--color-bg); border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-xl); padding: 36px 32px;
+  }
+  .feature-icon {
+    width: 52px; height: 52px; border-radius: var(--radius-lg);
+    background: var(--color-forest-100); display: flex; align-items: center; justify-content: center;
+    margin-bottom: var(--space-5);
+  }
+  .feature-name { font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--color-text-primary); margin-bottom: var(--space-3); }
+  .feature-desc { font-size: var(--text-base); color: var(--color-text-secondary); line-height: var(--leading-loose); }
+
+  /* ====== HOW IT WORKS ====== */
+  .how-it-works {
+    padding: 96px 80px; background: var(--color-forest-700);
+  }
+  .how-title {
+    font-family: var(--font-display); font-size: var(--text-3xl); font-weight: var(--weight-bold);
+    color: #fff; text-align: center; margin-bottom: 64px; line-height: var(--leading-tight);
+  }
+  .steps-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; }
+  .step { text-align: center; }
+  .step-num {
+    width: 48px; height: 48px; border-radius: var(--radius-full);
+    background: rgba(255,255,255,0.15); color: #fff;
+    font-size: var(--text-lg); font-weight: var(--weight-bold);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto var(--space-5);
+  }
+  .step-title { font-size: var(--text-md); font-weight: var(--weight-semibold); color: #fff; margin-bottom: var(--space-3); }
+  .step-desc { font-size: var(--text-base); color: var(--color-forest-200); line-height: var(--leading-loose); }
+
+  /* ====== CTA BANNER ====== */
+  .cta-banner {
+    background: var(--color-sand-50); padding: 80px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+  .banner-text .banner-title {
+    font-family: var(--font-display); font-size: var(--text-2xl); font-weight: var(--weight-bold);
+    color: var(--color-text-primary); margin-bottom: var(--space-3);
+  }
+  .banner-text .banner-sub { font-size: var(--text-base); color: var(--color-text-secondary); }
+  .banner-actions { display: flex; gap: var(--space-4); }
+  .btn-banner {
+    background: var(--color-forest-600); color: #fff; padding: 14px 28px;
+    border-radius: var(--radius-lg); font-size: var(--text-base); font-weight: var(--weight-semibold);
+  }
+  .btn-banner-ghost {
+    border: 1.5px solid var(--color-border); background: var(--color-surface);
+    color: var(--color-text-primary); padding: 14px 28px;
+    border-radius: var(--radius-lg); font-size: var(--text-base); font-weight: var(--weight-semibold);
+  }
+
+  /* ====== FOOTER ====== */
+  .footer {
+    background: var(--color-sand-900); padding: 40px 80px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .footer-logo { font-family: var(--font-display); font-size: var(--text-lg); color: var(--color-sand-200); font-weight: var(--weight-bold); }
+  .footer-links { display: flex; gap: var(--space-8); }
+  .footer-link { font-size: var(--text-sm); color: var(--color-sand-400); }
+  .footer-copy { font-size: var(--text-sm); color: var(--color-sand-500); }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<div class="nav">
+  <div class="logo">
+    <div class="logo-icon">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <polygon points="9,2 17,16 1,16" fill="white" opacity="0.9"/>
+        <polygon points="9,2 15,16 3,16" fill="white" opacity="0.4"/>
+      </svg>
+    </div>
+    TrailMate
+  </div>
+  <div class="nav-links">
+    <div class="nav-link active">Features</div>
+    <div class="nav-link">Trails</div>
+    <div class="nav-link">Community</div>
+    <div class="nav-link">Pricing</div>
+  </div>
+  <div class="nav-cta-row">
+    <div class="btn-ghost">Sign in</div>
+    <div class="btn-primary-sm">Get the app</div>
+  </div>
+</div>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-content">
+    <div class="hero-badge">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <circle cx="6" cy="6" r="5" stroke="var(--color-forest-600)" stroke-width="1.5"/>
+        <path d="M4 6L5.5 7.5L8 4.5" stroke="var(--color-forest-600)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Free to use, always
+    </div>
+    <div class="hero-title">Plan hikes.<br>Bring your <em>friends</em>.<br>Hit the trail.</div>
+    <div class="hero-body">TrailMate makes weekend hiking social. Find trails, coordinate schedules, share packing lists, and show up ready together.</div>
+    <div class="hero-actions">
+      <div class="btn-hero">Download Free</div>
+      <div class="btn-hero-ghost">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="10" r="8.5" stroke="var(--color-text-muted)" stroke-width="1.5"/>
+          <polygon points="8,7 14,10 8,13" fill="var(--color-text-primary)"/>
+        </svg>
+        See how it works
+      </div>
+    </div>
+    <div class="hero-social-proof">
+      <div class="proof-avatars">
+        <div class="proof-av" style="background:var(--color-forest-500)">S</div>
+        <div class="proof-av" style="background:var(--color-accent-400)">L</div>
+        <div class="proof-av" style="background:var(--color-sky-500)">J</div>
+        <div class="proof-av" style="background:var(--color-sand-500)">A</div>
+        <div class="proof-av" style="background:var(--color-forest-400)">R</div>
+      </div>
+      <div class="proof-text"><strong>2,400+ hikers</strong> planned trips this month</div>
+    </div>
+  </div>
+
+  <!-- Hero visual: terrain illustration -->
+  <div class="hero-visual">
+    <svg viewBox="0 0 720 620" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <linearGradient id="heroSky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#1a2e1a"/>
+          <stop offset="60%" stop-color="#2a5028"/>
+          <stop offset="100%" stop-color="#3a6e38"/>
+        </linearGradient>
+        <linearGradient id="heroMtn" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#4d8c4a"/>
+          <stop offset="100%" stop-color="#1e3a1e"/>
+        </linearGradient>
+        <radialGradient id="heroMoon" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#f5eddf"/>
+          <stop offset="100%" stop-color="#d0b898"/>
+        </radialGradient>
+      </defs>
+
+      <!-- Sky -->
+      <rect width="720" height="620" fill="url(#heroSky)"/>
+
+      <!-- Stars -->
+      <circle cx="80" cy="60" r="1.5" fill="white" opacity="0.7"/>
+      <circle cx="160" cy="35" r="1" fill="white" opacity="0.5"/>
+      <circle cx="250" cy="70" r="1.5" fill="white" opacity="0.8"/>
+      <circle cx="340" cy="42" r="1" fill="white" opacity="0.6"/>
+      <circle cx="450" cy="55" r="2" fill="white" opacity="0.7"/>
+      <circle cx="580" cy="30" r="1.5" fill="white" opacity="0.5"/>
+      <circle cx="650" cy="65" r="1" fill="white" opacity="0.7"/>
+      <circle cx="110" cy="110" r="1" fill="white" opacity="0.4"/>
+      <circle cx="390" cy="85" r="1.5" fill="white" opacity="0.6"/>
+      <circle cx="510" cy="95" r="1" fill="white" opacity="0.5"/>
+      <circle cx="620" cy="115" r="1.5" fill="white" opacity="0.4"/>
+
+      <!-- Moon -->
+      <circle cx="600" cy="80" r="36" fill="url(#heroMoon)" opacity="0.9"/>
+      <circle cx="615" cy="70" r="30" fill="#2a5028"/>
+
+      <!-- Background mountains (far) -->
+      <polygon points="0,620 0,380 120,220 240,340 360,200 480,310 600,180 720,290 720,620" fill="#1e3a1e" opacity="0.9"/>
+
+      <!-- Mid mountains -->
+      <polygon points="0,620 0,440 80,320 200,430 320,270 440,400 560,260 680,380 720,350 720,620" fill="#2a5028"/>
+
+      <!-- Main mountain range -->
+      <polygon points="0,620 60,500 160,360 280,480 360,320 440,420 540,340 640,440 720,400 720,620" fill="url(#heroMtn)"/>
+
+      <!-- Snow caps -->
+      <polygon points="280,480 360,320 440,420" fill="#f5eddf" opacity="0.08"/>
+      <polygon points="360,320 390,360 330,360" fill="#f5eddf" opacity="0.15"/>
+
+      <!-- Foreground hills -->
+      <polygon points="0,620 0,530 180,480 360,520 540,490 720,510 720,620" fill="#1a2e1a"/>
+
+      <!-- Trees silhouette -->
+      <g fill="#1a2e1a">
+        <polygon points="30,530 38,500 46,530"/>
+        <polygon points="50,530 58,505 66,530"/>
+        <polygon points="70,530 78,510 86,530"/>
+        <polygon points="600,510 608,485 616,510"/>
+        <polygon points="625,510 633,490 641,510"/>
+        <polygon points="650,510 658,488 666,510"/>
+        <polygon points="675,515 683,493 691,515"/>
+      </g>
+
+      <!-- Trail path lit by moonlight -->
+      <path d="M100,620 Q180,570 240,530 Q300,495 360,510 Q420,525 480,505 Q540,485 600,490 Q660,495 720,480"
+            stroke="rgba(245,237,223,0.25)" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+      <!-- UI card overlaid -->
+      <g transform="translate(100,140)">
+        <rect width="280" height="160" rx="16" fill="rgba(255,255,255,0.97)" filter="drop-shadow(0 8px 32px rgba(0,0,0,0.3))"/>
+        <!-- Card header -->
+        <rect width="280" height="48" rx="0" fill="transparent"/>
+        <rect x="16" y="14" width="32" height="32" rx="8" fill="#3a6e38"/>
+        <polygon transform="translate(22,17)" points="10,0 20,18 0,18" fill="white" opacity="0.9"/>
+        <text x="56" y="27" font-family="Fraunces,serif" font-size="14" fill="#1a2e1a" font-weight="700">Pine Ridge Loop</text>
+        <text x="56" y="42" font-family="Inter,sans-serif" font-size="10" fill="#7a6347">Sat, Oct 25</text>
+
+        <!-- Divider -->
+        <line x1="16" y1="52" x2="264" y2="52" stroke="#e6d5be" stroke-width="1"/>
+
+        <!-- Stats row -->
+        <text x="30" y="76" text-anchor="middle" font-family="Inter,sans-serif" font-size="16" font-weight="700" fill="#1a2e1a">7.2</text>
+        <text x="30" y="88" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#9b7e5e">miles</text>
+        <line x1="68" y1="62" x2="68" y2="92" stroke="#e6d5be" stroke-width="1"/>
+        <text x="100" y="76" text-anchor="middle" font-family="Inter,sans-serif" font-size="16" font-weight="700" fill="#1a2e1a">+1,340</text>
+        <text x="100" y="88" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#9b7e5e">elev. ft</text>
+        <line x1="142" y1="62" x2="142" y2="92" stroke="#e6d5be" stroke-width="1"/>
+        <text x="174" y="76" text-anchor="middle" font-family="Inter,sans-serif" font-size="16" font-weight="700" fill="#1a2e1a">3.5h</text>
+        <text x="174" y="88" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#9b7e5e">est.</text>
+        <line x1="210" y1="62" x2="210" y2="92" stroke="#e6d5be" stroke-width="1"/>
+        <text x="248" y="76" text-anchor="middle" font-family="Inter,sans-serif" font-size="16" font-weight="700" fill="#1a2e1a">4</text>
+        <text x="248" y="88" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#9b7e5e">going</text>
+
+        <!-- Divider -->
+        <line x1="16" y1="98" x2="264" y2="98" stroke="#e6d5be" stroke-width="1"/>
+
+        <!-- Friends row -->
+        <circle cx="28" cy="118" r="12" fill="#4d8c4a"/>
+        <text x="28" y="122" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" font-weight="700" fill="white">S</text>
+        <circle cx="48" cy="118" r="12" fill="#e06030"/>
+        <text x="48" y="122" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" font-weight="700" fill="white">L</text>
+        <circle cx="68" cy="118" r="12" fill="#2a8ec4"/>
+        <text x="68" y="122" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" font-weight="700" fill="white">J</text>
+        <circle cx="88" cy="118" r="12" fill="#9b7e5e"/>
+        <text x="88" y="122" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" font-weight="700" fill="white">A</text>
+
+        <!-- CTA button -->
+        <rect x="168" y="107" width="96" height="28" rx="8" fill="#3a6e38"/>
+        <text x="216" y="125" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="600" fill="white">Join Hike</text>
+      </g>
+
+      <!-- Floating notification -->
+      <g transform="translate(420,90)">
+        <rect width="200" height="56" rx="14" fill="rgba(255,255,255,0.95)" filter="drop-shadow(0 4px 16px rgba(0,0,0,0.2))"/>
+        <circle cx="28" cy="28" r="16" fill="#4d8c4a"/>
+        <text x="28" y="32" text-anchor="middle" font-family="Inter,sans-serif" font-size="14" fill="white">S</text>
+        <text x="52" y="22" font-family="Inter,sans-serif" font-size="11" font-weight="600" fill="#1a2e1a">Sofia voted Oct 25</text>
+        <text x="52" y="38" font-family="Inter,sans-serif" font-size="10" fill="#9b7e5e">2 min ago</text>
+      </g>
+    </svg>
+  </div>
+</div>
+
+<!-- Features -->
+<div class="features">
+  <div class="features-header">
+    <div class="features-label">Everything you need</div>
+    <div class="features-title">Built for the way friends hike</div>
+  </div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2C8.7 2 6 4.7 6 8C6 13 12 22 12 22C12 22 18 13 18 8C18 4.7 15.3 2 12 2Z" stroke="var(--color-forest-600)" stroke-width="1.8"/>
+          <circle cx="12" cy="8" r="2.5" fill="var(--color-forest-600)"/>
+        </svg>
+      </div>
+      <div class="feature-name">Discover Trails</div>
+      <div class="feature-desc">Browse thousands of trails with real difficulty ratings, elevation data, and photos from hikers who have been there.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <circle cx="8" cy="8" r="4" stroke="var(--color-forest-600)" stroke-width="1.8"/>
+          <circle cx="16" cy="8" r="4" stroke="var(--color-forest-600)" stroke-width="1.8"/>
+          <path d="M2 20C2 16.7 4.7 14 8 14C9.4 14 10.7 14.5 11.7 15.3" stroke="var(--color-forest-600)" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M12 20C12 16.7 14.7 14 18 14C21.3 14 24 16.7 24 20" stroke="var(--color-forest-600)" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="feature-name">Invite Friends</div>
+      <div class="feature-desc">Send invites, share a link, or pull from your contacts. Everyone sees who is in, before you even leave the house.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="3" width="18" height="18" rx="4" stroke="var(--color-forest-600)" stroke-width="1.8"/>
+          <path d="M8 12L10.5 14.5L16 9" stroke="var(--color-forest-600)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="feature-name">Plan Together</div>
+      <div class="feature-desc">Vote on dates, split the packing list, and share notes. No more group chats trying to figure out who is bringing the first aid kit.</div>
+    </div>
+  </div>
+</div>
+
+<!-- How it works -->
+<div class="how-it-works">
+  <div class="how-title">From idea to trailhead in minutes</div>
+  <div class="steps-row">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-title">Pick a trail</div>
+      <div class="step-desc">Search by distance, difficulty, or vibe. Save it to your list.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-title">Invite your crew</div>
+      <div class="step-desc">Add friends from your contacts or share a link. They join in one tap.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-title">Lock in a date</div>
+      <div class="step-desc">Vote on days that work. TrailMate picks the winner automatically.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-title">Hit the trail</div>
+      <div class="step-desc">Download the offline map, check the weather, and go.</div>
+    </div>
+  </div>
+</div>
+
+<!-- CTA Banner -->
+<div class="cta-banner">
+  <div class="banner-text">
+    <div class="banner-title">Your next hike is one tap away</div>
+    <div class="banner-sub">Free forever for groups up to 10. No ads, no subscriptions.</div>
+  </div>
+  <div class="banner-actions">
+    <div class="btn-banner">Download the app</div>
+    <div class="btn-banner-ghost">Learn more</div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <div class="footer-logo">TrailMate</div>
+  <div class="footer-links">
+    <div class="footer-link">Privacy</div>
+    <div class="footer-link">Terms</div>
+    <div class="footer-link">Support</div>
+    <div class="footer-link">Blog</div>
+  </div>
+  <div class="footer-copy">2025 TrailMate. Made for the outdoors.</div>
+</div>
+
+</body>
+</html>

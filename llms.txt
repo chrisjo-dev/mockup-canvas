@@ -1,0 +1,47 @@
+# mockup-canvas
+
+> mockup-canvas is a free, open-source (MIT) Claude Code plugin and skill by chrisjo-dev, also usable from OpenAI Codex, that has your AI agent draw screen mockups as plain HTML files and lays them out on a local, Figma-like canvas where you pan, zoom, arrange, link with flow arrows, and approve them. It runs on the Python standard library with no pip dependencies and uses Google Chrome (or Chromium/Edge) only to render PNGs.
+
+## Key facts
+
+- Install as a Claude Code plugin: `/plugin marketplace add chrisjo-dev/mockup-canvas`, then `/plugin install mockup-canvas@mockup-canvas`.
+- Manual install for Claude Code and Codex: `git clone https://github.com/chrisjo-dev/mockup-canvas.git`, then `./install.sh` (links the skill into `~/.claude/skills` and `~/.codex/skills`; `--claude`, `--codex`, `--dry-run` are available). `install.sh` needs a POSIX shell.
+- In Codex, call the skill with `$mockup-canvas`, for example `Use $mockup-canvas to draw the sign-up flow.`
+- The CLI is one Python 3 file (Python 3.8+) with 12 commands: serve, roots, new, add, group, render, check, overview, export, link, status, artifact.
+- `canvas serve` binds to `127.0.0.1` on port 4400 by default. The tool itself makes no outbound requests; artboards may load Google Fonts, the only external resource the skill allows.
+- Share mode (`serve <design dir> --share`) is opt-in: it binds to the local network, requires a random token, is read-only unless `--share-edit` is passed, and stops after `--minutes` (1 to 240, default 30). In registry mode, `serve --share --project NAME` shares one project; a registry share is frozen to the projects registered at start and hides folder paths. Traffic is plain HTTP.
+- Server hardening: requests whose `Host` header is not this server get 421 (DNS rebinding); layout saves and registry changes need a same-origin `Origin` and exactly `application/json`; artboards are served with `Content-Security-Policy: sandbox` and shown in sandboxed iframes; connections time out after 15 s and are capped at 64.
+- `export <idea dir> <output dir>` refuses an output folder that is, is inside, or contains the idea folder, and skips symlinks pointing outside the idea folder.
+- Idea folder layout: `<project>/design/<idea>/` with `canvas.json` (layout, groups, flow arrows, status and notes), `boards/*.html` (one screen per file), `shared/tokens.css`, `assets/`, and `render/` (generated PNGs).
+- Artboard size presets: mobile 390x844, tablet 768x1024, desktop 1440x900, or any `WxH`.
+- Approvals are recorded with `canvas status <idea dir> <file> approved --note "..."`; old screens are kept in an `old drafts` group as rejected instead of being deleted.
+- Not for app code: mockup-canvas covers the planning step before implementation.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/README.md): overview, quick start, CLI reference, security model, FAQ
+- [Skill guide](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/skill.md): every workflow step with its commands, rules, and customization
+- [SKILL.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-canvas/SKILL.md): the instructions the agent loads
+- [SECURITY.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/SECURITY.md): threat model and vulnerability reporting
+
+## Code
+
+- [canvas.py](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-canvas/scripts/canvas.py): the CLI and local canvas server
+- [install.sh](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/install.sh): manual installer for Claude Code and Codex
+- [plugin.json](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/.claude-plugin/plugin.json): Claude Code plugin manifest
+
+## Examples
+
+- [TrailMate example](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/examples/trailmate/canvas.json): a six-screen sample idea with shared tokens, flow arrows, and approval marks. From the repository root, run `python3 skills/mockup-canvas/scripts/canvas.py serve examples` and open `http://127.0.0.1:4400/trailmate/`.
+
+## Translations
+
+- [README in Korean](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/README.ko.md)
+- [README in Simplified Chinese](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/README.zh-CN.md)
+- [README in Japanese](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/README.ja.md)
+- Skill guide: [Korean](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/skill.ko.md), [Simplified Chinese](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/skill.zh-CN.md), [Japanese](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/skill.ja.md)
+
+## Optional
+
+- [lessons.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-canvas/references/lessons.md): log of approved skill improvements
+- [LICENSE](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/LICENSE): MIT License, Copyright (c) 2026 chrisjo-dev

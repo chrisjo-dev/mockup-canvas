@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=390, initial-scale=1">
+<title>T03 - Invite Friends</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<style>
+  body { width: 390px; min-height: 844px; background: var(--color-bg); overflow-x: hidden; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px var(--space-5) 8px;
+    font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--color-text-primary);
+  }
+  .status-time { font-size: 15px; font-weight: var(--weight-semibold); }
+  .status-icons { display: flex; gap: var(--space-1); align-items: center; }
+
+  /* Nav */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--space-3) var(--space-5) var(--space-4);
+    background: var(--color-surface);
+  }
+  .nav-back { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
+  .nav-title { font-size: var(--text-md); font-weight: var(--weight-bold); color: var(--color-text-primary); }
+  .nav-action { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--color-primary); }
+
+  /* Hike context */
+  .hike-context {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-subtle);
+    padding: var(--space-4) var(--space-5);
+    display: flex; align-items: center; gap: var(--space-3);
+  }
+  .context-thumb {
+    width: 48px; height: 48px; border-radius: var(--radius-md);
+    overflow: hidden; flex-shrink: 0;
+  }
+  .context-thumb svg { width: 100%; height: 100%; display: block; }
+  .context-trail { font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--color-text-primary); }
+  .context-date { font-size: var(--text-xs); color: var(--color-text-muted); margin-top: 2px; }
+
+  /* Section */
+  .section { padding: var(--space-5) var(--space-5) 0; }
+  .section-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--color-text-muted); font-weight: var(--weight-semibold); margin-bottom: var(--space-3); }
+
+  /* Search bar */
+  .search-bar {
+    background: var(--color-surface); border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+    display: flex; align-items: center; gap: var(--space-3);
+    margin-bottom: var(--space-5);
+  }
+  .search-input-text { flex: 1; font-size: var(--text-base); color: var(--color-text-muted); }
+
+  /* Selected friends */
+  .selected-strip {
+    display: flex; gap: var(--space-4); overflow-x: auto; padding-bottom: var(--space-3);
+    margin-bottom: var(--space-5); scrollbar-width: none;
+  }
+  .selected-strip::-webkit-scrollbar { display: none; }
+  .sel-person { text-align: center; flex-shrink: 0; }
+  .sel-avatar-wrap { position: relative; width: 52px; height: 52px; }
+  .sel-avatar {
+    width: 52px; height: 52px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    font-size: var(--text-md); font-weight: var(--weight-bold); color: #fff;
+  }
+  .sel-remove {
+    position: absolute; top: -2px; right: -2px; width: 18px; height: 18px;
+    background: var(--color-text-primary); border-radius: var(--radius-full);
+    color: #fff; font-size: 10px; display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--color-bg);
+  }
+  .sel-name { font-size: var(--text-xs); color: var(--color-text-secondary); margin-top: 5px; white-space: nowrap; }
+
+  /* Contact list */
+  .contact-item {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-4) 0; border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .contact-item:last-child { border-bottom: none; }
+  .contact-avatar {
+    width: 44px; height: 44px; border-radius: var(--radius-full); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: var(--text-base); font-weight: var(--weight-bold); color: #fff;
+  }
+  .contact-info { flex: 1; }
+  .contact-name { font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--color-text-primary); }
+  .contact-meta { font-size: var(--text-xs); color: var(--color-text-muted); margin-top: 2px; }
+  .contact-check {
+    width: 26px; height: 26px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .contact-check.selected { background: var(--color-forest-600); }
+  .contact-check.unselected {
+    border: 1.5px solid var(--color-border); background: var(--color-surface);
+  }
+
+  /* Share link section */
+  .share-section {
+    background: var(--color-primary-light); border-radius: var(--radius-lg);
+    padding: var(--space-4); margin: var(--space-5); margin-top: var(--space-3);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .share-text { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--color-forest-700); }
+  .share-sub { font-size: var(--text-xs); color: var(--color-forest-600); margin-top: 2px; }
+  .share-link-btn {
+    background: var(--color-forest-600); color: #fff;
+    padding: 8px 14px; border-radius: var(--radius-md);
+    font-size: var(--text-sm); font-weight: var(--weight-semibold);
+    white-space: nowrap; display: flex; align-items: center; gap: 5px;
+  }
+
+  /* Bottom CTA */
+  .bottom-cta {
+    position: fixed; bottom: 0; left: 0; width: 390px;
+    padding: var(--space-4) var(--space-5) 34px;
+    background: var(--color-surface); border-top: 1px solid var(--color-border-subtle);
+  }
+  .send-btn {
+    width: 100%; background: var(--color-forest-600); color: #fff;
+    padding: var(--space-4); border-radius: var(--radius-lg);
+    font-size: var(--text-md); font-weight: var(--weight-semibold); text-align: center;
+  }
+
+  .content-scroll { padding-bottom: 100px; }
+</style>
+</head>
+<body>
+
+<!-- Status Bar -->
+<div class="status-bar">
+  <span class="status-time">9:41</span>
+  <div class="status-icons">
+    <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+      <rect x="0" y="3" width="3" height="9" rx="1" fill="currentColor" opacity="0.3"/>
+      <rect x="4" y="2" width="3" height="10" rx="1" fill="currentColor" opacity="0.5"/>
+      <rect x="8" y="1" width="3" height="11" rx="1" fill="currentColor" opacity="0.75"/>
+      <rect x="12" y="0" width="3" height="12" rx="1" fill="currentColor"/>
+    </svg>
+    <svg width="25" height="12" viewBox="0 0 25 12" fill="none">
+      <rect x="0.5" y="0.5" width="21" height="11" rx="3.5" stroke="currentColor" stroke-opacity="0.35"/>
+      <rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/>
+    </svg>
+  </div>
+</div>
+
+<!-- Nav -->
+<div class="nav">
+  <div class="nav-back">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M11 14L6 9L11 4" stroke="var(--color-text-primary)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <div class="nav-title">Invite Friends</div>
+  <div class="nav-action">Skip</div>
+</div>
+
+<!-- Hike context -->
+<div class="hike-context">
+  <div class="context-thumb">
+    <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+      <rect width="48" height="48" fill="#3a6e38"/>
+      <polygon points="0,48 14,20 28,36 38,12 48,48" fill="#2a5028"/>
+      <polygon points="14,20 28,36 38,12" fill="#4d8c4a"/>
+    </svg>
+  </div>
+  <div>
+    <div class="context-trail">Pine Ridge Loop</div>
+    <div class="context-date">Sat, Oct 25, 2025</div>
+  </div>
+</div>
+
+<div class="content-scroll">
+  <div class="section">
+    <!-- Search bar -->
+    <div class="search-bar">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <circle cx="8" cy="8" r="5.5" stroke="var(--color-text-muted)" stroke-width="1.5"/>
+        <path d="M13 13L16 16" stroke="var(--color-text-muted)" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <div class="search-input-text">Search friends...</div>
+    </div>
+
+    <!-- Selected -->
+    <div class="section-label">Selected (3)</div>
+    <div class="selected-strip">
+      <div class="sel-person">
+        <div class="sel-avatar-wrap">
+          <div class="sel-avatar" style="background:var(--color-forest-500)">S</div>
+          <div class="sel-remove">x</div>
+        </div>
+        <div class="sel-name">Sofia</div>
+      </div>
+      <div class="sel-person">
+        <div class="sel-avatar-wrap">
+          <div class="sel-avatar" style="background:var(--color-accent-400)">L</div>
+          <div class="sel-remove">x</div>
+        </div>
+        <div class="sel-name">Liam</div>
+      </div>
+      <div class="sel-person">
+        <div class="sel-avatar-wrap">
+          <div class="sel-avatar" style="background:var(--color-sky-500)">J</div>
+          <div class="sel-remove">x</div>
+        </div>
+        <div class="sel-name">Jade</div>
+      </div>
+    </div>
+
+    <!-- Suggested -->
+    <div class="section-label">Suggested</div>
+
+    <div class="contact-item">
+      <div class="contact-avatar" style="background:var(--color-forest-500)">S</div>
+      <div class="contact-info">
+        <div class="contact-name">Sofia Reyes</div>
+        <div class="contact-meta">Hiked together 8 times</div>
+      </div>
+      <div class="contact-check selected">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M3 7L6 10L11 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="contact-item">
+      <div class="contact-avatar" style="background:var(--color-accent-400)">L</div>
+      <div class="contact-info">
+        <div class="contact-name">Liam Park</div>
+        <div class="contact-meta">Hiked together 5 times</div>
+      </div>
+      <div class="contact-check selected">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M3 7L6 10L11 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="contact-item">
+      <div class="contact-avatar" style="background:var(--color-sky-500)">J</div>
+      <div class="contact-info">
+        <div class="contact-name">Jade Okonkwo</div>
+        <div class="contact-meta">Hiked together 3 times</div>
+      </div>
+      <div class="contact-check selected">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M3 7L6 10L11 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="contact-item">
+      <div class="contact-avatar" style="background:var(--color-sand-500)">A</div>
+      <div class="contact-info">
+        <div class="contact-name">Ava Chen</div>
+        <div class="contact-meta">Hiked together 2 times</div>
+      </div>
+      <div class="contact-check unselected"></div>
+    </div>
+
+    <div class="contact-item">
+      <div class="contact-avatar" style="background:var(--color-forest-400)">R</div>
+      <div class="contact-info">
+        <div class="contact-name">Rafael Torres</div>
+        <div class="contact-meta">Last hike 3 weeks ago</div>
+      </div>
+      <div class="contact-check unselected"></div>
+    </div>
+
+    <div class="contact-item">
+      <div class="contact-avatar" style="background:var(--color-accent-500)">N</div>
+      <div class="contact-info">
+        <div class="contact-name">Nina Walsh</div>
+        <div class="contact-meta">New friend</div>
+      </div>
+      <div class="contact-check unselected"></div>
+    </div>
+  </div>
+
+  <!-- Share link -->
+  <div class="share-section">
+    <div>
+      <div class="share-text">Share invite link</div>
+      <div class="share-sub">Anyone with the link can join</div>
+    </div>
+    <div class="share-link-btn">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M8.5 2H12V5.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12 2L7 7" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M6 3H3C2.4 3 2 3.4 2 4V11C2 11.6 2.4 12 3 12H10C10.6 12 11 11.6 11 11V8" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      Copy link
+    </div>
+  </div>
+</div>
+
+<!-- Bottom CTA -->
+<div class="bottom-cta">
+  <div class="send-btn">Send Invites to 3 Friends</div>
+</div>
+
+</body>
+</html>

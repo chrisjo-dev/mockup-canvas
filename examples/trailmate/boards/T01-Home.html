@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=390, initial-scale=1">
+<title>T01 - Home</title>
+<link rel="stylesheet" href="../shared/tokens.css">
+<style>
+  body { width: 390px; min-height: 844px; background: var(--color-bg); overflow-x: hidden; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px var(--space-5) 8px;
+    font-size: var(--text-xs); font-weight: var(--weight-semibold);
+    color: var(--color-text-primary);
+  }
+  .status-time { font-size: 15px; font-weight: var(--weight-semibold); }
+  .status-icons { display: flex; gap: var(--space-1); align-items: center; }
+
+  /* Header */
+  .header {
+    padding: var(--space-3) var(--space-5) var(--space-4);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-1); }
+  .greeting { font-size: var(--text-sm); color: var(--color-text-muted); font-weight: var(--weight-medium); }
+  .user-name { font-size: var(--text-md); font-weight: var(--weight-bold); color: var(--color-text-primary); }
+  .avatar {
+    width: 38px; height: 38px; border-radius: var(--radius-full);
+    background: var(--color-forest-500); color: var(--color-text-on-dark);
+    display: flex; align-items: center; justify-content: center;
+    font-size: var(--text-sm); font-weight: var(--weight-bold);
+  }
+
+  /* Hero strip */
+  .hero-strip {
+    background: var(--color-forest-700);
+    padding: var(--space-5) var(--space-5);
+    position: relative; overflow: hidden;
+  }
+  .hero-strip::before {
+    content: ''; position: absolute; right: -20px; top: -40px;
+    width: 200px; height: 200px; border-radius: var(--radius-full);
+    background: rgba(255,255,255,0.04);
+  }
+  .hero-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--color-forest-300); font-weight: var(--weight-semibold); margin-bottom: var(--space-1); }
+  .hero-title { font-family: var(--font-display); font-size: var(--text-2xl); color: #fff; line-height: var(--leading-tight); }
+  .hero-meta { font-size: var(--text-sm); color: var(--color-forest-200); margin-top: var(--space-2); }
+
+  /* Section */
+  .section { padding: var(--space-5) var(--space-5) 0; }
+  .section-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--space-4); }
+  .section-title { font-size: var(--text-md); font-weight: var(--weight-bold); color: var(--color-text-primary); }
+  .section-link { font-size: var(--text-sm); color: var(--color-primary); font-weight: var(--weight-semibold); }
+
+  /* Hike card */
+  .hike-card {
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+    margin-bottom: var(--space-3);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--color-border-subtle);
+    display: flex; gap: var(--space-4);
+  }
+  .hike-thumb {
+    width: 68px; height: 68px; border-radius: var(--radius-md);
+    flex-shrink: 0; overflow: hidden; position: relative;
+  }
+  /* Mountain landscape using CSS/SVG */
+  .hike-thumb svg { width: 100%; height: 100%; display: block; }
+
+  .hike-info { flex: 1; min-width: 0; }
+  .hike-trail { font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--color-text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hike-date { font-size: var(--text-xs); color: var(--color-text-muted); margin-top: 2px; }
+  .hike-tags { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
+  .tag {
+    font-size: var(--text-xs); font-weight: var(--weight-medium); padding: 3px 8px;
+    border-radius: var(--radius-full); background: var(--color-forest-100); color: var(--color-forest-700);
+  }
+  .tag.moderate { background: var(--color-sand-100); color: var(--color-sand-700); }
+  .tag.hard { background: var(--color-accent-100); color: var(--color-accent-600); }
+  .hike-friends { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); }
+  .friend-avatars { display: flex; }
+  .friend-avatar {
+    width: 22px; height: 22px; border-radius: var(--radius-full);
+    border: 2px solid var(--color-surface);
+    font-size: 9px; font-weight: var(--weight-bold);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; margin-left: -6px;
+  }
+  .friend-avatar:first-child { margin-left: 0; }
+  .friend-count { font-size: var(--text-xs); color: var(--color-text-muted); }
+
+  /* Quick actions */
+  .quick-actions { display: flex; gap: var(--space-3); padding: var(--space-5); }
+  .quick-btn {
+    flex: 1; background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg); padding: var(--space-4) var(--space-3);
+    text-align: center; box-shadow: var(--shadow-xs);
+  }
+  .quick-btn-icon { font-size: 22px; margin-bottom: var(--space-2); display: block; }
+  .quick-btn-label { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--color-text-secondary); }
+
+  /* FAB */
+  .fab {
+    position: fixed; bottom: 88px; right: 20px;
+    width: 56px; height: 56px; border-radius: var(--radius-full);
+    background: var(--color-accent-500); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 20px rgba(201,77,26,0.35);
+    font-size: 26px; line-height: 1;
+  }
+
+  /* Tab bar */
+  .tab-bar {
+    position: fixed; bottom: 0; left: 0; width: 390px;
+    background: var(--color-surface); border-top: 1px solid var(--color-border-subtle);
+    display: flex; height: 82px; padding-bottom: 16px;
+  }
+  .tab {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 4px; padding-top: 10px;
+  }
+  .tab-label { font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--color-text-muted); }
+  .tab.active .tab-label { color: var(--color-primary); font-weight: var(--weight-semibold); }
+  .tab-icon { width: 22px; height: 22px; }
+
+  .content-scroll { padding-bottom: 100px; }
+</style>
+</head>
+<body>
+
+<!-- Status Bar -->
+<div class="status-bar">
+  <span class="status-time">9:41</span>
+  <div class="status-icons">
+    <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+      <rect x="0" y="3" width="3" height="9" rx="1" fill="currentColor" opacity="0.3"/>
+      <rect x="4" y="2" width="3" height="10" rx="1" fill="currentColor" opacity="0.5"/>
+      <rect x="8" y="1" width="3" height="11" rx="1" fill="currentColor" opacity="0.75"/>
+      <rect x="12" y="0" width="3" height="12" rx="1" fill="currentColor"/>
+    </svg>
+    <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+      <path d="M8 2.5C9.8 2.5 11.4 3.2 12.6 4.3L14 2.9C12.4 1.4 10.3 0.5 8 0.5C5.7 0.5 3.6 1.4 2 2.9L3.4 4.3C4.6 3.2 6.2 2.5 8 2.5Z" fill="currentColor"/>
+      <path d="M8 5.5C9.1 5.5 10.1 5.9 10.8 6.7L12.2 5.3C11.1 4.2 9.6 3.5 8 3.5C6.4 3.5 4.9 4.2 3.8 5.3L5.2 6.7C5.9 5.9 6.9 5.5 8 5.5Z" fill="currentColor"/>
+      <circle cx="8" cy="10" r="2" fill="currentColor"/>
+    </svg>
+    <svg width="25" height="12" viewBox="0 0 25 12" fill="none">
+      <rect x="0.5" y="0.5" width="21" height="11" rx="3.5" stroke="currentColor" stroke-opacity="0.35"/>
+      <rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/>
+      <path d="M23 4.5V7.5C23.8 7.2 24.5 6.7 24.5 6C24.5 5.3 23.8 4.8 23 4.5Z" fill="currentColor" opacity="0.4"/>
+    </svg>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="greeting">Good morning,</div>
+      <div class="user-name">Marcus</div>
+    </div>
+    <div class="avatar">MK</div>
+  </div>
+</div>
+
+<!-- Hero strip -->
+<div class="hero-strip">
+  <div class="hero-label">This weekend</div>
+  <div class="hero-title">Pine Ridge Loop</div>
+  <div class="hero-meta">Sat, Oct 25  —  4 friends going</div>
+</div>
+
+<div class="content-scroll">
+  <!-- Quick actions -->
+  <div class="quick-actions">
+    <div class="quick-btn">
+      <span class="quick-btn-icon">🗺️</span>
+      <div class="quick-btn-label">Explore</div>
+    </div>
+    <div class="quick-btn">
+      <span class="quick-btn-icon">👥</span>
+      <div class="quick-btn-label">Friends</div>
+    </div>
+    <div class="quick-btn">
+      <span class="quick-btn-icon">📦</span>
+      <div class="quick-btn-label">Gear</div>
+    </div>
+    <div class="quick-btn">
+      <span class="quick-btn-icon">🌤️</span>
+      <div class="quick-btn-label">Weather</div>
+    </div>
+  </div>
+
+  <!-- Upcoming hikes -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">Upcoming Hikes</div>
+      <div class="section-link">See all</div>
+    </div>
+
+    <!-- Card 1 -->
+    <div class="hike-card">
+      <div class="hike-thumb">
+        <svg viewBox="0 0 68 68" xmlns="http://www.w3.org/2000/svg">
+          <rect width="68" height="68" fill="#3a6e38"/>
+          <polygon points="0,68 20,30 38,52 50,20 68,68" fill="#2a5028"/>
+          <polygon points="20,30 38,52 50,20" fill="#4d8c4a"/>
+          <rect y="54" width="68" height="14" fill="#1e3a1e"/>
+          <circle cx="54" cy="14" r="8" fill="#f5eddf" opacity="0.85"/>
+        </svg>
+      </div>
+      <div class="hike-info">
+        <div class="hike-trail">Pine Ridge Loop</div>
+        <div class="hike-date">Sat, Oct 25 &bull; Maplewood State Park</div>
+        <div class="hike-tags">
+          <span class="tag">7.2 mi</span>
+          <span class="tag moderate">Moderate</span>
+        </div>
+        <div class="hike-friends">
+          <div class="friend-avatars">
+            <div class="friend-avatar" style="background:var(--color-forest-500)">S</div>
+            <div class="friend-avatar" style="background:var(--color-accent-400)">L</div>
+            <div class="friend-avatar" style="background:var(--color-sky-500)">J</div>
+            <div class="friend-avatar" style="background:var(--color-sand-500)">A</div>
+          </div>
+          <span class="friend-count">4 friends going</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2 -->
+    <div class="hike-card">
+      <div class="hike-thumb">
+        <svg viewBox="0 0 68 68" xmlns="http://www.w3.org/2000/svg">
+          <rect width="68" height="68" fill="#b89878"/>
+          <polygon points="0,68 15,22 34,50 55,10 68,68" fill="#9b7e5e"/>
+          <polygon points="34,50 55,10 68,40 68,68" fill="#7a6347"/>
+          <rect y="56" width="68" height="12" fill="#5c4c34"/>
+          <circle cx="12" cy="12" r="7" fill="#faf6ef" opacity="0.9"/>
+        </svg>
+      </div>
+      <div class="hike-info">
+        <div class="hike-trail">Crestview Summit</div>
+        <div class="hike-date">Sun, Nov 2 &bull; Eagle Peak Reserve</div>
+        <div class="hike-tags">
+          <span class="tag">11.4 mi</span>
+          <span class="tag hard">Hard</span>
+          <span class="tag" style="background:var(--color-sky-100);color:var(--color-sky-600)">+2,800 ft</span>
+        </div>
+        <div class="hike-friends">
+          <div class="friend-avatars">
+            <div class="friend-avatar" style="background:var(--color-forest-600)">S</div>
+            <div class="friend-avatar" style="background:var(--color-accent-500)">R</div>
+          </div>
+          <span class="friend-count">2 friends going</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3 -->
+    <div class="hike-card">
+      <div class="hike-thumb">
+        <svg viewBox="0 0 68 68" xmlns="http://www.w3.org/2000/svg">
+          <rect width="68" height="68" fill="#2a8ec4"/>
+          <polygon points="0,68 25,35 42,55 60,18 68,68" fill="#1e6fa0"/>
+          <polygon points="25,35 42,55 60,18" fill="#3a7c3a"/>
+          <rect y="58" width="68" height="10" fill="#1a2e1a"/>
+        </svg>
+      </div>
+      <div class="hike-info">
+        <div class="hike-trail">Lakeside Meadow Trail</div>
+        <div class="hike-date">Sat, Nov 8 &bull; Mirror Lake State Park</div>
+        <div class="hike-tags">
+          <span class="tag">4.8 mi</span>
+          <span class="tag" style="background:var(--color-forest-100);color:var(--color-forest-600)">Easy</span>
+        </div>
+        <div class="hike-friends">
+          <div class="friend-avatars">
+            <div class="friend-avatar" style="background:var(--color-forest-500)">S</div>
+            <div class="friend-avatar" style="background:var(--color-accent-400)">L</div>
+            <div class="friend-avatar" style="background:var(--color-sky-500)">J</div>
+            <div class="friend-avatar" style="background:var(--color-sand-500)">A</div>
+            <div class="friend-avatar" style="background:var(--color-forest-400)">R</div>
+          </div>
+          <span class="friend-count">5 friends going</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FAB -->
+<div class="fab">+</div>
+
+<!-- Tab bar -->
+<div class="tab-bar">
+  <div class="tab active">
+    <svg class="tab-icon" viewBox="0 0 22 22" fill="none">
+      <path d="M3 9.5L11 3L19 9.5V19C19 19.6 18.6 20 18 20H14V14H8V20H4C3.4 20 3 19.6 3 19V9.5Z" fill="var(--color-primary)" stroke="var(--color-primary)" stroke-width="0.5"/>
+    </svg>
+    <span class="tab-label" style="color:var(--color-primary)">Home</span>
+  </div>
+  <div class="tab">
+    <svg class="tab-icon" viewBox="0 0 22 22" fill="none">
+      <circle cx="11" cy="11" r="8" stroke="var(--color-text-muted)" stroke-width="1.5"/>
+      <path d="M11 7V11L13.5 13.5" stroke="var(--color-text-muted)" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <span class="tab-label">Upcoming</span>
+  </div>
+  <div class="tab">
+    <svg class="tab-icon" viewBox="0 0 22 22" fill="none">
+      <path d="M4 4L18 4L18 18L4 18Z" stroke="var(--color-text-muted)" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M8 10L10 12L14 8" stroke="var(--color-text-muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span class="tab-label">Packs</span>
+  </div>
+  <div class="tab">
+    <svg class="tab-icon" viewBox="0 0 22 22" fill="none">
+      <circle cx="11" cy="8" r="4" stroke="var(--color-text-muted)" stroke-width="1.5"/>
+      <path d="M3 19C3 15.7 6.6 13 11 13C15.4 13 19 15.7 19 19" stroke="var(--color-text-muted)" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <span class="tab-label">Profile</span>
+  </div>
+</div>
+
+</body>
+</html>

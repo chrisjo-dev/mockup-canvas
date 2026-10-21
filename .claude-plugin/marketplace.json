@@ -1,0 +1,15 @@
+{
+  "name": "mockup-canvas",
+  "description": "mockup-canvas: AI agents draw HTML screen mockups on a local Figma-like canvas. Claude Code plugin marketplace.",
+  "owner": {
+    "name": "chrisjo-dev",
+    "url": "https://github.com/chrisjo-dev"
+  },
+  "plugins": [
+    {
+      "name": "mockup-canvas",
+      "source": "./",
+      "description": "Draw design mockups as plain HTML artboards and lay them out on a local, Figma-like canvas."
+    }
+  ]
+}
