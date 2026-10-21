@@ -57,6 +57,7 @@ For mobile boards:
 - [ ] The primary action is in the lower half of the screen or in a bottom bar
 - [ ] Frequent actions are not only in the top corners
 - [ ] Nothing important sits under the home indicator or the status bar
+- [ ] Content below the fold was checked in `canvas render --full-page`, not only the first screen
 
 ## 6. Copy
 

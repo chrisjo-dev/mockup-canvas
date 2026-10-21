@@ -40,6 +40,10 @@ Usage for each command: `canvas <command> -h`.
    ```
 
    It captures the route at the board's size and writes `<idea>/compare/<board-id>/board.png`, `app.png`, `diff.png`, `side.png`, and `report.json` with `mismatch_percent`. Open and look at `side.png` and `diff.png` yourself. Fix layout, spacing, type, color, and missing elements, then compare again. Stop when every remaining difference is intentional (real data instead of sample text, font rendering, antialiasing, a platform control) and you can state each one and why. The mismatch percentage is a guide, not the goal; do not chase it with hacks that break real behavior. Use `canvas snap <url> --size mobile --out FILE.png` for an extra size or state that has no board.
+
+   - **Status bar**: boards often draw a fake phone status bar (time, battery) that the real app does not render. Do not add one to the app. Use `--align-top N` (N = the bar height, often 44 to 54 px) so the app is captured N px shorter and placed below the bar, or `--ignore-top N` when the app does start at the top but the band differs. Use `--ignore-bottom N` the same way for a drawn home indicator.
+   - **Reading the percent**: under about 2% is usually font rendering and antialiasing; 2% to 10% usually means spacing, line height, or a missing element, so look at `diff.png`; above 10% usually means a shifted layout (wrong width, missing status bar alignment, a different header). Same-board checks are near 0%.
+   - **Timing**: `--wait MS` (default 3000) is real time after the page load event. Raise it when the app fetches data or animates in; lower it for a static page.
 8. **Record the implementation**: `canvas impl <idea> W01-Home.html --route / --file src/pages/Home.tsx --file src/components/TabBar.tsx`. Use `--clear` to reset a wrong record. `canvas impl <idea> --strict` lists approved boards that still have no implementation.
 9. **Project checks**: run the project's tests, lint, and typecheck. A passing build is not evidence that the screen matches the board, and a matching screenshot is not evidence that the behavior works; report both.
 10. **One polish pass**: after all in-scope screens are done, do a single pass over alignment, spacing rhythm, type scale, states, focus and hover, and responsive behavior across all screens together. If a polish skill is installed (for example `impeccable`), you may use it for this pass. General rules never override what the user explicitly chose on an approved board. Re-run `compare` for screens the pass changed.
@@ -67,7 +71,7 @@ The first implementation is done when every in-scope board is implemented, compa
 ## Rules
 
 - Reply to the user in the user's language. Code, comments, and commit messages follow the project's conventions.
-- If `~/.mockup-canvas/config.json` lists `forbidden_chars`, do not use those characters in the report.
+- If `$MOCKUP_CANVAS_HOME/config.json` (default `~/.mockup-canvas/config.json`) lists `forbidden_chars`, do not use those characters in the report.
 - Follow the project's git rules. Do not commit, push, or deploy unless the user asked for it.
 - When splitting work across subagents, give each one the approved board paths and notes, the token mapping, the shell components, its routes and files, and the compare command. The main agent owns the token mapping and the shell.
 

@@ -12,6 +12,7 @@ Short mapping tips. The project's existing conventions always win over these not
   - Tailwind v3: in `tailwind.config.js`, `theme.extend.colors.bg = 'var(--color-bg)'`, and the same for `spacing`, `borderRadius`, `fontFamily`.
   - Do not use arbitrary values like `bg-[#1a1a1a]` or `p-[13px]` for anything a token covers.
 - **Existing design system or UI kit**: map board tokens onto the kit's theme (MUI `createTheme`, Chakra `extendTheme`, shadcn CSS variables). Add new tokens only for values the kit has no slot for, and list them in the report.
+- **Taking `tokens.css` over**: copy only the `:root { ... }` variable block. If the board file starts with an `@import url(https://fonts.googleapis.com/...)` line, move that font URL into the app's `index.html` as a `<link rel="stylesheet">` (or the app's own font loading, below) instead of keeping the `@import`. Drop the board's reset block (`*, body { margin: 0 ... }`) when the app already has a reset or normalize; keep it only if the app has none.
 - **Fonts**: if the board loads a Google Font, load it the way the app loads fonts (`next/font`, a `<link>` in `index.html`, or a self-hosted file). Do not add a second loading path.
 
 ## React with Vite

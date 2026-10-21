@@ -10,15 +10,16 @@ Commands:
   new <design dir> <idea>
   add <idea dir> <file> [--group NAME] [--size mobile|tablet|desktop|WxH]
   group <idea dir> <file> <group name>
-  render <idea dir> [file...]
+  render <idea dir> [file...] [--full-page] [--wait MS]
   check <idea dir>
   overview <idea dir>
   export <idea dir> <output dir>
   link <idea dir> <from file> <to file> [--label TEXT]
   status <idea dir> <file> <draft|approved|rejected> [--note TEXT]
   artifact <idea dir> [url]
-  snap <url> --out FILE.png [--size mobile|tablet|desktop|WxH] [--wait MS]
-  compare <idea dir> <file> (--url URL | --png FILE) [--out DIR] [--threshold N]
+  snap <url> --out FILE.png [--size mobile|tablet|desktop|WxH] [--wait MS] [--full-page]
+  compare <idea dir> <file> (--url URL | --png FILE) [--out DIR] [--threshold N] [--wait MS]
+          [--ignore-top N] [--ignore-bottom N] [--align-top N]
   impl <idea dir> [--strict]
   impl <idea dir> <file> --route PATH [--file PATH]... | --clear
   comment <idea dir> <file> [TEXT [--by NAME] | --clear]
@@ -31,7 +32,7 @@ User data lives in ~/.mockup-canvas/ (override with MOCKUP_CANVAS_HOME):
 """
 import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib
 import socketserver, socket, secrets, mimetypes, http.client, textwrap
-import hmac, hashlib
+import hmac, hashlib, base64
 import html as _html
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
@@ -330,12 +331,304 @@ def _chrome_args(profile_dir, w, h, budget_ms):
             f'--virtual-time-budget={budget_ms}']
 
 def _run_chrome(w, h, budget_ms, out_png, url, timeout=None):
+    """Old capture path (--screenshot). Headless Chrome keeps the window at least 500 px wide,
+    so narrower sizes are laid out at 500 px and cropped. Only used when DevTools fails."""
     profile = tempfile.mkdtemp(prefix='mockup-canvas-chrome-')
     try:
         return subprocess.run(_chrome_args(profile, w, h, budget_ms) + [f'--screenshot={out_png}', url],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
     finally:
         shutil.rmtree(profile, ignore_errors=True)
+
+# ── Chrome DevTools capture ────────────────────────────────────────────────
+# render, overview, snap, and compare drive Chrome over the DevTools protocol so the page is laid
+# out at the exact requested width (Emulation.setDeviceMetricsOverride) and --wait is real time.
+
+
+class CdpConnectError(RuntimeError):
+    """Could not reach Chrome's DevTools endpoint (the caller falls back to --screenshot)."""
+
+
+class CdpError(RuntimeError):
+    """DevTools was reachable but the capture failed."""
+
+
+class _WebSocket:
+    """Minimal RFC 6455 client: text frames, masked client frames, fragments, ping/pong, close."""
+
+    def __init__(self, host, port, path, timeout):
+        self.sock = socket.create_connection((host, port), timeout=timeout)
+        self.buf = b''
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall((f'GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n'
+                           f'Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n'
+                           'Sec-WebSocket-Version: 13\r\n\r\n').encode())
+        while b'\r\n\r\n' not in self.buf:
+            self._fill()
+        head, self.buf = self.buf.split(b'\r\n\r\n', 1)
+        lines = head.decode('latin-1').split('\r\n')
+        if not lines[0].startswith('HTTP/1.1 101'):
+            raise ConnectionError(f'WebSocket handshake refused: {lines[0]}')
+        accept = base64.b64encode(hashlib.sha1(
+            (key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()).decode()
+        headers = {l.split(':', 1)[0].strip().lower(): l.split(':', 1)[1].strip()
+                   for l in lines[1:] if ':' in l}
+        if headers.get('sec-websocket-accept') != accept:
+            raise ConnectionError('WebSocket handshake: bad Sec-WebSocket-Accept')
+
+    def _fill(self):
+        chunk = self.sock.recv(1 << 16)
+        if not chunk:
+            raise ConnectionError('WebSocket closed by Chrome')
+        self.buf += chunk
+
+    def _read(self, n):
+        while len(self.buf) < n:
+            self._fill()
+        data, self.buf = self.buf[:n], self.buf[n:]
+        return data
+
+    @staticmethod
+    def encode_frame(opcode, payload, mask=None):
+        """One FIN frame; client frames are always masked."""
+        mask = os.urandom(4) if mask is None else mask
+        n = len(payload)
+        if n < 126:
+            head = bytes([0x80 | opcode, 0x80 | n])
+        elif n < 1 << 16:
+            head = bytes([0x80 | opcode, 0x80 | 126]) + n.to_bytes(2, 'big')
+        else:
+            head = bytes([0x80 | opcode, 0x80 | 127]) + n.to_bytes(8, 'big')
+        return head + mask + _ws_mask(payload, mask)
+
+    def send(self, opcode, payload):
+        self.sock.sendall(self.encode_frame(opcode, payload))
+
+    def send_text(self, text):
+        self.send(0x1, text.encode('utf-8'))
+
+    def recv_text(self):
+        """Next complete text message; answers pings and raises on close."""
+        parts, kind = [], None
+        while True:
+            b0, b1 = self._read(2)
+            fin, opcode = b0 & 0x80, b0 & 0x0F
+            n = b1 & 0x7F
+            if n == 126:
+                n = int.from_bytes(self._read(2), 'big')
+            elif n == 127:
+                n = int.from_bytes(self._read(8), 'big')
+            mask = self._read(4) if b1 & 0x80 else None
+            payload = self._read(n)
+            if mask:
+                payload = _ws_mask(payload, mask)
+            if opcode == 0x9:                       # ping
+                self.send(0xA, payload)
+                continue
+            if opcode == 0xA:                       # pong
+                continue
+            if opcode == 0x8:                       # close
+                try:
+                    self.send(0x8, payload[:2])
+                except OSError:
+                    pass
+                raise ConnectionError('WebSocket closed by Chrome')
+            if opcode in (0x1, 0x2):
+                parts, kind = [payload], opcode
+            elif opcode == 0x0 and kind is not None:
+                parts.append(payload)
+            else:
+                raise ConnectionError(f'unexpected WebSocket frame (opcode {opcode})')
+            if fin:
+                return b''.join(parts).decode('utf-8')
+
+    def close(self):
+        try:
+            self.send(0x8, (1000).to_bytes(2, 'big'))
+        except OSError:
+            pass
+        self.sock.close()
+
+
+def _ws_mask(data, mask):
+    """XOR data with the repeating 4-byte mask (done on one big int for speed)."""
+    n = len(data)
+    if not n:
+        return b''
+    key = (mask * (n // 4 + 1))[:n]
+    return (int.from_bytes(data, 'big') ^ int.from_bytes(key, 'big')).to_bytes(n, 'big')
+
+
+class _Cdp:
+    def __init__(self, ws, deadline):
+        self.ws, self.deadline, self.next_id, self.events = ws, deadline, 0, []
+
+    def _recv(self):
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError
+        self.ws.sock.settimeout(left)
+        try:
+            return json.loads(self.ws.recv_text())
+        except socket.timeout:
+            raise TimeoutError
+
+    def call(self, method, **params):
+        self.next_id += 1
+        mid = self.next_id
+        self.ws.send_text(json.dumps({'id': mid, 'method': method, 'params': params}))
+        while True:
+            msg = self._recv()
+            if msg.get('id') == mid:
+                if 'error' in msg:
+                    raise CdpError(f'{method}: {msg["error"].get("message", msg["error"])}')
+                return msg.get('result', {})
+            if 'method' in msg:
+                self.events.append(msg['method'])
+
+    def wait_event(self, name):
+        if name in self.events:
+            return
+        while self._recv().get('method') != name:
+            pass
+
+
+def _cdp_launch_args(profile_dir):
+    """Headless Chrome flags for the DevTools path. No file-access flags; throwaway profile;
+    DevTools listens on a random localhost port that only this run uses."""
+    return [_get_chrome(), '--headless=new', f'--user-data-dir={profile_dir}',
+            '--no-first-run', '--no-default-browser-check',
+            '--disable-features=IsolateSandboxedIframes', '--hide-scrollbars',
+            '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', 'about:blank']
+
+
+def _cdp_page_ws(port, timeout):
+    """-> websocket path of the first page target."""
+    conn = http.client.HTTPConnection('127.0.0.1', port, timeout=timeout)
+    try:
+        conn.request('GET', '/json/list')
+        targets = json.loads(conn.getresponse().read())
+    finally:
+        conn.close()
+    for t in targets:
+        if t.get('type') == 'page' and t.get('webSocketDebuggerUrl'):
+            return urlparse(t['webSocketDebuggerUrl']).path
+    raise ConnectionError('no page target')
+
+
+def _cdp_capture(url, w, h, wait_ms, out, full_page, timeout):
+    """Capture url into out over DevTools. Raises CdpConnectError, CdpError, or TimeoutError."""
+    deadline = time.monotonic() + timeout
+    profile = tempfile.mkdtemp(prefix='mockup-canvas-chrome-')
+    proc = ws = None
+    try:
+        try:
+            proc = subprocess.Popen(_cdp_launch_args(profile),
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            raise CdpConnectError(f'cannot start Chrome: {e}')
+        port_file = os.path.join(profile, 'DevToolsActivePort')
+        connect_by = min(deadline, time.monotonic() + 20)
+        while True:
+            try:
+                with open(port_file) as f:
+                    port = int(f.readline().strip())
+                break
+            except (OSError, ValueError):
+                pass
+            if proc.poll() is not None:
+                raise CdpConnectError(f'Chrome exited with code {proc.returncode} before DevTools started')
+            if time.monotonic() > connect_by:
+                raise CdpConnectError('DevToolsActivePort did not appear')
+            time.sleep(0.05)
+        try:
+            ws = _WebSocket('127.0.0.1', port, _cdp_page_ws(port, 10), 10)
+        except (OSError, ValueError) as e:
+            raise CdpConnectError(f'DevTools connection failed: {e}')
+        cdp = _Cdp(ws, deadline)
+        cdp.call('Page.enable')
+        cdp.call('Emulation.setDeviceMetricsOverride', width=w, height=h,
+                 deviceScaleFactor=1, mobile=w < 768)
+        cdp.events.clear()
+        nav = cdp.call('Page.navigate', url=url)
+        if nav.get('errorText'):
+            raise CdpError(f'cannot load {url}: {nav["errorText"]}')
+        cdp.wait_event('Page.loadEventFired')
+        if w < 768:
+            # Mobile emulation lays out a page without <meta name="viewport"> at 980 px.
+            # Such a board shows at its own width on the canvas, so reload it without mobile mode.
+            r = cdp.call('Runtime.evaluate', expression='innerWidth', returnByValue=True)
+            if r.get('result', {}).get('value') != w:
+                cdp.call('Emulation.setDeviceMetricsOverride', width=w, height=h,
+                         deviceScaleFactor=1, mobile=False)
+                cdp.events.clear()
+                cdp.call('Page.reload')
+                cdp.wait_event('Page.loadEventFired')
+        pause = wait_ms / 1000
+        if time.monotonic() + pause > deadline:
+            raise TimeoutError
+        time.sleep(pause)
+        shot = {'format': 'png'}
+        if full_page:
+            r = cdp.call('Runtime.evaluate', returnByValue=True, expression=(
+                'Math.max(document.documentElement.scrollHeight, '
+                'document.body ? document.body.scrollHeight : 0)'))
+            full_h = max(h, int(r.get('result', {}).get('value') or h))
+            shot.update(captureBeyondViewport=True,
+                        clip={'x': 0, 'y': 0, 'width': w, 'height': full_h, 'scale': 1})
+        data = base64.b64decode(cdp.call('Page.captureScreenshot', **shot)['data'])
+        with open(out, 'wb') as f:
+            f.write(data)
+    except (OSError, ValueError, KeyError) as e:
+        if isinstance(e, TimeoutError):
+            raise
+        raise CdpError(str(e) or e.__class__.__name__)
+    finally:
+        if ws:
+            try:
+                ws.close()
+            except OSError:
+                pass
+        if proc and proc.poll() is None:
+            proc.kill()
+        if proc:
+            try:
+                proc.wait(10)
+            except subprocess.TimeoutExpired:
+                pass
+        shutil.rmtree(profile, ignore_errors=True)
+
+
+def _capture(url, w, h, wait_ms, out, full_page=False):
+    """Screenshot url at exactly w x h CSS px (deviceScaleFactor 1) into out, after the load event
+    plus wait_ms of real time. True when a non-empty PNG was written; errors are printed."""
+    if os.path.exists(out):
+        os.remove(out)   # a stale file must not count as success
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    limit = wait_ms / 1000 + 60
+    try:
+        _cdp_capture(url, w, h, wait_ms, out, full_page, limit)
+    except CdpConnectError as e:
+        print(f'Warning: could not drive Chrome over DevTools ({e}); falling back to --screenshot, '
+              'so sizes under 500 px wide may be inaccurate' +
+              (' and --full-page is ignored' if full_page else ''), file=sys.stderr)
+        try:
+            # A zero virtual-time budget never finishes, so give it at least 500 ms
+            result = _run_chrome(w, h, max(wait_ms, 500), out, url, timeout=limit)
+        except subprocess.TimeoutExpired:
+            # Virtual time stops while a request stays open (server-sent events, long polling)
+            print(f'Error: Chrome did not finish within {limit:.0f} s; the page may keep a request open '
+                  '(server-sent events or long polling)', file=sys.stderr)
+            return False
+        return result.returncode == 0 and os.path.isfile(out) and os.path.getsize(out) > 0
+    except TimeoutError:
+        print(f'Error: Chrome did not finish within {limit:.0f} s (the page never fired its load '
+              'event, or --wait is too long)', file=sys.stderr)
+        return False
+    except CdpError as e:
+        print(f'Error: capture failed: {e}', file=sys.stderr)
+        return False
+    return os.path.isfile(out) and os.path.getsize(out) > 0
 
 def _parse_minutes(args, default=30):
     if '--minutes' not in args:
@@ -1790,11 +2083,36 @@ def cmd_add(args):
 
 # ── render ─────────────────────────────────────────────────────────────────
 
+def _parse_wait(vals, default):
+    """--wait value in ms, or None after printing an error."""
+    try:
+        wait = int(vals['--wait'][-1]) if vals['--wait'] else default
+        if not 0 <= wait <= 120000:
+            raise ValueError
+    except ValueError:
+        print('Error: --wait must be a whole number of milliseconds from 0 to 120000', file=sys.stderr)
+        return None
+    return wait
+
+
 def cmd_render(args):
+    usage = ('Usage: canvas.py render <idea dir> [file...] [--full-page] [--wait MS]\n'
+             '  Render boards to <idea>/render/<board>.png at their registered size.\n'
+             '  --full-page  capture the whole scroll height (width stays the board width)\n'
+             '  --wait MS    wait this long after the page load event (default 1000)')
     if not args or _is_help(args):
-        print('Usage: canvas.py render <idea dir> [file...]'); return
-    idea_dir = os.path.abspath(args[0])
-    files = [os.path.basename(f) for f in args[1:]] if len(args) > 1 else []
+        print(usage); return
+    parsed = _split_args(args, ('--wait',), ('--full-page',))
+    if parsed is None:
+        return 1
+    pos, vals, flags = parsed
+    if not pos:
+        print(usage, file=sys.stderr); return 1
+    wait = _parse_wait(vals, 1000)
+    if wait is None:
+        return 1
+    idea_dir = os.path.abspath(pos[0])
+    files = [os.path.basename(f) for f in pos[1:]]
 
     boards_dir = os.path.join(idea_dir, 'boards')
     render_dir = os.path.join(idea_dir, 'render')
@@ -1812,10 +2130,9 @@ def cmd_render(args):
         if not os.path.isfile(src):
             print(f'Not found: {fname}'); continue
         b = boards.get(fname, {})
-        w, h = b.get('w', DEFAULT_W), b.get('h', DEFAULT_H)
+        w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
         out = os.path.join(render_dir, fname.replace('.html', '.png'))
-        result = _run_chrome(w, h, 3000, out, pathlib.Path(src).as_uri())
-        if result.returncode != 0 or not os.path.isfile(out) or os.path.getsize(out) == 0:
+        if not _capture(pathlib.Path(src).as_uri(), w, h, wait, out, flags['--full-page']):
             print(f'Error: render failed ({fname})', file=sys.stderr)
             failed.append(fname)
         else:
@@ -1879,11 +2196,8 @@ def cmd_overview(args):
         f.write(static_html)
 
     try:
-        result = _run_chrome(out_w, out_h, 5000, out_png,
-                             pathlib.Path(tmp_index).as_uri() + '?overview=1')
-
-        if result.returncode != 0 or not os.path.isfile(out_png) or os.path.getsize(out_png) == 0:
-            print(f'Error: overview render failed (Chrome exit code: {result.returncode})', file=sys.stderr)
+        if not _capture(pathlib.Path(tmp_index).as_uri() + '?overview=1', out_w, out_h, 2000, out_png):
+            print('Error: overview render failed', file=sys.stderr)
             sys.exit(1)
 
         print(f'Overview: {out_png}  ({out_w}x{out_h}px)')
@@ -1891,6 +2205,14 @@ def cmd_overview(args):
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 # ── check ──────────────────────────────────────────────────────────────────
+
+def _visible_text(html_src):
+    """Lower-cased text a reader sees in a board (no scripts, styles, or tags; spaces collapsed)."""
+    t = re.sub(r'(?is)<(script|style|template)\b.*?</\1\s*>', ' ', html_src)
+    t = re.sub(r'(?s)<!--.*?-->', ' ', t)
+    t = _html.unescape(re.sub(r'<[^>]*>', ' ', t))
+    return ' '.join(t.split()).casefold()
+
 
 def cmd_check(args):
     if not args or _is_help(args):
@@ -1953,10 +2275,24 @@ def cmd_check(args):
                     code = ' '.join(f'U+{ord(c):04X}' for c in ch)
                     errors.append(f'forbidden character ({code}) found: {fname}')
 
+    infos = []
+    texts = {}
     for lnk in canvas.get('links', []):
         for end in ('from', 'to'):
             if lnk.get(end) not in boards:
                 errors.append(f'link {end} is not a registered board: {lnk.get("from")} -> {lnk.get("to")}')
+        # A label normally names the button that leads on; say so when the board has no such text
+        label, src = str(lnk.get('label') or '').strip(), lnk.get('from')
+        if not label or src not in boards:
+            continue
+        if src not in texts:
+            try:
+                with open(os.path.join(boards_dir, src), encoding='utf-8', errors='replace') as f:
+                    texts[src] = _visible_text(f.read())
+            except OSError:
+                texts[src] = None
+        if texts[src] is not None and ' '.join(label.split()).casefold() not in texts[src]:
+            infos.append(f'link label "{label}" not found in the text of {src}')
 
     # impl files are paths in the project that holds the design folder (<project>/<design>/<idea>)
     project_root = os.path.dirname(os.path.dirname(idea_dir))
@@ -1977,6 +2313,8 @@ def cmd_check(args):
         for f, n in commented:
             print(f'  {f}: {n}')
 
+    for i in infos:
+        print('Info:', i)
     if errors:
         for e in errors:
             print('Error:', e)
@@ -2305,6 +2643,7 @@ def _resize_nearest(rows, sw, sh, dw, dh):
 # Diff image: board pixels dimmed toward gray, mismatches in magenta
 _DIM = bytes(96 + v * 3 // 8 for v in range(256))
 _MAGENTA = b'\xff\x00\xff'
+_IGNORED = bytes(v // 4 for v in range(256))
 
 
 def _diff_rows(rows_a, rows_b, w, threshold):
@@ -2396,32 +2735,17 @@ def _check_app_url(url):
     return True
 
 
-def _snap(url, w, h, wait_ms, out):
-    """Screenshot url at w x h into out. True when a non-empty PNG was written."""
-    if os.path.exists(out):
-        os.remove(out)   # a stale file must not count as success
-    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-    limit = wait_ms / 1000 + 60
-    try:
-        result = _run_chrome(w, h, wait_ms, out, url, timeout=limit)
-    except subprocess.TimeoutExpired:
-        # Virtual time stops while a request stays open (server-sent events, long polling)
-        print(f'Error: Chrome did not finish within {limit:.0f} s; the page may keep a request open '
-              '(server-sent events or long polling)', file=sys.stderr)
-        return False
-    return result.returncode == 0 and os.path.isfile(out) and os.path.getsize(out) > 0
-
-
 def cmd_snap(args):
-    usage = ('Usage: canvas.py snap <url> --out FILE.png [--size mobile|tablet|desktop|WxH] [--wait MS]\n'
-             '  Screenshot a running app page (http/https) with headless Chrome. Default size: mobile,\n'
-             '  default wait: 3000 ms.')
+    usage = ('Usage: canvas.py snap <url> --out FILE.png [--size mobile|tablet|desktop|WxH] [--wait MS] [--full-page]\n'
+             '  Screenshot a running app page (http/https) with headless Chrome at exactly that size.\n'
+             '  Default size: mobile. --wait: real time to wait after the page load event (default 3000 ms).\n'
+             '  --full-page: capture the whole scroll height (width stays the same).')
     if not args or _is_help(args):
         print(usage); return
-    parsed = _split_args(args, ('--out', '--size', '--wait'))
+    parsed = _split_args(args, ('--out', '--size', '--wait'), ('--full-page',))
     if parsed is None:
         return 1
-    pos, vals, _ = parsed
+    pos, vals, flags = parsed
     if len(pos) != 1 or not vals['--out']:
         print(usage, file=sys.stderr); return 1
     url, out = pos[0], vals['--out'][-1]
@@ -2429,30 +2753,45 @@ def cmd_snap(args):
     if not size:
         print(f'Error: unknown size: {vals["--size"][-1]} (use mobile|tablet|desktop|WxH)', file=sys.stderr)
         return 1
-    try:
-        wait = int(vals['--wait'][-1]) if vals['--wait'] else 3000
-        if not 0 <= wait <= 120000:
-            raise ValueError
-    except ValueError:
-        print('Error: --wait must be a whole number of milliseconds from 0 to 120000', file=sys.stderr)
+    wait = _parse_wait(vals, 3000)
+    if wait is None:
         return 1
     if not _check_app_url(url):
         return 1
-    if not _snap(url, size[0], size[1], wait, out):
+    if not _capture(url, size[0], size[1], wait, out, flags['--full-page']):
         print(f'Error: snap failed (no PNG written): {url}', file=sys.stderr)
         return 1
-    print(f'Snapped: {out}  ({size[0]}x{size[1]})')
+    print(f'Snapped: {out}  ({size[0]}x{size[1]}{", full page" if flags["--full-page"] else ""})')
 
 # ── compare ────────────────────────────────────────────────────────────────
 
+def _parse_px(vals, opt, limit):
+    """Whole-pixel option value (0 when absent), or None after printing an error."""
+    try:
+        v = int(vals[opt][-1]) if vals[opt] else 0
+        if not 0 <= v < limit:
+            raise ValueError
+    except ValueError:
+        print(f'Error: {opt} must be a whole number of pixels from 0 to {limit - 1}', file=sys.stderr)
+        return None
+    return v
+
+
 def cmd_compare(args):
-    usage = ('Usage: canvas.py compare <idea dir> <file> (--url URL | --png FILE) [--out DIR] [--threshold N] [--wait MS]\n'
+    usage = ('Usage: canvas.py compare <idea dir> <file> (--url URL | --png FILE) [--out DIR] [--threshold N]\n'
+             '                         [--wait MS] [--ignore-top N] [--ignore-bottom N] [--align-top N]\n'
              '  Render the board at its registered size, get the app screen at the same size, and write\n'
              '  board.png, app.png, diff.png, side.png, report.json to <idea>/compare/<board id>/ (or --out DIR).\n'
-             '  A pixel differs when any channel differs by more than the threshold (default 24).')
+             '  A pixel differs when any channel differs by more than the threshold (default 24).\n'
+             '  --wait MS          real time to wait after the app page load event (default 3000)\n'
+             '  --ignore-top N     leave the top N rows out of the mismatch (e.g. a status bar)\n'
+             '  --ignore-bottom N  leave the bottom N rows out of the mismatch\n'
+             '  --align-top N      the board draws N px (e.g. a fake status bar) the app does not have:\n'
+             '                     snap the app N px shorter and place it N px down; those N rows are ignored')
     if len(args) < 2 or _is_help(args):
         print(usage); return
-    parsed = _split_args(args, ('--url', '--png', '--out', '--threshold', '--wait'))
+    parsed = _split_args(args, ('--url', '--png', '--out', '--threshold', '--wait',
+                                '--ignore-top', '--ignore-bottom', '--align-top'))
     if parsed is None:
         return 1
     pos, vals, _ = parsed
@@ -2466,12 +2805,8 @@ def cmd_compare(args):
             raise ValueError
     except ValueError:
         print('Error: --threshold must be a whole number from 0 to 255', file=sys.stderr); return 1
-    try:
-        wait = int(vals['--wait'][-1]) if vals['--wait'] else 3000
-        if not 0 <= wait <= 120000:
-            raise ValueError
-    except ValueError:
-        print('Error: --wait must be a whole number of milliseconds from 0 to 120000', file=sys.stderr)
+    wait = _parse_wait(vals, 3000)
+    if wait is None:
         return 1
 
     idea_dir = os.path.abspath(pos[0])
@@ -2482,22 +2817,30 @@ def cmd_compare(args):
     src = os.path.join(idea_dir, 'boards', key)
     if not os.path.isfile(src):
         print(f'Error: board file not found: {src}', file=sys.stderr); return 1
+    b = canvas['boards'][key]
+    w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
+    bands = [_parse_px(vals, o, h) for o in ('--ignore-top', '--ignore-bottom', '--align-top')]
+    if None in bands:
+        return 1
+    ignore_top, ignore_bottom, align_top = bands
+    skip_top = max(ignore_top, align_top)
+    if skip_top + ignore_bottom >= h:
+        print(f'Error: the ignored rows cover the whole board ({h} px tall)', file=sys.stderr); return 1
     if url is not None and not _check_app_url(url):
         return 1
     if png is not None and not os.path.isfile(png):
         print(f'Error: PNG not found: {png}', file=sys.stderr); return 1
-    b = canvas['boards'][key]
-    w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
     board_id = key[:-5]
     out_dir = os.path.abspath(vals['--out'][-1]) if vals['--out'] else os.path.join(idea_dir, 'compare', board_id)
     os.makedirs(out_dir, exist_ok=True)
 
     board_png = os.path.join(out_dir, 'board.png')
     app_png = os.path.join(out_dir, 'app.png')
-    if not _snap(pathlib.Path(src).as_uri(), w, h, 3000, board_png):
+    app_h = h - align_top    # the app's own viewport is below the board's extra band
+    if not _capture(pathlib.Path(src).as_uri(), w, h, 1000, board_png):
         print(f'Error: render failed ({key})', file=sys.stderr); return 1
     if url is not None:
-        if not _snap(url, w, h, wait, app_png):
+        if not _capture(url, w, app_h, wait, app_png):
             print(f'Error: snap failed (no PNG written): {url}', file=sys.stderr); return 1
     elif os.path.realpath(png) != os.path.realpath(app_png):
         shutil.copyfile(png, app_png)
@@ -2509,20 +2852,33 @@ def cmd_compare(args):
         print(f'Error: {e}', file=sys.stderr); return 1
     brows = _rgb_rows(bw, bch, brows)
     arows = _rgb_rows(aw, ach, arows)
-    if (aw, ah) != (bw, bh):
-        print(f'Warning: app image is {aw}x{ah}, board is {bw}x{bh}; app image resized to compare',
+    want_h = bh - align_top
+    if aw == bw and ah > want_h and align_top:
+        arows = arows[:want_h]    # a full-height app shot: its bottom rows fall off after the shift
+    elif (aw, ah) != (bw, want_h):
+        print(f'Warning: app image is {aw}x{ah}, expected {bw}x{want_h}; app image resized to compare',
               file=sys.stderr)
-        arows = _resize_nearest(arows, aw, ah, bw, bh)
+        arows = _resize_nearest(arows, aw, ah, bw, want_h)
+    if align_top:
+        arows = [b'\x80' * (bw * 3)] * align_top + arows
 
-    drows, bad = _diff_rows(brows, arows, bw, threshold)
+    top, bottom = skip_top, bh - ignore_bottom
+    drows, bad = _diff_rows(brows[top:bottom], arows[top:bottom], bw, threshold)
+    # Ignored rows: the board, darkened, never counted
+    drows = ([r.translate(_IGNORED) for r in brows[:top]] + drows +
+             [r.translate(_IGNORED) for r in brows[bottom:]])
     png_write(os.path.join(out_dir, 'diff.png'), bw, bh, drows)
     gap = 16
     sep = b'\x1e' * (gap * 3)
     png_write(os.path.join(out_dir, 'side.png'), bw * 3 + gap * 2, bh,
               [r1 + sep + r2 + sep + r3 for r1, r2, r3 in zip(brows, arows, drows)])
-    percent = round(100.0 * bad / max(1, bw * bh), 2)
+    percent = round(100.0 * bad / max(1, bw * (bottom - top)), 2)
     report = {'board': key, 'url': url, 'png': png, 'size': {'w': bw, 'h': bh},
-              'mismatch_percent': percent, 'threshold': threshold, 'created': _now()}
+              'mismatch_percent': percent, 'threshold': threshold,
+              'ignore_top': ignore_top, 'ignore_bottom': ignore_bottom, 'align_top': align_top,
+              'compared_rows': {'from': top, 'to': bottom}, 'created': _now()}
+    if url is not None:
+        report['wait_ms'] = wait
     save_canvas_atomic(os.path.join(out_dir, 'report.json'), report)
 
     # Keep comparison output out of git in ideas created before compare existed
@@ -2535,7 +2891,8 @@ def cmd_compare(args):
                 f.write(('' if not content or content.endswith('\n') else '\n') + 'compare/\n')
             print(f'Added compare/ to {gi}')
 
-    print(f'Mismatch: {percent}% of {bw}x{bh} pixels (threshold {threshold})')
+    rows_note = f', rows {top}-{bottom}' if (top, bottom) != (0, bh) else ''
+    print(f'Mismatch: {percent}% of {bw}x{bottom - top} pixels (threshold {threshold}{rows_note})')
     print(f'Wrote: {out_dir}/{{board,app,diff,side}}.png, report.json')
 
 # ── impl ───────────────────────────────────────────────────────────────────

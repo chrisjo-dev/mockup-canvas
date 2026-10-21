@@ -31,7 +31,7 @@ Usage for each command: `canvas <command> -h`.
 
 1. **Load the context**: find the idea folder (`<project>/design/<idea>/`, or `~/design/<idea>/` when there is no project). Read the brief or spec the screens were drawn from (project docs, issue, the user's request), `shared/tokens.css`, `canvas.json` (groups, links, status, notes), and any existing `review.md`. If you cannot find a spec, review against the screens alone and say so in the report.
 2. **Machine checks**: run `canvas check <idea>` and `canvas overview <idea>`. Every `check` problem becomes a finding. Look at the overview PNG yourself for flow arrows, groups, and screens that sit alone.
-3. **Per board**: for each artboard in the current group (skip `rejected` and "old drafts" unless asked), run `canvas render <idea> <file>`, look at the PNG, and read the HTML. Go through `references/checklist.md`.
+3. **Per board**: for each artboard in the current group (skip `rejected` and "old drafts" unless asked), run `canvas render <idea> <file>`, look at the PNG, and read the HTML. The PNG is one screen tall; run `canvas render <idea> <file> --full-page` to see content below the fold (long lists, footers) before judging it. Go through `references/checklist.md`.
 4. **Flow**: walk the links from the entry screen. Every button or link drawn on a board should lead somewhere on the canvas or be a stated end of the flow. List dead ends, unreachable boards, and links to boards that do not exist.
 5. **Spec match**: compare the screens with the spec item by item. A required feature with no screen, or a screen that contradicts the spec, is a finding.
 6. **Write findings on the board**: one finding per comment, on the exact artboard it concerns:
@@ -70,7 +70,7 @@ The first review is done when every current board has been checked, findings are
 ## Rules
 
 - Reply to the user in the user's language. Comments and `review.md` follow the language of the spec, or the user's language when there is no spec.
-- If `~/.mockup-canvas/config.json` lists `forbidden_chars`, do not use those characters in comments or the report.
+- If `$MOCKUP_CANVAS_HOME/config.json` (default `~/.mockup-canvas/config.json`) lists `forbidden_chars`, do not use those characters in comments or the report.
 - Do not start, stop, or reuse servers the user is running. If you start one only for checking, stop it by its PID or `lsof -ti:<your port>`, never with `pkill -f canvas.py`.
 
 ## Reference

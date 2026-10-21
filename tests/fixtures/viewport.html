@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Reports the layout viewport in pixels so a test can read it back from the PNG:
+     the top-left 20x20 square is rgb(innerWidth >> 8, innerWidth & 255, 7), and the one
+     below it encodes innerHeight the same way. A 40x40 orange (#ff6600) square is fixed at
+     right:16px, bottom:16px, and a 20x20 blue (#0000ff) square sits at the very bottom of
+     a 2000 px tall page (seen only with --full-page). -->
+<style>
+  html, body { margin: 0; background: #fff; }
+  .px { position: absolute; left: 0; width: 20px; height: 20px; }
+  #fab { position: fixed; right: 16px; bottom: 16px; width: 40px; height: 40px; background: #ff6600; }
+  #end { position: absolute; left: 0; top: 1980px; width: 20px; height: 20px; background: #0000ff; }
+</style></head>
+<body style="height:2000px">
+<div class="px" id="w" style="top:0"></div>
+<div class="px" id="h" style="top:20px"></div>
+<div id="fab"></div>
+<div id="end"></div>
+<script>
+  function enc(v) { return 'rgb(' + (v >> 8) + ',' + (v & 255) + ',7)'; }
+  document.getElementById('w').style.background = enc(innerWidth);
+  document.getElementById('h').style.background = enc(innerHeight);
+</script>
+</body></html>

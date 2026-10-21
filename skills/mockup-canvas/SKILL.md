@@ -27,10 +27,10 @@ Usage for each command: `canvas <command> -h`.
   render/          PNGs for checking (generated, ignored by git)
 ```
 
-User data lives in `~/.mockup-canvas/` (override the folder with `MOCKUP_CANVAS_HOME`):
+User data lives in `$MOCKUP_CANVAS_HOME` (default `~/.mockup-canvas/`):
 
-- `roots.json`: registered design folders for registry mode.
-- `config.json`: options. `forbidden_chars` is a list of characters that `check` reports when they appear in an artboard, e.g. `{"forbidden_chars": ["—"]}`. Default: none.
+- `$MOCKUP_CANVAS_HOME/roots.json`: registered design folders for registry mode.
+- `$MOCKUP_CANVAS_HOME/config.json` (default `~/.mockup-canvas/config.json`): options. `forbidden_chars` is a list of characters that `check` reports when they appear in an artboard, e.g. `{"forbidden_chars": ["—"]}`. Default: none.
 
 ## Workflow
 
@@ -39,7 +39,7 @@ User data lives in `~/.mockup-canvas/` (override the folder with `MOCKUP_CANVAS_
 3. **Draw**: an artboard HTML must look the same when opened on its own. Use only relative paths (`../shared/tokens.css`, `../assets/x.png`); the only external resource allowed is Google Fonts. No custom tags, no external scripts.
 4. **Register**: write the file into `boards/` first, then `canvas add <idea dir> boards/F06-Letter.html --group current [--size mobile|tablet|desktop|WxH]`. Put related screens on one row (flow order, left to right).
 5. **Flow**: navigation between screens is `canvas link <idea> A.html B.html --label "Button name"`. If the user fixed the number of screens, draw only that many and only suggest missing state screens (empty, error, loading, no permission) in the report. If they did not, include those state screens in the flow.
-6. **Check**: `canvas check <idea>` must report 0 problems. Look at the PNG from `canvas render` for each changed artboard yourself; if you changed several, look at the whole thing with `canvas overview` (check flow arrows and groups in that PNG too). Checking the canvas page itself with browser tools is optional. Fix any error text or broken images you see.
+6. **Check**: `canvas check <idea>` must report 0 problems. Look at the PNG from `canvas render` for each changed artboard yourself (renders are exact board size; add `--full-page` to see content below the fold); if you changed several, look at the whole thing with `canvas overview` (check flow arrows and groups in that PNG too). Checking the canvas page itself with browser tools is optional. Fix any error text or broken images you see.
 7. **Show**: registry mode (`canvas serve` with no arguments) serves every registered project from one server (default port 4400). `canvas new` registers the design folder automatically, so no separate `roots add` is needed. Add existing projects in one go with `canvas roots scan ~/work ~/projects`. To look at a single project, use `canvas serve <design dir>` (URL `/<idea>/`). Use the printed address as is. Registry mode URL: `http://localhost:4400/<project>/<idea>/`. Leave this server running. Projects can also be added or removed from the index page.
 8. **Phone**: see "View on a phone" below.
 9. **Old versions**: never delete them. Move them with `canvas group <idea> <file> "old drafts"` and mark them with `canvas status ... rejected`.
@@ -47,8 +47,8 @@ User data lives in `~/.mockup-canvas/` (override the folder with `MOCKUP_CANVAS_
 
 ## After implementation
 
-- `canvas snap <url> --size mobile|tablet|desktop|WxH --out FILE.png [--wait MS]`: screenshot a running app page (http/https only; warns when the host is not localhost).
-- `canvas compare <idea> <file> --url URL` (or `--png FILE`): renders the board at its registered size, takes the app screen at the same size, and writes `board.png`, `app.png`, `diff.png` (mismatches in magenta), `side.png`, and `report.json` to `<idea>/compare/<board id>/`. Look at `side.png` and `diff.png` yourself; the mismatch percent alone is not a verdict.
+- `canvas snap <url> --size mobile|tablet|desktop|WxH --out FILE.png [--wait MS] [--full-page]`: screenshot a running app page at exactly that size (http/https only; warns when the host is not localhost). `--wait` is real time after the page load event (default 3000 ms).
+- `canvas compare <idea> <file> --url URL` (or `--png FILE`): renders the board at its registered size, takes the app screen at the same size, and writes `board.png`, `app.png`, `diff.png` (mismatches in magenta), `side.png`, and `report.json` to `<idea>/compare/<board id>/`. Look at `side.png` and `diff.png` yourself; the mismatch percent alone is not a verdict. `--ignore-top N` / `--ignore-bottom N` leave a band out of the count; `--align-top N` is for a board that draws N px (a fake status bar) the app does not have. See `canvas compare -h`.
 - `canvas impl <idea> <file> --route /path --file src/page.tsx`: record which route and files implement a board (paths relative to the project root). `canvas impl <idea> [--strict]` lists approved boards with or without an implementation.
 - `canvas comment <idea> <file> "text" [--by NAME]`: review notes on a board (`--clear` removes them, no text lists them). The canvas shows a comment count and a blue "built" badge.
 

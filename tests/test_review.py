@@ -7,6 +7,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import unittest
 import zlib
 
@@ -130,21 +131,126 @@ class PngCodec(TempHomeCase):
         self.assertEqual(big[3], b'\x03' * 6 + b'\x04' * 6)
 
 
-# ── fake Chrome: copies a fixture PNG chosen by URL substring ─────────────
+# ── fake Chrome ────────────────────────────────────────────────────────────
+# Speaks just enough DevTools protocol (HTTP /json/list + WebSocket) for _cdp_capture, answering
+# Page.captureScreenshot with a fixture PNG chosen by URL substring. Server frames are sent
+# fragmented and after a ping, so the client's continuation and ping/pong handling are exercised.
+# FAKE_CHROME_MODE=screenshot refuses DevTools and acts like the old --screenshot path.
 
-FAKE_CHROME = r'''#!/usr/bin/env python3
-import json, os, shutil, sys
+FAKE_CHROME = r"""#!/usr/bin/env python3
+import base64, hashlib, json, os, shutil, socket, sys
 args = sys.argv[1:]
-with open(os.environ['FAKE_CHROME_LOG'], 'a') as f:
-    f.write(json.dumps(args) + '\n')
-out = next(a.split('=', 1)[1] for a in args if a.startswith('--screenshot='))
-url = args[-1]
-for needle, png in json.loads(os.environ.get('FAKE_CHROME_MAP', '{}')).items():
-    if needle in url:
+env = os.environ
+def log(**kw):
+    with open(env['FAKE_CHROME_LOG'], 'a') as f:
+        f.write(json.dumps(dict(pid=os.getpid(), **kw)) + '\n')
+def fixture(url):
+    for needle, png in json.loads(env.get('FAKE_CHROME_MAP', '{}')).items():
+        if needle in url:
+            return png
+cdp = '--remote-debugging-port=0' in args
+if env.get('FAKE_CHROME_EXIT'):
+    sys.exit(int(env['FAKE_CHROME_EXIT']))
+if cdp and env.get('FAKE_CHROME_MODE') == 'screenshot':
+    sys.exit(1)
+log(args=args)
+if not cdp:
+    out = next(a.split('=', 1)[1] for a in args if a.startswith('--screenshot='))
+    png = fixture(args[-1])
+    if png:
         shutil.copyfile(png, out)
-        sys.exit(0)
-sys.exit(int(os.environ.get('FAKE_CHROME_EXIT', '0')))
-'''
+    sys.exit(0)
+
+profile = next(a.split('=', 1)[1] for a in args if a.startswith('--user-data-dir='))
+srv = socket.socket()
+srv.bind(('127.0.0.1', 0))
+srv.listen(4)
+port = srv.getsockname()[1]
+with open(os.path.join(profile, 'DevToolsActivePort'), 'w') as f:
+    f.write(f'{port}\n/devtools/browser/fake\n')
+
+def read_exact(c, n):
+    data = b''
+    while len(data) < n:
+        chunk = c.recv(n - len(data))
+        if not chunk:
+            sys.exit(0)
+        data += chunk
+    return data
+
+def recv_frame(c):
+    b0, b1 = read_exact(c, 2)
+    if not b1 & 0x80:
+        log(error='client frame not masked'); sys.exit(2)
+    n = b1 & 0x7F
+    if n == 126: n = int.from_bytes(read_exact(c, 2), 'big')
+    elif n == 127: n = int.from_bytes(read_exact(c, 8), 'big')
+    mask = read_exact(c, 4)
+    data = bytes(v ^ mask[i % 4] for i, v in enumerate(read_exact(c, n)))
+    return b0 & 0x0F, data
+
+def head(fin, op, n):
+    b0 = bytes([(0x80 if fin else 0) | op])
+    if n < 126: return b0 + bytes([n])
+    if n < 65536: return b0 + bytes([126]) + n.to_bytes(2, 'big')
+    return b0 + bytes([127]) + n.to_bytes(8, 'big')
+
+def send(c, obj):
+    c.sendall(head(True, 0x9, 4) + b'ping')
+    data = json.dumps(obj).encode()
+    half = len(data) // 2
+    c.sendall(head(False, 0x1, half) + data[:half] + head(True, 0x0, len(data) - half) + data[half:])
+
+state = {'url': '', 'w': 0}
+while True:
+    c, _ = srv.accept()
+    req = b''
+    while b'\r\n\r\n' not in req:
+        req += c.recv(4096)
+    line = req.split(b'\r\n')[0].decode()
+    if line.startswith('GET /json/list'):
+        body = json.dumps([{'type': 'page',
+                            'webSocketDebuggerUrl': f'ws://127.0.0.1:{port}/devtools/page/1'}]).encode()
+        c.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n' % len(body) + body)
+        c.close()
+        continue
+    key = next(l.split(b':', 1)[1].strip() for l in req.split(b'\r\n') if l.lower().startswith(b'sec-websocket-key'))
+    acc = base64.b64encode(hashlib.sha1(key + b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest())
+    c.sendall(b'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+              b'Sec-WebSocket-Accept: ' + acc + b'\r\n\r\n')
+    while True:
+        op, data = recv_frame(c)
+        if op == 0xA:
+            log(pong=data.decode()); continue
+        if op == 0x8:
+            sys.exit(0)
+        msg = json.loads(data)
+        m, p = msg['method'], msg.get('params', {})
+        log(method=m, params=p)
+        res, events = {}, []
+        if m == 'Emulation.setDeviceMetricsOverride':
+            state['w'] = p['width']
+        elif m == 'Page.navigate':
+            state['url'] = p['url']
+            res = {'frameId': 'f'}
+            if not env.get('FAKE_CHROME_NO_LOAD'):
+                events.append('Page.loadEventFired')
+        elif m == 'Page.reload':
+            events.append('Page.loadEventFired')
+        elif m == 'Runtime.evaluate':
+            v = (int(env.get('FAKE_CHROME_INNER', state['w'])) if p['expression'] == 'innerWidth'
+                 else int(env.get('FAKE_CHROME_SCROLL_H', '2000')))
+            res = {'result': {'type': 'number', 'value': v}}
+        elif m == 'Page.captureScreenshot':
+            png = fixture(state['url'])
+            if not png:
+                send(c, {'id': msg['id'], 'error': {'code': -32000, 'message': 'no fixture'}}); continue
+            with open(png, 'rb') as f:
+                res = {'data': base64.b64encode(f.read()).decode()}
+        send(c, {'id': msg['id'], 'result': res})
+        for e in events:
+            send(c, {'method': e, 'params': {}})
+"""
 
 
 class FakeChromeCase(TempHomeCase):
@@ -161,10 +267,27 @@ class FakeChromeCase(TempHomeCase):
         self.env['FAKE_CHROME_MAP'] = json.dumps(mapping)
 
     def chrome_calls(self):
+        """-> one dict per Chrome run: {'args': [...], 'cdp': [(method, params)], 'pongs': n}."""
         if not os.path.exists(self.log):
             return []
+        runs = {}
         with open(self.log) as f:
-            return [json.loads(l) for l in f]
+            for l in f:
+                e = json.loads(l)
+                run = runs.setdefault(e['pid'], {'args': None, 'cdp': [], 'pongs': 0})
+                if 'args' in e:
+                    run['args'] = e['args']
+                elif 'method' in e:
+                    run['cdp'].append((e['method'], e['params']))
+                elif 'pong' in e:
+                    run['pongs'] += 1
+                else:
+                    raise AssertionError(e)
+        return list(runs.values())
+
+    @staticmethod
+    def params(run, method):
+        return [p for m, p in run['cdp'] if m == method]
 
 
 class SnapCommand(FakeChromeCase):
@@ -177,25 +300,93 @@ class SnapCommand(FakeChromeCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn('Snapped:', r.stdout)
         self.assertNotIn('Warning', r.stderr)
-        self.assertTrue(os.path.getsize(out) > 0)
-        args = self.chrome_calls()[0]
-        self.assertIn('--window-size=768,1024', args)
-        self.assertIn('--virtual-time-budget=500', args)
+        with open(out, 'rb') as f, open(png, 'rb') as g:
+            self.assertEqual(f.read(), g.read())
+        run, = self.chrome_calls()
+        args = run['args']
+        self.assertIn('--remote-debugging-port=0', args)
         self.assertTrue(any(a.startswith('--user-data-dir=') for a in args))
         self.assertFalse(any('file-access' in a or 'disable-web-security' in a for a in args))
         profile = next(a.split('=', 1)[1] for a in args if a.startswith('--user-data-dir='))
         self.assertFalse(os.path.exists(profile))   # throwaway profile removed
+        self.assertEqual(self.params(run, 'Emulation.setDeviceMetricsOverride'),
+                         [{'width': 768, 'height': 1024, 'deviceScaleFactor': 1, 'mobile': False}])
+        self.assertEqual(self.params(run, 'Page.navigate'), [{'url': 'http://localhost:5999/'}])
+        self.assertEqual(self.params(run, 'Page.captureScreenshot'), [{'format': 'png'}])
+        self.assertGreater(run['pongs'], 0)          # pings from Chrome are answered
+
+    def test_snap_mobile_full_page_and_real_wait(self):
+        png = os.path.join(self.tmp, 'fixture.png')
+        solid_png(png, 390, 2000, (1, 2, 3))
+        self.chrome_map({'localhost:5999': png})
+        out = os.path.join(self.tmp, 'full.png')
+        t = time.monotonic()
+        r = self.run_cli('snap', 'http://localhost:5999/', '--out', out, '--wait', '1500', '--full-page')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertGreaterEqual(time.monotonic() - t, 1.5)   # --wait is wall-clock time
+        self.assertIn('full page', r.stdout)
+        run, = self.chrome_calls()
+        self.assertEqual(self.params(run, 'Emulation.setDeviceMetricsOverride'),
+                         [{'width': 390, 'height': 844, 'deviceScaleFactor': 1, 'mobile': True}])
+        self.assertEqual(self.params(run, 'Page.captureScreenshot'),
+                         [{'format': 'png', 'captureBeyondViewport': True,
+                           'clip': {'x': 0, 'y': 0, 'width': 390, 'height': 2000, 'scale': 1}}])
+
+    def test_page_without_viewport_meta_reloads_as_desktop(self):
+        png = os.path.join(self.tmp, 'fixture.png')
+        solid_png(png, 4, 4, (1, 2, 3))
+        self.chrome_map({'localhost:5999': png})
+        self.env['FAKE_CHROME_INNER'] = '980'    # what mobile emulation gives a page with no viewport meta
+        r = self.run_cli('snap', 'http://localhost:5999/', '--out', os.path.join(self.tmp, 'x.png'), '--wait', '0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        run, = self.chrome_calls()
+        self.assertEqual([p['mobile'] for p in self.params(run, 'Emulation.setDeviceMetricsOverride')],
+                         [True, False])
+        self.assertEqual(len(self.params(run, 'Page.reload')), 1)
+
+    def test_falls_back_to_screenshot_when_devtools_fails(self):
+        png = os.path.join(self.tmp, 'fixture.png')
+        solid_png(png, 390, 844, (1, 2, 3))
+        self.chrome_map({'localhost:5999': png})
+        self.env['FAKE_CHROME_MODE'] = 'screenshot'
+        out = os.path.join(self.tmp, 'x.png')
+        r = self.run_cli('snap', 'http://localhost:5999/', '--out', out, '--wait', '700')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('falling back to --screenshot', r.stderr)
+        self.assertIn('under 500 px wide may be inaccurate', r.stderr)
+        run, = self.chrome_calls()
+        self.assertIn('--window-size=390,844', run['args'])
+        self.assertIn('--virtual-time-budget=700', run['args'])
+        self.assertTrue(os.path.getsize(out) > 0)
+        # a zero budget never finishes in real Chrome, so the fallback uses at least 500 ms
+        self.run_cli('snap', 'http://localhost:5999/', '--out', out, '--wait', '0')
+        self.assertIn('--virtual-time-budget=500', self.chrome_calls()[-1]['args'])
+
+    def test_devtools_timeout_is_a_clear_error_and_cleans_up(self):
+        from unittest import mock
+        self.env['FAKE_CHROME_NO_LOAD'] = '1'
+        out = os.path.join(self.tmp, 't.png')
+        with mock.patch.dict(os.environ, self.env), mock.patch('sys.stderr'):
+            t = time.monotonic()
+            with self.assertRaises(TimeoutError):
+                canvas._cdp_capture('http://localhost:5999/', 10, 10, 0, out, False, 3)
+            self.assertLess(time.monotonic() - t, 15)
+        run, = self.chrome_calls()
+        profile = next(a.split('=', 1)[1] for a in run['args'] if a.startswith('--user-data-dir='))
+        self.assertFalse(os.path.exists(profile))
+        self.assertFalse(os.path.exists(out))
 
     def test_snap_fails_without_png_and_removes_stale_file(self):
         out = os.path.join(self.tmp, 'x.png')
         with open(out, 'wb') as f:
             f.write(b'stale')
-        r = self.run_cli('snap', 'http://127.0.0.1:5999/', '--out', out)
+        r = self.run_cli('snap', 'http://127.0.0.1:5999/', '--out', out, '--wait', '0')
         self.assertEqual(r.returncode, 1)
+        self.assertIn('capture failed', r.stderr)
         self.assertIn('snap failed', r.stderr)
         self.assertFalse(os.path.exists(out))
         self.env['FAKE_CHROME_EXIT'] = '3'
-        self.assertEqual(self.run_cli('snap', 'http://127.0.0.1:5999/', '--out', out).returncode, 1)
+        self.assertEqual(self.run_cli('snap', 'http://127.0.0.1:5999/', '--out', out, '--wait', '0').returncode, 1)
 
     def test_snap_rejects_non_http_and_warns_for_remote(self):
         for url in ('file:///etc/passwd', 'javascript:alert(1)', 'ftp://localhost/', 'http://'):
@@ -210,16 +401,18 @@ class SnapCommand(FakeChromeCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn('Warning: example.com is not localhost', r.stderr)
         r = self.run_cli('snap', 'http://[::1]:5999/', '--out', os.path.join(self.tmp, 'v6.png'), '--size', '4x4')
+        self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn('Warning', r.stderr)
 
-    def test_snap_times_out_on_open_requests(self):
+    def test_fallback_times_out_on_open_requests(self):
         from unittest import mock
         out = os.path.join(self.tmp, 't.png')
-        with mock.patch.dict(os.environ, {'MOCKUP_CANVAS_CHROME': '/bin/true'}), \
+        with mock.patch.object(canvas, '_cdp_capture', side_effect=canvas.CdpConnectError('x')), \
+                mock.patch.object(canvas, '_get_chrome', return_value='/fake/chrome'), \
                 mock.patch.object(canvas.subprocess, 'run',
                                   side_effect=subprocess.TimeoutExpired('chrome', 61)) as run, \
                 mock.patch('sys.stderr') as err:
-            self.assertFalse(canvas._snap('http://localhost:5999/', 10, 10, 1000, out))
+            self.assertFalse(canvas._capture('http://localhost:5999/', 10, 10, 1000, out))
         self.assertEqual(run.call_args.kwargs['timeout'], 61)
         self.assertIn('did not finish', ''.join(str(c.args[0]) for c in err.write.call_args_list))
 
@@ -288,9 +481,65 @@ class CompareCommand(FakeChromeCase):
         self.assertEqual(self.read_json(os.path.join(outdir, 'report.json'))['url'], 'http://localhost:5998/home')
         calls = self.chrome_calls()
         self.assertEqual(len(calls), 2)
-        self.assertTrue(all('--window-size=40,30' in c for c in calls))
-        self.assertTrue(calls[0][-1].startswith('file://'))
+        for run in calls:
+            m, = self.params(run, 'Emulation.setDeviceMetricsOverride')
+            self.assertEqual((m['width'], m['height']), (40, 30))
+        self.assertTrue(self.params(calls[0], 'Page.navigate')[0]['url'].startswith('file://'))
+        self.assertEqual(self.read_json(os.path.join(outdir, 'report.json'))['wait_ms'], 3000)
         self.assertFalse(os.path.exists(os.path.join(self.idea, 'compare')))
+
+    def test_compare_ignore_bands_and_align_top(self):
+        # Board: 4 dark "status bar" rows, then gray. App: gray only, 4 rows shorter.
+        board = os.path.join(self.tmp, 'bar.png')
+        canvas.png_write(board, 40, 30, [b'\x00' * 120] * 4 + [bytes([200, 200, 200]) * 40] * 26)
+        self.chrome_map({'A01-One.html': board})
+        out = os.path.join(self.idea, 'compare', 'A01-One')
+        full = os.path.join(self.tmp, 'gray.png')
+        solid_png(full, 40, 30, (200, 200, 200))
+        r = self.run_cli('compare', self.idea, 'A01-One', '--png', full)
+        self.assertIn('Mismatch: 13.33%', r.stdout)                 # 4 of 30 rows
+        r = self.run_cli('compare', self.idea, 'A01-One', '--png', full, '--ignore-top', '4')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('Mismatch: 0.0% of 40x26 pixels', r.stdout)
+        rep = self.read_json(os.path.join(out, 'report.json'))
+        self.assertEqual((rep['ignore_top'], rep['ignore_bottom'], rep['align_top']), (4, 0, 0))
+        self.assertEqual(rep['compared_rows'], {'from': 4, 'to': 30})
+        _, _, _, diff = canvas.png_read(os.path.join(out, 'diff.png'))
+        self.assertEqual(diff[0][:3], b'\x00\x00\x00')              # ignored band: darkened board, no magenta
+        # --ignore-bottom: the last 3 rows of the app are wrong but left out
+        tail = os.path.join(self.tmp, 'tail.png')
+        canvas.png_write(tail, 40, 30, [b'\x00' * 120] * 4 + [bytes([200, 200, 200]) * 40] * 23 +
+                         [b'\xff' * 120] * 3)
+        r = self.run_cli('compare', self.idea, 'A01-One', '--png', tail, '--ignore-bottom', '3')
+        self.assertIn('Mismatch: 0.0% of 40x27 pixels', r.stdout)
+        # --align-top: the app has no status bar and is 4 px shorter; it is placed 4 px down
+        short = os.path.join(self.tmp, 'short.png')
+        canvas.png_write(short, 40, 26, [bytes([200, 200, 200]) * 40] * 25 + [b'\x00' * 120])
+        self.chrome_map({'A01-One.html': board, 'localhost:5997': short})
+        r = self.run_cli('compare', self.idea, 'A01-One', '--url', 'http://localhost:5997/', '--align-top', '4',
+                         '--wait', '0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('resized', r.stderr)
+        self.assertIn('Mismatch: 3.85% of 40x26 pixels', r.stdout)  # only the app's last row differs
+        app_run = self.chrome_calls()[-1]
+        m, = self.params(app_run, 'Emulation.setDeviceMetricsOverride')
+        self.assertEqual((m['width'], m['height']), (40, 26))       # app snapped 4 px shorter
+        rep = self.read_json(os.path.join(out, 'report.json'))
+        self.assertEqual((rep['align_top'], rep['compared_rows'], rep['wait_ms']), (4, {'from': 4, 'to': 30}, 0))
+        w, h, _, side = canvas.png_read(os.path.join(out, 'side.png'))
+        self.assertEqual(side[0][(40 + 16) * 3:(40 + 16) * 3 + 3], b'\x80\x80\x80')   # app shifted down
+        # a full-height app PNG is cut at the bottom instead of being squeezed
+        r = self.run_cli('compare', self.idea, 'A01-One', '--png', full, '--align-top', '4')
+        self.assertNotIn('resized', r.stderr)
+        self.assertIn('Mismatch: 0.0%', r.stdout)
+        for bad in (('--ignore-top', '-1'), ('--align-top', '30'), ('--ignore-bottom', 'x')):
+            r = self.run_cli('compare', self.idea, 'A01-One', '--png', full, *bad)
+            self.assertEqual(r.returncode, 1, bad)
+        r = self.run_cli('compare', self.idea, 'A01-One', '--png', full, '--ignore-top', '15', '--ignore-bottom', '15')
+        self.assertIn('cover the whole board', r.stderr)
+        help_text = self.run_cli('compare', '-h').stdout
+        for opt in ('--wait MS', '--ignore-top N', '--ignore-bottom N', '--align-top N'):
+            self.assertIn(opt, help_text)
 
     def test_compare_resizes_other_sized_png(self):
         big = os.path.join(self.tmp, 'big.png')
@@ -354,6 +603,36 @@ class CompareRealChrome(ServerCase):
         self.run_cli('compare', idea, 'A01-One', '--url', url2)
         rep = self.read_json(os.path.join(idea, 'compare', 'A01-One', 'report.json'))
         self.assertGreater(rep['mismatch_percent'], 20)
+
+
+class WebSocketFrames(unittest.TestCase):
+    def test_client_frames_are_masked_with_all_length_forms(self):
+        mask = b'\x01\x02\x03\x04'
+        for n, hdr in ((0, 2), (125, 2), (126, 4), (65535, 4), (65536, 10)):
+            payload = bytes(i & 255 for i in range(n))
+            f = canvas._WebSocket.encode_frame(0x1, payload, mask)
+            self.assertEqual(f[0], 0x81)
+            self.assertTrue(f[1] & 0x80, 'mask bit')
+            self.assertEqual(len(f), hdr + 4 + n, n)
+            self.assertEqual(f[hdr:hdr + 4], mask)
+            self.assertEqual(canvas._ws_mask(f[hdr + 4:], mask), payload)
+            self.assertEqual({125: 125, 126: 126, 65535: 126, 65536: 127}.get(n, n), f[1] & 0x7F)
+
+
+class CheckLinkLabels(TempHomeCase):
+    def test_label_missing_from_source_text_is_info(self):
+        idea = self.make_idea(os.path.join(self.home, 'p', 'design'), 'demo',
+                              boards=('A01-One.html', 'A02-Two.html'),
+                              links=[{'from': 'A01-One.html', 'to': 'A02-Two.html', 'label': 'Start  TRIP'},
+                                     {'from': 'A01-One.html', 'to': 'A02-Two.html', 'label': 'Join'},
+                                     {'from': 'A02-Two.html', 'to': 'A01-One.html'}])
+        with open(os.path.join(idea, 'boards', 'A01-One.html'), 'w') as f:
+            f.write(board_html('<button>Start <b>trip</b></button><script>"Join"</script><!-- Join -->'))
+        r = self.run_cli('check', idea)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn('All good (0 problems)', r.stdout)
+        self.assertIn('Info: link label "Join" not found in the text of A01-One.html', r.stdout)
+        self.assertNotIn('Start', r.stdout)
 
 
 # ── impl / comment ─────────────────────────────────────────────────────────
