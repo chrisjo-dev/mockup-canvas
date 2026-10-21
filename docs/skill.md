@@ -1,8 +1,16 @@
-# The mockup-canvas skill
+# The mockup-canvas skills
 
 [English](skill.md) | [한국어](skill.ko.md) | [简体中文](skill.zh-CN.md) | [日本語](skill.ja.md)
 
-The mockup-canvas skill is the set of instructions in [`skills/mockup-canvas/SKILL.md`](../skills/mockup-canvas/SKILL.md) that tells Claude Code or Codex how to draw screen mockups as HTML artboards and show them on the local canvas. This page explains what the agent does at each step, which commands it runs, and how you can adjust it.
+mockup-canvas ships three skills that share one CLI:
+
+| Skill | Instructions | Job |
+| --- | --- | --- |
+| mockup-canvas | [`skills/mockup-canvas/SKILL.md`](../skills/mockup-canvas/SKILL.md) | Draw screen mockups as HTML artboards and show them on the local canvas. |
+| mockup-review | [`skills/mockup-review/SKILL.md`](../skills/mockup-review/SKILL.md) | Review drawn screens and leave findings as comments on the boards. |
+| mockup-to-code | [`skills/mockup-to-code/SKILL.md`](../skills/mockup-to-code/SKILL.md) | Build approved boards in your app and compare each screen with its board. |
+
+This page explains what the agent does at each step, which commands it runs, and how you can adjust it. The [mockup-review](#the-mockup-review-skill) and [mockup-to-code](#the-mockup-to-code-skill) sections follow the mockup-canvas workflow.
 
 The core idea: **one HTML file is one screen (an artboard), one idea is one canvas, and the HTML is always the source of truth.** The canvas only displays it.
 
@@ -15,7 +23,7 @@ The agent loads the skill for requests such as:
 - "Put it on the canvas."
 - "Let me see it on my phone."
 
-It also covers revising an existing screen set, adding flow arrows, marking approvals, and phone sharing. It is **not** for implementing real app code.
+It also covers revising an existing screen set, adding flow arrows, marking approvals, and phone sharing. It is **not** for critiquing finished screens (that is mockup-review) or for implementing real app code (that is mockup-to-code).
 
 - **Claude Code** picks the skill from its description, or you can name it.
 - **Codex** uses it when you write `$mockup-canvas`, for example `Use $mockup-canvas to draw screen mockups for this idea.`
@@ -46,7 +54,7 @@ If the same idea already exists under `design/`, the agent continues it. Before 
 canvas new design wallet
 ```
 
-This creates `design/wallet/` with `boards/`, `assets/`, `render/`, `shared/tokens.css` (a starter token file), `canvas.json`, and a `.gitignore` that ignores `render/`. It also registers `design/` with the canvas server, so no separate `roots add` is needed. With no project, the agent uses `~/design/<idea>/`.
+This creates `design/wallet/` with `boards/`, `assets/`, `render/`, `shared/tokens.css` (a starter token file), `canvas.json`, and a `.gitignore` that ignores `render/` and `compare/`. It also registers `design/` with the canvas server, so no separate `roots add` is needed. With no project, the agent uses `~/design/<idea>/`.
 
 ### 2. Tokens first
 
@@ -70,7 +78,7 @@ The file is written into `boards/` first, then registered:
 canvas add design/wallet boards/W01-Home.html --group current --size mobile
 ```
 
-Related screens go on one row, in flow order from left to right. Size presets are `mobile` (390x844), `tablet` (768x1024), and `desktop` (1440x900), or any `WxH` such as `1280x800`. Without `--size`, the size is read from a `width: ...px; height: ...px` style near the top of the file, or defaults to 390x844.
+Related screens go on one row, in flow order from left to right. Size presets are `mobile` (390x844), `tablet` (768x1024), and `desktop` (1440x900), or any `WxH` such as `1280x800`. Without `--size`, the size is read from a `width: ...px; height: ...px` style near the top of the file, or defaults to 390x844. If a board's content is cut off, the agent runs `add` again with a new `--size` instead of trimming the content.
 
 ### 5. Link the flow
 
@@ -89,7 +97,7 @@ canvas overview design/wallet
 ```
 
 - `check` must report 0 problems. It catches missing files, broken `src`, `href`, and `url()` references, artboards not registered in `canvas.json`, overlapping artboards, links to unknown boards, and forbidden characters.
-- The agent opens the PNG from `render` for every artboard it changed. When it changed several, it also looks at the `overview` PNG, which includes flow arrows and groups.
+- The agent opens the PNG from `render` for every artboard it changed. Renders are exactly the board size; `render --full-page` captures content below the fold. When it changed several, it also looks at the `overview` PNG, which includes flow arrows and groups.
 - It fixes any error text or broken images it sees before showing you the result.
 
 ### 7. Show
@@ -151,7 +159,7 @@ The green badge and the note are the approval record. Simple praise ("looks nice
 ## Rules the agent follows
 
 - **Reply in your language.** The agent answers in the language you write in.
-- **Never edit `canvas.json` by hand.** It changes only through `canvas add`, `link`, `status`, and `group`. Direct edits can overwrite changes made at the same time, for example by subagents drawing in parallel or by you dragging artboards.
+- **Never edit `canvas.json` by hand.** It changes only through `canvas add`, `link`, `status`, `group`, `impl`, and `comment`. Direct edits can overwrite changes made at the same time, for example by subagents drawing in parallel or by you dragging artboards.
 - **Stop only its own servers.** It does not touch other ports you use. A server it started only for checking is stopped by its PID or by `lsof -ti:<its port>`, never with `pkill -f canvas.py`, which would also stop yours. A `serve` started for you is left running.
 - **Respect `forbidden_chars`.** If `config.json` lists characters, the agent keeps them out of artboards, documents, and reports.
 - **Parallel drawing.** For many screens, the agent may split the work across subagents by screen group. The main agent sets `tokens.css` first.
@@ -171,6 +179,133 @@ Skill improvement suggestions
 1. The map size was not in the request and T02 was redrawn, one extra round, ask for the key element's size when a screen centers on a map or chart.
 2. Old drafts were moved one file at a time, slow with 6 screens, allow several files in `canvas group`.
 ```
+
+## The mockup-review skill
+
+mockup-review reviews an idea the way a second designer would: it checks every artboard and the flow between them, leaves each finding on the board it belongs to, and writes one summary. **The reviewer reports; it does not fix.** It works best when run by a different agent or session than the one that drew the screens, because a fresh context does not share the author's assumptions. If the same session drew the screens, the report says so.
+
+### When it triggers
+
+- "Review the mockups."
+- "Check the screens."
+- "Critique this design."
+- "Is anything missing?"
+
+It applies to screens already drawn under `design/<idea>/`. In Codex, call it with `$mockup-review`. It uses the `canvas.py` script of the sibling mockup-canvas skill (`../mockup-canvas/scripts/canvas.py` from its own folder) and stops if that skill is not installed.
+
+### Steps
+
+1. **Load the context.** The agent finds the idea folder and reads the brief or spec the screens were drawn from, `shared/tokens.css`, `canvas.json` (groups, links, status, notes), and any existing `review.md`. Without a spec, it reviews against the screens alone and says so.
+2. **Machine checks.** Every problem `canvas check` reports becomes a finding. The agent also looks at the `canvas overview` PNG for arrows, groups, and screens that sit alone.
+3. **Per board.** For each board in the current group (rejected boards and "old drafts" are skipped unless you ask), it renders the board, looks at the PNG, reads the HTML, and goes through `references/checklist.md`: state coverage, flow, token consistency, accessibility basics, mobile thumb reach, copy, and spec match. It uses `--full-page` to see content below the fold before judging it.
+
+   ```bash
+   canvas render design/wallet W02-Send.html --full-page
+   ```
+
+4. **Flow.** It walks the links from the entry screen. Every button or link on a board should lead to a board on the canvas or be a stated end of the flow. Dead ends, unreachable boards, and links to missing boards are findings.
+5. **Spec match.** A required feature with no screen, or a screen that contradicts the spec, is a finding.
+6. **Comment on the board.** One finding per comment, on the exact board it concerns, starting with a severity tag:
+
+   ```bash
+   canvas comment design/wallet W02-Send.html "[must] No error state for a failed transfer; spec 3.2 requires a retry" --by reviewer
+   ```
+
+   | Tag | Meaning |
+   | --- | --- |
+   | `[must]` | Blocks approval: broken flow, missing required state, spec contradiction, unreadable text, a `check` problem. |
+   | `[should]` | A clear problem worth fixing before implementation. |
+   | `[could]` | Optional improvement. |
+
+   Before adding, it lists existing comments with `canvas comment <idea dir> <file>` so it does not repeat them. On the canvas, the board then shows a comment count that opens the comment panel.
+
+7. **Summary report.** It writes `design/<idea>/review.md` from `references/review-template.md`. If one exists, it adds a new dated section at the top instead of overwriting.
+8. **Recommend status, do not set it.** The report recommends `approve`, `revise`, or `reject` per board with a one-line reason. Approval stays your decision.
+
+The reply to you lists the number of findings by severity, the top three `[must]` items with their board IDs, the status recommendations, the path to `review.md`, and what was checked versus what could not be checked (for example motion or a screen size that was not drawn).
+
+### Rules
+
+- **No edits.** The reviewer never changes artboards, `tokens.css`, assets, or `canvas.json`, not even a typo. It reports instead.
+- **No approvals.** It never marks boards approved or rejected for you.
+- **Reasons, not taste.** Every finding needs a basis: a checklist rule, the spec, a token, or a concrete user problem.
+- **Clearing comments.** `canvas comment ... --clear` is used only on comments it wrote in this session, and only when you ask.
+- **Language.** Replies follow your language; comments and `review.md` follow the spec's language, or yours when there is no spec. `forbidden_chars` are kept out of comments and the report.
+- **Servers.** It does not start, stop, or reuse servers you run. One started only for checking is stopped by PID or `lsof -ti:<port>`.
+
+### First-review retrospective
+
+The first review is done when every current board has been checked, findings are on the boards, and `review.md` is written. The report then ends with **Skill improvement suggestions**, in the same form as the [first-draft retrospective](#the-first-draft-retrospective): at most three one-line items about how the work went, not about the design. Approved changes are logged in `skills/mockup-review/references/lessons.md`.
+
+## The mockup-to-code skill
+
+mockup-to-code implements approved boards as real screens in your app, then compares each running route with its board until only intentional differences remain. **The approved boards are the visual spec; your app's framework, components, and data are the material.**
+
+### When it triggers
+
+- "Build the approved mockups."
+- "Implement the approved screens."
+- "Turn the mockup into code."
+- "Make the app match the canvas."
+
+In Codex, call it with `$mockup-to-code`. Like mockup-review, it uses the sibling mockup-canvas `canvas.py`. `snap` and `compare` need Chrome, like `render`.
+
+### Steps
+
+1. **Scope is approved boards only.** The agent lists them:
+
+   ```bash
+   canvas impl design/wallet
+   ```
+
+   Only boards marked `approved` with `canvas status` are in scope. Praise is not approval; if no board is approved, the agent stops and asks which boards you approve. It reads each board's status note and any comments on it.
+2. **Inspect the project before writing code.** Framework and version, routing, styling system (CSS variables, Tailwind, CSS modules, a UI kit), existing components and tokens, data layer and API contracts, and the test, lint, typecheck, and dev server commands, plus the project's own instructions (README, AGENTS.md, CLAUDE.md).
+3. **Map tokens once.** `shared/tokens.css` is translated into the app's token system in one place (`references/stack-notes.md` has tips per stack). Components use tokens only; no hex, pixel font size, or radius is copied from an artboard.
+4. **Shared shell first.** Layout frame, header, navigation, tab bar, page width, and breakpoints come before any single screen.
+5. **Screen by screen.** One approved board at a time, on its route. A part that appears on a second board becomes a component. Empty, loading, and error states become real states of the screen, not separate pages.
+6. **Real behavior, real data.** Screens use the existing data contracts. Where the backend is not ready, a clearly marked stub (`TODO(mockup-to-code)`) is used and listed in the report. Existing behavior, validation, routing, analytics, and accessibility are kept.
+7. **Compare each screen.** With the app's dev server running on a free port:
+
+   ```bash
+   canvas compare design/wallet W01-Home.html --url http://localhost:5173/
+   ```
+
+   This writes `board.png`, `app.png`, `diff.png`, `side.png`, and `report.json` (with `mismatch_percent`) to `design/wallet/compare/W01-Home/`. The agent looks at `side.png` and `diff.png` itself, fixes layout, spacing, type, color, and missing elements, and compares again. It stops when every remaining difference is intentional (real data, font rendering, antialiasing, a platform control) and it can name each one.
+
+   | Situation | What to do |
+   | --- | --- |
+   | The board draws a fake status bar the app does not render | `--align-top N` (N is the bar height, often 44 to 54 px); never add a fake bar to the app |
+   | The app starts at the top but a band differs | `--ignore-top N` or `--ignore-bottom N` (for a drawn home indicator) |
+   | The app fetches data or animates in | Raise `--wait MS` (default 3000) |
+   | An extra size or state has no board | `canvas snap <url> --size mobile --out FILE.png` |
+
+   As a guide, under about 2% is usually font rendering and antialiasing, 2% to 10% usually spacing, line height, or a missing element, and above 10% usually a shifted layout. The percentage is a guide, not the goal.
+8. **Record the implementation.**
+
+   ```bash
+   canvas impl design/wallet W01-Home.html --route / --file src/pages/Home.tsx --file src/components/TabBar.tsx
+   canvas impl design/wallet --strict
+   ```
+
+   The canvas then shows a `built` badge on the board. `--strict` exits 1 while any approved board has no implementation; `--clear` resets a wrong record.
+9. **Project checks.** Tests, lint, and typecheck. A passing build does not prove the screen matches the board, and a matching screenshot does not prove the behavior works; the report covers both.
+10. **One polish pass.** After all in-scope screens are done, one pass over alignment, spacing rhythm, type scale, states, focus and hover, and responsive behavior across all screens, then `compare` again for screens it changed. General rules never override what you chose on an approved board.
+11. **Stop its own servers** by PID or `lsof -ti:<port>`, leaving yours alone.
+
+The final report (`references/final-reply.md`) lists implemented boards and routes, files changed, compare results per board with the `side.png` and `diff.png` paths, remaining differences and why each is acceptable, stubs and gaps, project check results, and what was verified versus not verified (for example the real backend, other browsers, or sizes without a board).
+
+### Rules
+
+- **Approval is yours.** It never marks boards approved, and it does not implement unapproved boards without your decision.
+- **Boards are read-only.** It never edits artboards, `tokens.css`, or `canvas.json` by hand. A board that is wrong or impossible to build as drawn is reported, with a suggested `canvas comment`.
+- **The approved board is the reference,** never a rejected board or the old UI.
+- **No match claims from the number alone.** It looks at the images before saying a screen matches.
+- **Git.** It follows the project's git rules and does not commit, push, or deploy unless you ask.
+- **Subagents.** When the work is split, each subagent gets the approved board paths and notes, the token mapping, the shell components, its routes and files, and the compare command. The main agent owns the token mapping and the shell.
+
+### First-implementation retrospective
+
+The first implementation is done when every in-scope board is implemented, compared, and recorded with `impl`, and the project checks were run. The report then ends with **Skill improvement suggestions** in the same form as the [first-draft retrospective](#the-first-draft-retrospective), looking at how the work went, not at the code. Approved changes are logged in `skills/mockup-to-code/references/lessons.md`.
 
 ## Customizing
 
