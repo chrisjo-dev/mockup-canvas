@@ -12,9 +12,9 @@
 
 AI アシスタント向けの要約は [llms.txt](llms.txt) にあります。
 
-![デモ: AI エージェントがモバイルアプリの画面を描くと、mockup-canvas のボードにすぐ表示される様子](docs/images/demo.gif)
+![デモ: AI エージェントがモバイルアプリの画面を描くと、mockup-canvas のボードにすぐ表示される様子](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
 
-![サンプルのアイデア TrailMate の全体図: キャンバス上の 6 枚の HTML アートボードがフロー矢印でつながり、2 枚に承認マークが付いている](docs/images/_overview.png)
+![サンプルのアイデア TrailMate の全体図: キャンバス上の 6 枚の HTML アートボードがフロー矢印でつながり、2 枚に承認マークが付いている](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/_overview.png)
 
 ## AI エージェントでまずモックアップを描く理由
 
@@ -24,27 +24,29 @@ mockup-canvas が存在するのは、UI を文章で説明するとあいまい
 
 **キャンバス**（`viewer.html`、ローカルで配信）
 
-- デザインツールのようにパンとズームができます。どの倍率でも引き伸ばしたビットマップではなく、くっきり描き直します。
-- アートボードをドラッグして並べると、位置が `canvas.json` に保存されます。移動は元に戻す、やり直すが可能です。
-- 画面間のフロー矢印には、その画面へ進むボタンや操作の名前を付けられます。
-- 承認、却下のバッジとメモ。メモはアートボードのタイトルにカーソルを合わせると表示されます。
-- 折りたためるグループ。例: `current`、`old drafts`。
-- ライブリロード。アートボードや `canvas.json` を編集すると、開いているキャンバスが 1 秒ほどで更新されます。
-- 複数プロジェクトの一覧。1 つのサーバーで、登録済みのすべてのプロジェクトとアイデアを表示します。
-- スマートフォンでの確認。同じネットワーク内でリアルタイムに見る共有モードと、どこにでも置ける静的エクスポートがあります。
+- キャンバスでは、デザインツールのようにパンとズームができます。どの倍率でも引き伸ばしたビットマップではなく、くっきり描き直します。
+- キャンバスは、アートボードをドラッグして並べた位置を `canvas.json` に保存します。移動は元に戻す、やり直すが可能です。
+- キャンバスは画面間にフロー矢印を描き、その画面へ進むボタンや操作の名前を矢印に付けます。
+- キャンバスは承認、却下のバッジを表示し、メモはアートボードのタイトルにカーソルを合わせると表示します。
+- キャンバスはアートボードを折りたためるグループにまとめます。例: `current`、`old drafts`。
+- キャンバスはライブリロードに対応しています。サーバーが 1 秒ごとにファイルの変更を確認するので、アートボードや `canvas.json` を編集すると、開いているキャンバスが 1 秒ほどで更新されます。
+- 1 つのキャンバスサーバーが、登録済みのすべてのプロジェクトとアイデアを一覧ページに表示します。
+- キャンバスはスマートフォンでも確認できます。同じネットワーク内でリアルタイムに見る共有モードと、どこにでも置ける静的エクスポートがあります。
 
 **エージェントスキル**（`skills/mockup-canvas/SKILL.md`）
 
-- Claude Code や Codex に、モックアップを描く、登録する、つなぐ、チェックする、見せる手順を順番に伝えます。
-- 古いバージョンは削除せずに残し、あなたの承認を正式な記録として扱います。
-- 最初のドラフトが終わると、スキル自体の改善案を短いふりかえりとして提案します。
+- エージェントスキルは、Claude Code や Codex に、モックアップを描く、登録する、つなぐ、チェックする、見せる手順を順番に伝えます。
+- エージェントスキルは、古いバージョンを削除せずに残し、あなたの承認を正式な記録として扱います。
+- エージェントスキルは、最初のドラフトが終わると、スキル自体の改善案を短いふりかえりとして提案します。
 
 **CLI**（`skills/mockup-canvas/scripts/canvas.py`）
 
-- pip の依存がない Python 3 ファイル 1 つ（標準ライブラリのみ、Python 3.8 以上）で、コマンドは 12 個です: `serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`。
-- Chrome（または Chromium、Edge）は PNG のレンダリングにだけ使います。
+- CLI は pip の依存がない約 2,200 行の Python 3 ファイル 1 つ（標準ライブラリのみ、Python 3.8 以上）で、コマンドは 12 個です: `serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`。
+- CLI は Chrome（または Chromium、Edge）を PNG のレンダリングにだけ使います。
 
 ## クイックスタート: Claude Code プラグインまたは Codex スキルをインストール
+
+Claude Code に mockup-canvas をインストールするには、下の `/plugin` コマンドを 2 つ実行します。1 つ目で `chrisjo-dev/mockup-canvas` のマーケットプレイスを追加し、2 つ目でプラグインをインストールします。pip パッケージは不要で、Chrome は PNG のレンダリングにだけ使います。
 
 ### Claude Code プラグイン
 
@@ -81,7 +83,7 @@ Codex では `$mockup-canvas` で呼び出します。例: `Use $mockup-canvas t
 python3 skills/mockup-canvas/scripts/canvas.py serve examples
 ```
 
-`http://127.0.0.1:4400/trailmate/` を開くと、[`examples/trailmate`](examples/trailmate) の 6 画面のサンプルが見られます。
+`http://127.0.0.1:4400/trailmate/` を開くと、[`examples/trailmate`](https://github.com/chrisjo-dev/mockup-canvas/blob/main/examples/trailmate/canvas.json) の 6 画面のサンプルが見られます。
 
 ## mockup-canvas の仕組み
 
@@ -107,7 +109,7 @@ python3 skills/mockup-canvas/scripts/canvas.py serve examples
 
 > **あなた:** 週末ハイカー向けのトレイルアプリのモックアップを描いて。4 画面で。
 >
-> **エージェント:** `design/trailmate/` を作り、先にトークンを決めました。T01-Home、T02-TrailDetail、T03-Invite、T04-Plan を描いて順につなぎ、`check` は問題 0 件です。http://localhost:4400/myapp/trailmate/ で確認できます。4 画面と指定いただいたので描いていませんが、ホームの空状態と招待画面のエラー状態もあるとよさそうです。
+> **エージェント:** `design/trailmate/` を作り、先にトークンを決めました。T01-Home、T02-TrailDetail、T03-Invite、T04-Plan を描いて順につなぎ、`check` は問題 0 件です。`http://localhost:4400/myapp/trailmate/` で確認できます。4 画面と指定いただいたので描いていませんが、ホームの空状態と招待画面のエラー状態もあるとよさそうです。
 >
 > **あなた:** ホームはいいね。詳細画面の地図をもっと大きくして。
 >

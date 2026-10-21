@@ -12,9 +12,9 @@
 
 AI 어시스턴트용 요약은 [llms.txt](llms.txt)에 있습니다.
 
-![데모: AI 에이전트가 모바일 앱 화면을 그리면 mockup-canvas 보드에 바로 나타나는 모습](docs/images/demo.gif)
+![데모: AI 에이전트가 모바일 앱 화면을 그리면 mockup-canvas 보드에 바로 나타나는 모습](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
 
-![예제 아이디어 TrailMate 전체 보기: 캔버스 위 HTML 아트보드 6개가 흐름 화살표로 이어져 있고 2개는 승인 표시가 붙어 있음](docs/images/_overview.png)
+![예제 아이디어 TrailMate 전체 보기: 캔버스 위 HTML 아트보드 6개가 흐름 화살표로 이어져 있고 2개는 승인 표시가 붙어 있음](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/_overview.png)
 
 ## AI 에이전트로 목업부터 그리는 이유
 
@@ -24,27 +24,29 @@ mockup-canvas를 만든 이유는 UI를 글로 설명하면 모호하기 때문�
 
 **캔버스** (`viewer.html`, 로컬에서 제공)
 
-- 디자인 툴처럼 드래그로 이동하고 확대, 축소합니다. 확대 배율이 바뀌어도 늘어난 비트맵이 아니라 선명하게 다시 그립니다.
-- 아트보드를 드래그해 배치하면 위치가 `canvas.json`에 저장됩니다. 이동은 실행 취소, 다시 실행이 됩니다.
-- 화면 사이 흐름 화살표에 그 화면으로 넘어가는 버튼이나 동작 이름을 붙일 수 있습니다.
-- 승인, 반려 배지와 메모. 메모는 아트보드 제목에 마우스를 올리면 보입니다.
-- 접고 펼 수 있는 그룹. 예: `current`, `old drafts`.
-- 실시간 갱신. 아트보드나 `canvas.json`을 고치면 열려 있는 캔버스가 1초 안팎으로 바뀝니다.
-- 여러 프로젝트 목록. 서버 하나로 등록된 모든 프로젝트와 아이디어를 봅니다.
-- 휴대폰으로 보기. 같은 네트워크에서 실시간으로 보는 공유 모드와, 어디든 올릴 수 있는 정적 내보내기를 지원합니다.
+- 캔버스에서는 디자인 툴처럼 드래그로 이동하고 확대, 축소할 수 있습니다. 배율이 바뀌어도 늘어난 비트맵이 아니라 선명하게 다시 그립니다.
+- 캔버스는 아트보드를 드래그해 배치한 위치를 `canvas.json`에 저장하고, 이동은 실행 취소와 다시 실행을 지원합니다.
+- 캔버스는 화면 사이에 흐름 화살표를 그리고, 그 화면으로 넘어가는 버튼이나 동작 이름을 화살표에 붙입니다.
+- 캔버스는 승인, 반려 배지를 보여 주고, 메모는 아트보드 제목에 마우스를 올리면 보여 줍니다.
+- 캔버스는 아트보드를 접고 펼 수 있는 그룹으로 묶습니다. 예: `current`, `old drafts`.
+- 캔버스는 실시간으로 갱신됩니다. 서버가 1초마다 파일 변경을 확인하므로, 아트보드나 `canvas.json`을 고치면 열려 있는 캔버스가 1초 안팎으로 바뀝니다.
+- 캔버스 서버 하나가 등록된 모든 프로젝트와 아이디어를 한 목록 페이지에 보여 줍니다.
+- 캔버스는 휴대폰에서도 볼 수 있습니다. 같은 네트워크에서 실시간으로 보는 공유 모드와, 어디든 올릴 수 있는 정적 내보내기를 지원합니다.
 
 **에이전트 스킬** (`skills/mockup-canvas/SKILL.md`)
 
-- Claude Code나 Codex가 목업을 그리고, 등록하고, 연결하고, 점검하고, 보여 주는 순서를 단계별로 알려 줍니다.
-- 이전 버전은 지우지 않고 남기며, 사용자의 승인을 기록으로 삼습니다.
-- 첫 초안이 끝나면 짧은 회고로 스킬 자체의 개선안을 제안합니다.
+- 에이전트 스킬은 Claude Code나 Codex가 목업을 그리고, 등록하고, 연결하고, 점검하고, 보여 주는 순서를 단계별로 알려 줍니다.
+- 에이전트 스킬은 이전 버전을 지우지 않고 남기며, 사용자의 승인을 기록으로 삼습니다.
+- 에이전트 스킬은 첫 초안이 끝나면 짧은 회고로 스킬 자체의 개선안을 제안합니다.
 
 **CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- pip 의존성 없는 Python 3 파일 하나(표준 라이브러리만, Python 3.8 이상)이며 명령은 12개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`.
-- Chrome(또는 Chromium, Edge)은 PNG를 렌더링할 때만 필요합니다.
+- CLI는 pip 의존성 없는 약 2,200줄짜리 Python 3 파일 하나(표준 라이브러리만, Python 3.8 이상)이며 명령은 12개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`.
+- CLI는 PNG를 렌더링할 때만 Chrome(또는 Chromium, Edge)을 씁니다.
 
 ## 빠른 시작: Claude Code 플러그인 또는 Codex 스킬 설치
+
+Claude Code에 mockup-canvas를 설치하려면 아래 `/plugin` 명령 두 개를 실행합니다. 첫 번째 명령은 `chrisjo-dev/mockup-canvas` 마켓플레이스를 추가하고, 두 번째 명령은 플러그인을 설치합니다. pip 패키지는 필요 없고 Chrome은 PNG 렌더링에만 씁니다.
 
 ### Claude Code 플러그인
 
@@ -81,7 +83,7 @@ Codex에서는 `$mockup-canvas`로 부릅니다. 예: `Use $mockup-canvas to dra
 python3 skills/mockup-canvas/scripts/canvas.py serve examples
 ```
 
-`http://127.0.0.1:4400/trailmate/`를 열면 [`examples/trailmate`](examples/trailmate)의 화면 6개짜리 예제를 볼 수 있습니다.
+`http://127.0.0.1:4400/trailmate/`를 열면 [`examples/trailmate`](https://github.com/chrisjo-dev/mockup-canvas/blob/main/examples/trailmate/canvas.json)의 화면 6개짜리 예제를 볼 수 있습니다.
 
 ## mockup-canvas 동작 방식
 
@@ -107,7 +109,7 @@ python3 skills/mockup-canvas/scripts/canvas.py serve examples
 
 > **사용자:** 주말 등산객용 트레일 앱 목업 그려줘. 화면 4개.
 >
-> **에이전트:** `design/trailmate/`를 만들고 토큰부터 정했습니다. T01-Home, T02-TrailDetail, T03-Invite, T04-Plan을 그려 순서대로 연결했고 `check` 결과 문제 0개입니다. http://localhost:4400/myapp/trailmate/ 에서 보시면 됩니다. 화면 4개로 정해 주셔서 그리지는 않았지만, 홈의 빈 상태와 초대 화면의 오류 상태도 있으면 좋겠습니다.
+> **에이전트:** `design/trailmate/`를 만들고 토큰부터 정했습니다. T01-Home, T02-TrailDetail, T03-Invite, T04-Plan을 그려 순서대로 연결했고 `check` 결과 문제 0개입니다. `http://localhost:4400/myapp/trailmate/`에서 보시면 됩니다. 화면 4개로 정해 주셔서 그리지는 않았지만, 홈의 빈 상태와 초대 화면의 오류 상태도 있으면 좋겠습니다.
 >
 > **사용자:** 홈은 좋아. 상세 화면 지도를 더 크게 해줘.
 >

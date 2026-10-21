@@ -12,9 +12,9 @@
 
 给 AI 助手：项目摘要见 [llms.txt](llms.txt)。
 
-![演示：AI 智能体绘制移动应用界面，界面实时出现在 mockup-canvas 画布上](docs/images/demo.gif)
+![演示：AI 智能体绘制移动应用界面，界面实时出现在 mockup-canvas 画布上](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
 
-![示例创意 TrailMate 的全景图：画布上有六个 HTML 画板，由流程箭头相连，其中两个标记为已批准](docs/images/_overview.png)
+![示例创意 TrailMate 的全景图：画布上有六个 HTML 画板，由流程箭头相连，其中两个标记为已批准](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/_overview.png)
 
 ## 为什么先让 AI 智能体画原型
 
@@ -24,27 +24,29 @@ mockup-canvas 之所以存在，是因为用文字描述 UI 容易产生歧义�
 
 **画布**（`viewer.html`，在本地提供）
 
-- 像设计工具一样平移和缩放，每个缩放级别都会清晰重绘，而不是拉伸位图。
-- 拖动画板进行排列，位置保存到 `canvas.json`。移动操作支持撤销和重做。
-- 界面之间的流程箭头，可以标注通往下一个界面的按钮或操作。
-- 批准、否决徽章和备注，鼠标悬停在画板标题上即可看到备注。
-- 可折叠的分组，例如 `current` 和 `old drafts`。
-- 实时刷新：修改画板或 `canvas.json` 后，打开的画布大约一秒内更新。
-- 多项目索引：一个服务器列出所有已注册的项目及其创意。
-- 在手机上查看：同一网络内实时查看（共享模式），或导出为可托管在任何地方的静态包。
+- 画布让你像设计工具一样平移和缩放，每个缩放级别都会清晰重绘，而不是拉伸位图。
+- 画布会在你拖动画板排列后把位置保存到 `canvas.json`，移动操作支持撤销和重做。
+- 画布在界面之间绘制流程箭头，并标注通往下一个界面的按钮或操作。
+- 画布显示批准、否决徽章，鼠标悬停在画板标题上即可看到备注。
+- 画布用可折叠的分组整理画板，例如 `current` 和 `old drafts`。
+- 画布支持实时刷新：服务器每秒检查一次文件变化，修改画板或 `canvas.json` 后，打开的画布大约一秒内更新。
+- 一个画布服务器就能在索引页列出所有已注册的项目及其创意。
+- 画布也能在手机上查看：同一网络内实时查看（共享模式），或导出为可托管在任何地方的静态包。
 
 **智能体技能**（`skills/mockup-canvas/SKILL.md`）
 
-- 一步步告诉 Claude Code 或 Codex 如何绘制、注册、连线、检查和展示原型。
-- 保留旧版本而不是删除，并以你的批准作为正式记录。
-- 首版完成后附上一段简短回顾，提出对技能本身的改进建议。
+- 智能体技能一步步告诉 Claude Code 或 Codex 如何绘制、注册、连线、检查和展示原型。
+- 智能体技能保留旧版本而不是删除，并以你的批准作为正式记录。
+- 智能体技能在首版完成后附上一段简短回顾，提出对技能本身的改进建议。
 
 **命令行工具**（`skills/mockup-canvas/scripts/canvas.py`）
 
-- 单个 Python 3 文件，无需 pip 依赖（只用标准库，Python 3.8 及以上），共 12 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`。
-- Chrome（或 Chromium、Edge）只在渲染 PNG 时需要。
+- 命令行工具是单个约 2,200 行的 Python 3 文件，无需 pip 依赖（只用标准库，Python 3.8 及以上），共 12 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`。
+- 命令行工具只在渲染 PNG 时使用 Chrome（或 Chromium、Edge）。
 
 ## 快速开始: 安装 Claude Code 插件或 Codex 技能
+
+要在 Claude Code 中安装 mockup-canvas，运行下面两条 `/plugin` 命令即可：第一条添加 `chrisjo-dev/mockup-canvas` 插件市场，第二条安装插件。不需要任何 pip 包，Chrome 只用于渲染 PNG。
 
 ### Claude Code 插件
 
@@ -81,7 +83,7 @@ cd mockup-canvas
 python3 skills/mockup-canvas/scripts/canvas.py serve examples
 ```
 
-打开 `http://127.0.0.1:4400/trailmate/`，即可看到 [`examples/trailmate`](examples/trailmate) 中包含六个界面的示例。
+打开 `http://127.0.0.1:4400/trailmate/`，即可看到 [`examples/trailmate`](https://github.com/chrisjo-dev/mockup-canvas/blob/main/examples/trailmate/canvas.json) 中包含六个界面的示例。
 
 ## mockup-canvas 如何工作
 
@@ -107,7 +109,7 @@ python3 skills/mockup-canvas/scripts/canvas.py serve examples
 
 > **你：** 给周末徒步爱好者画一个步道应用的原型，四个界面。
 >
-> **智能体：** 已创建 `design/trailmate/` 并先设定了令牌。绘制了 T01-Home、T02-TrailDetail、T03-Invite、T04-Plan，并按顺序连线，`check` 报告 0 个问题。请打开 http://localhost:4400/myapp/trailmate/ 查看。因为你限定了四个界面，以下没有画，但建议补上：首页的空状态和邀请页的错误状态。
+> **智能体：** 已创建 `design/trailmate/` 并先设定了令牌。绘制了 T01-Home、T02-TrailDetail、T03-Invite、T04-Plan，并按顺序连线，`check` 报告 0 个问题。请打开 `http://localhost:4400/myapp/trailmate/` 查看。因为你限定了四个界面，以下没有画，但建议补上：首页的空状态和邀请页的错误状态。
 >
 > **你：** 首页可以。详情页的地图再大一些。
 >

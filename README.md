@@ -12,9 +12,9 @@
 
 AI assistants: a summary is available in [llms.txt](llms.txt).
 
-![Demo: an AI agent draws mobile app screens and they appear live on the mockup-canvas board](docs/images/demo.gif)
+![Demo: an AI agent draws mobile app screens and they appear live on the mockup-canvas board](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
 
-![Overview of the sample TrailMate idea: six HTML artboards on the canvas, connected by flow arrows, two marked approved](docs/images/_overview.png)
+![Overview of the sample TrailMate idea: six HTML artboards on the canvas, connected by flow arrows, two marked approved](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/_overview.png)
 
 ## Why draw mockups with an AI agent first
 
@@ -24,27 +24,29 @@ mockup-canvas exists because text descriptions of UI are ambiguous: when you pla
 
 **The canvas** (`viewer.html`, served locally)
 
-- Pan and zoom like a design tool, with a crisp re-render at every zoom level instead of a stretched bitmap.
-- Drag artboards to arrange them; positions are saved to `canvas.json`. Undo and redo for moves.
-- Flow arrows between screens, labeled with the button or action that leads there.
-- Approval badges (approved, rejected) and notes shown as a tooltip on the artboard title.
-- Groups with collapsible headers, for example `current` and `old drafts`.
-- Live reload: edit an artboard or `canvas.json` and the open canvas updates within about a second.
-- Multi-project index: one server lists every registered project and its ideas.
-- Phone viewing, either live on the same network (share mode) or as a static export you can host anywhere.
+- The canvas lets you pan and zoom like a design tool, and it re-renders crisply at every zoom level instead of stretching a bitmap.
+- The canvas saves artboard positions to `canvas.json` when you drag them, with undo and redo for moves.
+- The canvas draws flow arrows between screens, labeled with the button or action that leads there.
+- The canvas shows approval badges (approved, rejected), and it shows notes as a tooltip on the artboard title.
+- The canvas groups artboards under collapsible headers, for example `current` and `old drafts`.
+- The canvas reloads live: the server checks for file changes every second, so an edit to an artboard or `canvas.json` appears within about a second.
+- The canvas server lists every registered project and its ideas on one index page.
+- The canvas also works on a phone, either live on the same network (share mode) or as a static export you can host anywhere.
 
 **The agent skill** (`skills/mockup-canvas/SKILL.md`)
 
-- Tells Claude Code or Codex how to draw, register, link, check, and show mockups, step by step.
-- Keeps old versions instead of deleting them, and treats your approval as the record.
-- Ends the first draft with a short retrospective that proposes improvements to the skill itself.
+- The agent skill tells Claude Code or Codex how to draw, register, link, check, and show mockups, step by step.
+- The agent skill keeps old versions instead of deleting them, and it treats your approval as the record.
+- The agent skill ends the first draft with a short retrospective that proposes improvements to the skill itself.
 
 **The CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- A single Python 3 file with no pip dependencies (standard library only, Python 3.8+), with 12 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`.
-- Chrome (or Chromium or Edge) is used only to render PNGs.
+- The CLI is a single Python 3 file of about 2,200 lines with no pip dependencies (standard library only, Python 3.8+), and it has 12 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`.
+- The CLI uses Chrome (or Chromium or Edge) only to render PNGs.
 
 ## Quick start: install the Claude Code plugin or Codex skill
+
+To install mockup-canvas in Claude Code, run the two `/plugin` commands below: the first adds the `chrisjo-dev/mockup-canvas` marketplace and the second installs the plugin. No pip packages are needed, and Chrome is used only to render PNGs.
 
 ### Claude Code plugin
 
@@ -81,7 +83,7 @@ In Codex, call the skill with `$mockup-canvas`, for example: `Use $mockup-canvas
 python3 skills/mockup-canvas/scripts/canvas.py serve examples
 ```
 
-Open `http://127.0.0.1:4400/trailmate/` to see the six-screen sample in [`examples/trailmate`](examples/trailmate).
+Open `http://127.0.0.1:4400/trailmate/` to see the six-screen sample in [`examples/trailmate`](https://github.com/chrisjo-dev/mockup-canvas/blob/main/examples/trailmate/canvas.json).
 
 ## How mockup-canvas works
 
@@ -107,7 +109,7 @@ A shortened exchange showing how a request becomes screens on the canvas, how ap
 
 > **You:** Draw a mockup of a trail app for weekend hikers. Four screens.
 >
-> **Agent:** Created `design/trailmate/` and set the tokens first. Drew T01-Home, T02-TrailDetail, T03-Invite, and T04-Plan, and linked them in order. `check` reports 0 problems. Open http://localhost:4400/myapp/trailmate/. Since you asked for four screens, I did not draw these, but you may want them: an empty state for Home and an error state for Invite.
+> **Agent:** Created `design/trailmate/` and set the tokens first. Drew T01-Home, T02-TrailDetail, T03-Invite, and T04-Plan, and linked them in order. `check` reports 0 problems. Open `http://localhost:4400/myapp/trailmate/`. Since you asked for four screens, I did not draw these, but you may want them: an empty state for Home and an error state for Invite.
 >
 > **You:** Home is good. Make the map on the detail page larger.
 >
