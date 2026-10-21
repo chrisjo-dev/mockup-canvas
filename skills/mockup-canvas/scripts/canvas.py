@@ -2312,6 +2312,11 @@ def cmd_add(args):
         boards[fname] = entry
         save_canvas_atomic(cj, canvas)
         print(f'Registered: {fname} -> ({x}, {y})  {w}x{h}')
+    elif size_override and (boards[fname].get('w'), boards[fname].get('h')) != size_override:
+        # Re-running add with --size resizes a registered board (e.g. a long page that was cut off)
+        boards[fname]['w'], boards[fname]['h'] = size_override
+        save_canvas_atomic(cj, canvas)
+        print(f'Resized: {fname} -> {size_override[0]}x{size_override[1]}')
     else:
         print(f'Already registered: {fname}')
 

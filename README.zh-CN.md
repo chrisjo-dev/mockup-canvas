@@ -135,7 +135,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `roots remove` | 按名称取消注册，不会改动文件。 | `canvas roots remove app` |
 | `roots scan` | 在指定目录下查找设计文件夹并注册。 | `canvas roots scan ~/work ~/projects` |
 | `new` | 创建创意文件夹（`boards/`、`shared/tokens.css`、`canvas.json` 等）并注册其设计文件夹。 | `canvas new design wallet` |
-| `add` | 把画板注册到画布上，必要时复制到 `boards/`。尺寸：`mobile` 390x844、`tablet` 768x1024、`desktop` 1440x900，或 `WxH`。 | `canvas add design/wallet boards/W01-Home.html --group current --size mobile` |
+| `add` | 把画板注册到画布上，必要时复制到 `boards/`。尺寸：`mobile` 390x844、`tablet` 768x1024、`desktop` 1440x900，或 `WxH`。对已注册的画板用新的 `--size` 再次运行即可调整尺寸。 | `canvas add design/wallet boards/W01-Home.html --group current --size mobile` |
 | `group` | 把画板移到某个分组。 | `canvas group design/wallet W01-Home.html "old drafts"` |
 | `link` | 在两个画板之间添加流程箭头。 | `canvas link design/wallet W01-Home.html W02-Send.html --label "转账"` |
 | `status` | 设置 `draft`、`approved` 或 `rejected`，可附备注。 | `canvas status design/wallet W01-Home.html approved --note "布局确定"` |

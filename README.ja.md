@@ -135,7 +135,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `roots remove` | 名前を指定して登録を解除します。ファイルには触れません。 | `canvas roots remove app` |
 | `roots scan` | 指定したディレクトリの下からデザインフォルダを探して登録します。 | `canvas roots scan ~/work ~/projects` |
 | `new` | アイデアのフォルダ（`boards/`、`shared/tokens.css`、`canvas.json` など）を作り、デザインフォルダを登録します。 | `canvas new design wallet` |
-| `add` | アートボードをキャンバスに登録します。必要なら `boards/` にコピーします。サイズ: `mobile` 390x844、`tablet` 768x1024、`desktop` 1440x900、または `WxH`。 | `canvas add design/wallet boards/W01-Home.html --group current --size mobile` |
+| `add` | アートボードをキャンバスに登録します。必要なら `boards/` にコピーします。サイズ: `mobile` 390x844、`tablet` 768x1024、`desktop` 1440x900、または `WxH`。登録済みのボードは新しい `--size` で再実行するとサイズが変わります。 | `canvas add design/wallet boards/W01-Home.html --group current --size mobile` |
 | `group` | アートボードをグループに移します。 | `canvas group design/wallet W01-Home.html "old drafts"` |
 | `link` | 2 つのアートボードの間にフロー矢印を追加します。 | `canvas link design/wallet W01-Home.html W02-Send.html --label "送金"` |
 | `status` | `draft`、`approved`、`rejected` を設定し、メモを付けられます。 | `canvas status design/wallet W01-Home.html approved --note "レイアウト確定"` |

@@ -55,6 +55,22 @@ class NewAddCommands(TempHomeCase):
         r = self.run_cli('add', self.idea, src)
         self.assertIn('Already registered', r.stdout)
 
+    def test_add_with_size_resizes_registered_board(self):
+        self.run_cli('new', self.design, 'demo')
+        path = os.path.join(self.idea, 'boards', 'D01-Home.html')
+        with open(path, 'w') as f:
+            f.write(board_html())
+        self.run_cli('add', self.idea, path, '--group', 'current', '--size', 'mobile')
+        r = self.run_cli('add', self.idea, path, '--size', '390x1800')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('Resized: D01-Home.html -> 390x1800', r.stdout)
+        b = self.read_json(os.path.join(self.idea, 'canvas.json'))['boards']['D01-Home.html']
+        # Size changes; position and group stay
+        self.assertEqual((b['x'], b['y'], b['w'], b['h'], b['group']), (0, 0, 390, 1800, 'current'))
+        # The same size again is a no-op
+        r = self.run_cli('add', self.idea, path, '--size', '390x1800')
+        self.assertIn('Already registered', r.stdout)
+
     def test_add_refuses_to_overwrite_different_file(self):
         self.run_cli('new', self.design, 'demo')
         with open(os.path.join(self.idea, 'boards', 'D01-Home.html'), 'w') as f:

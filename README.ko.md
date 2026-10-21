@@ -135,7 +135,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `roots remove` | 이름으로 등록을 해제합니다. 파일은 건드리지 않습니다. | `canvas roots remove app` |
 | `roots scan` | 지정한 폴더 아래에서 디자인 폴더를 찾아 등록합니다. | `canvas roots scan ~/work ~/projects` |
 | `new` | 아이디어 폴더(`boards/`, `shared/tokens.css`, `canvas.json` 등)를 만들고 디자인 폴더를 등록합니다. | `canvas new design wallet` |
-| `add` | 아트보드를 캔버스에 등록합니다. 필요하면 `boards/`로 복사합니다. 크기: `mobile` 390x844, `tablet` 768x1024, `desktop` 1440x900, 또는 `WxH`. | `canvas add design/wallet boards/W01-Home.html --group current --size mobile` |
+| `add` | 아트보드를 캔버스에 등록합니다. 필요하면 `boards/`로 복사합니다. 크기: `mobile` 390x844, `tablet` 768x1024, `desktop` 1440x900, 또는 `WxH`. 등록된 보드는 새 `--size`로 다시 실행하면 크기가 바뀝니다. | `canvas add design/wallet boards/W01-Home.html --group current --size mobile` |
 | `group` | 아트보드를 그룹으로 옮깁니다. | `canvas group design/wallet W01-Home.html "old drafts"` |
 | `link` | 두 아트보드 사이에 흐름 화살표를 추가합니다. | `canvas link design/wallet W01-Home.html W02-Send.html --label "송금"` |
 | `status` | `draft`, `approved`, `rejected`를 지정하고 메모를 붙입니다. | `canvas status design/wallet W01-Home.html approved --note "레이아웃 확정"` |

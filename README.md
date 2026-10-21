@@ -135,7 +135,7 @@ Run `canvas <command> -h` for the usage of any command.
 | `roots remove` | Unregister a project by name. Files are not touched. | `canvas roots remove app` |
 | `roots scan` | Find design folders under the given directories and register them. | `canvas roots scan ~/work ~/projects` |
 | `new` | Create an idea folder (`boards/`, `shared/tokens.css`, `canvas.json`, ...) and register its design folder. | `canvas new design wallet` |
-| `add` | Register an artboard on the canvas, copying it into `boards/` if needed. Sizes: `mobile` 390x844, `tablet` 768x1024, `desktop` 1440x900, or `WxH`. | `canvas add design/wallet boards/W01-Home.html --group current --size mobile` |
+| `add` | Register an artboard on the canvas, copying it into `boards/` if needed. Sizes: `mobile` 390x844, `tablet` 768x1024, `desktop` 1440x900, or `WxH`. Run it again with a new `--size` to resize a registered board. | `canvas add design/wallet boards/W01-Home.html --group current --size mobile` |
 | `group` | Move an artboard to a group. | `canvas group design/wallet W01-Home.html "old drafts"` |
 | `link` | Add a flow arrow between two artboards. | `canvas link design/wallet W01-Home.html W02-Send.html --label "Send"` |
 | `status` | Set `draft`, `approved`, or `rejected`, with an optional note. | `canvas status design/wallet W01-Home.html approved --note "layout ok"` |
