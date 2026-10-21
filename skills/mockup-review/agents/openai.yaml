@@ -1,0 +1,3 @@
+interface:
+  display_name: "Mockup Review"
+  default_prompt: "Use $mockup-review to review the mockups of this idea on the canvas, leave findings as comments on each board, and write design/<idea>/review.md."

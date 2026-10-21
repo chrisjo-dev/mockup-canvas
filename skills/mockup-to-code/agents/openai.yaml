@@ -1,0 +1,3 @@
+interface:
+  display_name: "Mockup to Code"
+  default_prompt: "Use $mockup-to-code to implement the approved mockups of this idea in the app, compare each route with its artboard, and report what matches and what differs."
