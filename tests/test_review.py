@@ -409,11 +409,16 @@ class SnapCommand(FakeChromeCase):
         out = os.path.join(self.tmp, 't.png')
         with mock.patch.object(canvas, '_cdp_capture', side_effect=canvas.CdpConnectError('x')), \
                 mock.patch.object(canvas, '_get_chrome', return_value='/fake/chrome'), \
-                mock.patch.object(canvas.subprocess, 'run',
-                                  side_effect=subprocess.TimeoutExpired('chrome', 61)) as run, \
+                mock.patch.object(canvas.subprocess, 'Popen') as popen, \
                 mock.patch('sys.stderr') as err:
-            self.assertFalse(canvas._capture('http://localhost:5999/', 10, 10, 1000, out))
-        self.assertEqual(run.call_args.kwargs['timeout'], 61)
+            proc = popen.return_value
+            proc.returncode = None
+            proc.wait.side_effect = [subprocess.TimeoutExpired('chrome', 61), None]
+            with mock.patch.object(canvas.os, 'killpg') as killpg:
+                self.assertFalse(canvas._capture('http://localhost:5999/', 10, 10, 1000, out))
+        self.assertEqual(proc.wait.call_args_list[0], mock.call(61))
+        self.assertTrue(popen.call_args.kwargs['start_new_session'])
+        killpg.assert_called_once_with(proc.pid, canvas.signal.SIGKILL)   # Chrome killed on timeout
         self.assertIn('did not finish', ''.join(str(c.args[0]) for c in err.write.call_args_list))
 
     def test_snap_usage_errors(self):

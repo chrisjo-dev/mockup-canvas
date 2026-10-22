@@ -30,7 +30,7 @@ User data lives in ~/.mockup-canvas/ (override with MOCKUP_CANVAS_HOME):
   roots.json   registered design folders (registry mode)
   config.json  options, e.g. {"forbidden_chars": ["\u2014"]}
 """
-import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib
+import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib, signal
 import socketserver, socket, secrets, mimetypes, http.client, textwrap
 import hmac, hashlib, base64
 import html as _html
@@ -330,15 +330,147 @@ def _chrome_args(profile_dir, w, h, budget_ms):
             f'--window-size={w},{h}', '--hide-scrollbars',
             f'--virtual-time-budget={budget_ms}']
 
+# ── Chrome processes ───────────────────────────────────────────────────────
+# Every Chrome canvas.py starts goes through _Chrome: its profile is registered before Chrome
+# starts, Chrome is started under the registry lock in its own process group, and kill() takes
+# the whole group (renderer and GPU helpers too) and deletes the profile. _kill_all_chrome() runs
+# at exit (Ctrl+C, SIGTERM, an exception), so no Chrome or profile outlives the command.
+
+CHROME_PROFILE_PREFIX = 'mockup-canvas-chrome-'
+_CHROME_LOCK = threading.Lock()
+_CHROMES = set()
+_CHROME_SHUTDOWN = False
+
+
+def _ps_commands():
+    """-> [(pid, command line)] of all processes, or None when ps fails."""
+    try:
+        out = subprocess.run(['ps', '-A', '-ww', '-o', 'pid=,command='],
+                             capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    rows = []
+    for line in out.splitlines():
+        pid, _, cmd = line.strip().partition(' ')
+        if pid.isdigit():
+            rows.append((int(pid), cmd))
+    return rows
+
+
+def _uses_profile(cmd, profile):
+    return f'--user-data-dir={profile}' in cmd
+
+
+class _Chrome:
+    """One Chrome process and its throwaway profile (see the section comment)."""
+
+    def __init__(self):
+        mask = getattr(signal, 'pthread_sigmask', None)
+        blocked = {signal.SIGINT, signal.SIGTERM}
+        if mask:   # Ctrl+C or SIGTERM between mkdtemp and registering would leave the folder
+            mask(signal.SIG_BLOCK, blocked)
+        try:
+            self.profile = tempfile.mkdtemp(prefix=CHROME_PROFILE_PREFIX)
+            self.proc, self.spawning, self.dead = None, False, False
+            with _CHROME_LOCK:
+                _CHROMES.add(self)
+        finally:
+            if mask:
+                mask(signal.SIG_UNBLOCK, blocked)
+
+    def spawn(self, args):
+        """Start Chrome. Raises CdpConnectError once kill() or shutdown has run, OSError if it
+        cannot start."""
+        with _CHROME_LOCK:
+            if self.dead or _CHROME_SHUTDOWN:
+                raise CdpConnectError('Chrome is shutting down')
+            self.spawning = True
+            self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                         start_new_session=True)
+        return self.proc
+
+    def kill(self):
+        """Kill Chrome's process group and delete the profile. Safe to call more than once."""
+        with _CHROME_LOCK:
+            self.dead = True
+            _CHROMES.discard(self)
+            proc, spawning = self.proc, self.spawning
+        if proc is not None:
+            if proc.returncode is None:   # not reaped yet, so the group id is still ours
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+            try:
+                proc.wait(10)
+            except subprocess.TimeoutExpired:
+                pass
+        elif spawning:
+            # Interrupted inside Popen: find the Chrome by its profile
+            for pid, cmd in _ps_commands() or ():
+                if _uses_profile(cmd, self.profile):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+        shutil.rmtree(self.profile, ignore_errors=True)
+
+
+def _kill_all_chrome():
+    """At exit: refuse new Chrome starts, then kill every Chrome started so far."""
+    global _CHROME_SHUTDOWN
+    with _CHROME_LOCK:   # waits for a start in progress, so its process is registered
+        _CHROME_SHUTDOWN = True
+        chromes = list(_CHROMES)
+    for c in chromes:
+        c.kill()
+
+
+def _clean_stale_profiles(max_age=3600):
+    """Delete mockup-canvas-chrome-* temp profiles older than max_age seconds that no running
+    process uses (left by a crash or `kill -9`). Returns how many were deleted."""
+    base = tempfile.gettempdir()
+    try:
+        names = [n for n in os.listdir(base) if n.startswith(CHROME_PROFILE_PREFIX)]
+    except OSError:
+        return 0
+    if not names:
+        return 0
+    procs = _ps_commands()
+    if procs is None:   # cannot tell which are in use: keep them all
+        return 0
+    with _CHROME_LOCK:
+        mine = {c.profile for c in _CHROMES}
+    removed = 0
+    now = time.time()
+    for n in names:
+        path = os.path.join(base, n)
+        try:
+            if os.path.islink(path) or not os.path.isdir(path) or now - os.stat(path).st_mtime < max_age:
+                continue
+        except OSError:
+            continue
+        if path in mine or any(_uses_profile(cmd, path) for _, cmd in procs):
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        removed += 1
+    return removed
+
+
 def _run_chrome(w, h, budget_ms, out_png, url, timeout=None):
     """Old capture path (--screenshot). Headless Chrome keeps the window at least 500 px wide,
-    so narrower sizes are laid out at 500 px and cropped. Only used when DevTools fails."""
-    profile = tempfile.mkdtemp(prefix='mockup-canvas-chrome-')
+    so narrower sizes are laid out at 500 px and cropped. Only used when DevTools fails.
+    -> Chrome's exit code; raises subprocess.TimeoutExpired."""
+    chrome = _Chrome()
     try:
-        return subprocess.run(_chrome_args(profile, w, h, budget_ms) + [f'--screenshot={out_png}', url],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
+        proc = chrome.spawn(_chrome_args(chrome.profile, w, h, budget_ms) + [f'--screenshot={out_png}', url])
+        return proc.wait(timeout)
     finally:
-        shutil.rmtree(profile, ignore_errors=True)
+        chrome.kill()
 
 # ── Chrome DevTools capture ────────────────────────────────────────────────
 # render, overview, snap, and compare drive Chrome over the DevTools protocol so the page is laid
@@ -542,7 +674,8 @@ class _CdpSession:
     deletes the profile. capture() can be called many times (thumbnails reuse one Chrome)."""
 
     def __init__(self, connect_timeout=20, background=False):
-        self.profile = tempfile.mkdtemp(prefix='mockup-canvas-chrome-')
+        self.chrome = _Chrome()
+        self.profile = self.chrome.profile
         self.proc = self.ws = self.cdp = None
         self.background = background
         try:
@@ -553,8 +686,7 @@ class _CdpSession:
 
     def _start(self, connect_by):
         try:
-            self.proc = subprocess.Popen(_cdp_launch_args(self.profile, self.background),
-                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.proc = self.chrome.spawn(_cdp_launch_args(self.profile, self.background))
         except OSError as e:
             raise CdpConnectError(f'cannot start Chrome: {e}')
         port_file = os.path.join(self.profile, 'DevToolsActivePort')
@@ -641,14 +773,7 @@ class _CdpSession:
             except OSError:
                 pass
             self.ws = None
-        if self.proc and self.proc.poll() is None:
-            self.proc.kill()
-        if self.proc:
-            try:
-                self.proc.wait(10)
-            except subprocess.TimeoutExpired:
-                pass
-        shutil.rmtree(self.profile, ignore_errors=True)
+        self.chrome.kill()
 
     def __enter__(self):
         return self
@@ -689,7 +814,7 @@ def _capture(url, w, h, wait_ms, out, full_page=False):
             print(f'Error: Chrome did not finish within {limit:.0f} s; the page may keep a request open '
                   '(server-sent events or long polling)', file=sys.stderr)
             return False
-        return result.returncode == 0 and os.path.isfile(out) and os.path.getsize(out) > 0
+        return result == 0 and os.path.isfile(out) and os.path.getsize(out) > 0
     except TimeoutError:
         print(f'Error: Chrome did not finish within {limit:.0f} s (the page never fired its load '
               'event, or --wait is too long)', file=sys.stderr)
@@ -871,6 +996,7 @@ class _ThumbQueue:
         self.cv = threading.Condition()
         self.jobs, self.pending, self.failed = [], set(), set()
         self.sessions, self.workers, self.started = [], workers, 0
+        self.starting = 0   # workers inside _CdpSession(): Chrome may be running but not listed yet
         self.closed = False
 
     def request(self, src, w, h, out, sse_key, fname):
@@ -912,16 +1038,24 @@ class _ThumbQueue:
                 ok = False
                 try:
                     if session is None:
-                        session = _CdpSession(background=True)
                         with self.cv:
-                            self.sessions.append(session)
-                            if self.closed:   # shut down while Chrome was starting
-                                raise CdpError('thumbnail queue closed')
+                            self.starting += 1
+                        try:
+                            session = _CdpSession(background=True)
+                        finally:
+                            with self.cv:
+                                self.starting -= 1
+                                if session:
+                                    self.sessions.append(session)
+                                self.cv.notify_all()
+                        if self.closed:   # shut down while Chrome was starting
+                            raise CdpError('thumbnail queue closed')
                     os.makedirs(os.path.dirname(out), exist_ok=True)
                     session.capture(pathlib.Path(src).as_uri(), w, h, 250, out, timeout=30, scale=THUMB_SCALE)
                     ok = True
                 except CdpConnectError as e:
-                    print(f'[mockup-canvas] thumbnail: Chrome unavailable: {e}', file=sys.stderr, flush=True)
+                    if not self.closed:
+                        print(f'[mockup-canvas] thumbnail: Chrome unavailable: {e}', file=sys.stderr, flush=True)
                 except (CdpError, TimeoutError, OSError) as e:
                     if not self.closed:
                         print(f'[mockup-canvas] thumbnail failed: {fname}: {e!r}', file=sys.stderr, flush=True)
@@ -954,30 +1088,40 @@ class _ThumbQueue:
                 self.sessions.remove(session)
         session.close()
 
-    def close_all(self):
-        """Stop for good: drop queued jobs, wake idle workers, and kill every Chrome."""
+    def close_all(self, wait=25):
+        """Stop for good: drop queued jobs, wake idle workers, and kill every Chrome, including
+        ones still starting (waits up to `wait` s for them; at exit _kill_all_chrome has already
+        killed them, so they fail at once)."""
         with self.cv:
             self.closed = True
             self.jobs.clear()
             self.pending.clear()
-            sessions, self.sessions = list(self.sessions), []
             self.cv.notify_all()
+            self.cv.wait_for(lambda: not self.starting, wait)
+            sessions, self.sessions = list(self.sessions), []
         for s in sessions:
             s.close()
 
 
 _THUMBS = _ThumbQueue()
-__import__('atexit').register(_THUMBS.close_all)
+
+
+@__import__('atexit').register
+def _close_chrome_at_exit():
+    _kill_all_chrome()
+    _THUMBS.close_all()
 
 
 def _stop_on_sigterm():
-    """`kill <pid>` exits through atexit too, so thumbnail Chrome processes are not left behind."""
-    import signal
-
+    """`kill <pid>` (and a closed terminal) exits through atexit too, so Chrome processes are
+    not left behind."""
     def stop(*_):
         raise KeyboardInterrupt
     try:
         signal.signal(signal.SIGTERM, stop)
+        hup = getattr(signal, 'SIGHUP', None)
+        if hup is not None and signal.getsignal(hup) is not signal.SIG_IGN:   # keep nohup working
+            signal.signal(hup, stop)
     except ValueError:   # not the main thread (tests run servers in threads)
         pass
 
@@ -1932,6 +2076,7 @@ def cmd_serve(args):
         print('Usage: canvas.py serve [<design dir>] [--port 4400] [--share [--minutes 30] [--share-edit]]\n'
               '       canvas.py serve --share --project NAME   (registry mode: share one project)', flush=True)
         return
+    _clean_stale_profiles()   # left by a server that was killed with -9 or crashed
 
     # No arguments, or a flag first: registry mode
     if not args or args[0].startswith('--'):
@@ -3278,6 +3423,7 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help'):
         print(__doc__); return
     cmd = sys.argv[1]
+    _stop_on_sigterm()
     migrate_legacy_roots()
     dispatch = {
         'serve': cmd_serve, 'roots': cmd_roots,

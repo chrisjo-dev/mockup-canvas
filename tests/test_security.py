@@ -499,7 +499,7 @@ class EmbeddedJson(TempHomeCase):
 # ── H2: render and overview launch Chrome without file access ──────────────
 
 class ChromeLaunchArgs(TempHomeCase):
-    """Both capture paths: DevTools (Popen) and the --screenshot fallback (run)."""
+    """Both capture paths: DevTools and the --screenshot fallback (both Popen)."""
 
     def setUp(self):
         super().setUp()
@@ -513,26 +513,23 @@ class ChromeLaunchArgs(TempHomeCase):
             calls.append((list(cmd), os.path.isdir(profile), profile))
 
         class FakePopen:
-            # DevTools never comes up, so the capture falls back to --screenshot
+            # DevTools never comes up, so the capture falls back to --screenshot, which succeeds
             def __init__(self, cmd, **kw):
                 record(cmd)
                 self.returncode = 1
+                shot = [a.split('=', 1)[1] for a in cmd if a.startswith('--screenshot=')]
+                if shot:
+                    with open(shot[0], 'wb') as f:
+                        f.write(b'\x89PNG')
+                    self.returncode = 0
 
             def poll(self):
-                return 1
+                return self.returncode
 
             def wait(self, timeout=None):
-                return 1
-
-        def fake_run(cmd, **kw):
-            record(cmd)
-            out = next(a.split('=', 1)[1] for a in cmd if a.startswith('--screenshot='))
-            with open(out, 'wb') as f:
-                f.write(b'\x89PNG')
-            return subprocess.CompletedProcess(cmd, 0)
+                return self.returncode
         with mock.patch.object(canvas, '_get_chrome', return_value='/fake/chrome'), \
                 mock.patch.object(canvas.subprocess, 'Popen', FakePopen), \
-                mock.patch.object(canvas.subprocess, 'run', side_effect=fake_run), \
                 mock.patch('sys.stdout'), mock.patch('sys.stderr'):
             fn(list(args))
         return calls

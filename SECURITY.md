@@ -2,7 +2,7 @@
 
 ## Threat model
 
-mockup-canvas is a local design tool. It serves HTML files from folders you choose and writes only layout data back to `canvas.json`.
+mockup-canvas is a local design tool. It serves HTML files from folders you choose and writes only layout data back to `canvas.json`, plus generated thumbnail images under `render/.thumbs/`.
 
 ### Local mode (default)
 
@@ -15,7 +15,9 @@ mockup-canvas is a local design tool. It serves HTML files from folders you choo
 - **Timeouts and limits.** Each connection has a 15 second socket timeout (the live-reload stream is exempt), and at most 64 connections are handled at once; more get `503`. The live-reload stream is capped at 40 clients.
 - The server identifies itself as `mockup-canvas` with no Python version. `X-Canvas-Root` (used to detect an already running server) carries a short SHA-256 prefix of the design folder path, never the path.
 - Names and paths shown on index pages are HTML-escaped. The canvas data embedded by `canvas export` and `canvas overview` escapes every `<` (and U+2028, U+2029), so a board title cannot close the script tag. The viewer forces board positions and sizes to numbers and accepts only plain color values for group colors.
-- `canvas render` and `canvas overview` run headless Chrome with a fresh temporary profile that is deleted afterward and without `--allow-file-access-from-files`, so a board cannot read other local files while it is rendered.
+- **Thumbnail cache.** At low zoom the canvas asks for `GET /<idea>/thumbs/<board>.png` (registry mode: `/<project>/<idea>/thumbs/...`). These requests pass the same `Host` allowlist and, in share mode, the same token rules as any other page. The server renders only a board that is listed in the idea's `canvas.json` and exists in its `boards/` folder, at that board's size (at most 8000 px per side), and writes only generated PNG images into that idea's `render/.thumbs/` folder (temp file plus rename), replacing older thumbnails of the same board. A request cannot choose the output path or write anything else.
+- `canvas render` and `canvas overview`, and the thumbnail renderer, run headless Chrome with a fresh temporary profile (`mockup-canvas-chrome-*` in the temp folder) and without `--allow-file-access-from-files`, so a board cannot read other local files while it is rendered. DevTools listens only on `127.0.0.1` at a random port. Each Chrome runs in its own process group; the group is killed and the profile deleted when the capture ends or the command stops (Ctrl+C, `kill`, or an error). `canvas serve` also deletes `mockup-canvas-chrome-*` profiles older than one hour that no running process uses.
+- `canvas snap` and `canvas compare --url` accept any `http://` or `https://` URL and refuse other schemes (`file:`, `javascript:`, and so on). For a host other than `localhost`, `127.0.0.1`, or `::1` they print a warning, because they are meant for an app running on this machine, but they still load it. The page is opened in the same throwaway Chrome profile with no file access flags, so it cannot read local files, and nothing from your normal browser profile (cookies, logins) is available to it.
 - `canvas export` refuses an output folder that is the idea folder, is inside it, or contains it. It copies symlinks as links and skips any that point outside the idea folder.
 
 ### Share mode (`--share`)
