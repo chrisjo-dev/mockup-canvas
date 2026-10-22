@@ -46,9 +46,9 @@ class ThumbRoute(ServerCase):
         self.assertEqual((url, w, h, key, fname),
                          (pathlib.Path(self.idea, 'boards', 'A01-One.html').as_uri(), 390, 844, 'demo', 'A01-One.html'))
         # file:// requests are allowed only inside the idea folder (see test_file_access)
-        self.assertEqual(self.queue.calls[0][1], {'file_roots': [self.idea]})
+        self.assertEqual(self.queue.calls[0][1], {'file_roots': [self.idea], 'scale': canvas.THUMB_SCALE})
         self.assertEqual(os.path.dirname(out), os.path.join(self.idea, 'render', '.thumbs'))
-        self.assertRegex(os.path.basename(out), r'^A01-One-390x844-2-[0-9a-f]+-[0-9a-f]+\.png$')
+        self.assertRegex(os.path.basename(out), r'^A01-One-390x844-3-8-[0-9a-f]+-[0-9a-f]+\.png$')
         os.makedirs(os.path.dirname(out))
         with open(out, 'wb') as f:
             f.write(PNG)
@@ -60,6 +60,17 @@ class ThumbRoute(ServerCase):
         status, _, body = self.request('GET', '/demo/thumbs/A01-One.png', headers={'If-None-Match': headers['ETag']})
         self.assertEqual((status, body), (304, b''))
         self.assertEqual(len(self.queue.calls), 1)
+
+    def test_scale_from_the_query_is_in_the_key(self):
+        self.serve()
+        for q, scale in (('?s=0.4', 0.4), ('?v=3.1&s=1', 1.0), ('?s=0.8', 0.8), ('?s=7', 0.8), ('?s=0.45', 0.8), ('', 0.8)):
+            self.queue.calls.clear()
+            self.assertEqual(self.request('GET', '/demo/thumbs/A01-One.png' + q)[0], 202)
+            (args, kw), = self.queue.calls
+            self.assertEqual(kw['scale'], scale, q)
+            self.assertEqual(args[3], canvas._thumb_target(self.idea, 'A01-One.html', scale)[3])
+        self.assertNotEqual(canvas._thumb_target(self.idea, 'A01-One.html', 0.4)[3],
+                            canvas._thumb_target(self.idea, 'A01-One.html', 0.8)[3])
 
     def test_key_follows_board_tokens_and_size(self):
         first = self.target()[3]
@@ -166,15 +177,18 @@ class ThumbQueue(TempHomeCase):
         src, w, h, out = canvas._thumb_target(self.idea, 'A01-One.html')
         folder = os.path.dirname(out)
         os.makedirs(folder)
-        for stale in ('A01-One-390x844-1-2.png', 'A01-One-200x100-ab.png'):
+        for stale in ('A01-One-390x844-1-2.png', 'A01-One-200x100-ab.png', 'A01-One-390x844-3-8-1-2.png'):
             open(os.path.join(folder, stale), 'wb').close()
         keep = os.path.join(folder, 'A01-One-Two-390x844-1-2.png')   # another board with a longer id
         open(keep, 'wb').close()
+        other_scale = os.path.join(folder, 'A01-One-390x844-3-4-1-2.png')   # a 1x viewer's thumbnail
+        open(other_scale, 'wb').close()
         self.assertTrue(self.q.request(src, w, h, out, 'demo', 'A01-One.html'))
         self.assertTrue(self.q.request(src, w, h, out, 'demo', 'A01-One.html'))   # deduped while queued
         self.assertTrue(self.done.wait(5))
         self.assertEqual(self.events, [('demo', {'type': 'thumb', 'file': 'A01-One.html'})])
-        self.assertEqual(sorted(os.listdir(folder)), sorted([os.path.basename(out), os.path.basename(keep)]))
+        self.assertEqual(sorted(os.listdir(folder)),
+                         sorted([os.path.basename(out), os.path.basename(keep), os.path.basename(other_scale)]))
         captured = [c for s in FakeSession.instances for c in s.captured]
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0][0], src)   # the URL the caller passed in

@@ -272,8 +272,19 @@
   // recently seen go back to their thumbnail first. A board seen once never shows blank again:
   // its stand-in is its thumbnail, and an iframe is revealed only after it has painted.
   // The overview render needs every board live, so it keeps them all.
-  const LIVE_IN = 0.40, LIVE_OUT = 0.30;
+  // On a 2x screen a thumbnail looked blurry next to the live board from about 30% (a downscaled
+  // PNG loses the crisp text of a page drawn at that size), so boards go live from 34% there.
+  const HI_DPR = (window.devicePixelRatio || 1) >= 1.5;
+  const LIVE_IN = HI_DPR ? 0.34 : 0.40, LIVE_OUT = HI_DPR ? 0.26 : 0.30;
   const LIVE_MAX = 16, LIVE_AREA = 16 * 390 * 844;
+  // Boards within a quarter screen beyond the edges count as near: they mount (after the visible
+  // ones have loaded) so a short pan finds them live, and a load still running there is kept
+  const MARGIN = 0.25;
+  // At most this many iframes are created per frame (each costs WebKit and Firefox 20 to 30 ms)
+  const MOUNTS_PER_FRAME = 2;
+  // Thumbnails are rendered at the scale that covers LIVE_IN on this screen without upscaling
+  // (0.8 on a 2x display): 0.4, 0.6, 0.8 or 1, see THUMB_SCALES in canvas.py
+  const THUMB_PX = Math.min(1, Math.max(0.4, Math.ceil(LIVE_IN * (window.devicePixelRatio || 1) * 5 - 0.01) / 5));
   let seenTick = 0;
   const BAR_TEXT_ZOOM = 0.3;   // below this zoom the 11 px bar text is under 3.3 px: hidden (#canvas.far)
   let far = false;
@@ -283,23 +294,30 @@
   window.addEventListener('resize', () => { SW = stage.clientWidth; SH = stage.clientHeight; visDirty = true; schedule(); });
 
   function thumbUrl(file, v) {
-    return BASE + '/thumbs/' + encodeURIComponent(file.replace(/\.html$/, '')) + '.png?v=' + v;
+    return BASE + '/thumbs/' + encodeURIComponent(file.replace(/\.html$/, '')) + '.png?v=' + v + '&s=' + THUMB_PX;
   }
 
   // ── Frame scheduler: input handlers only update state; DOM writes happen once per frame ──
   let frameReq = 0, xformDirty = false, visDirty = false, moving = false, settleTimer = 0;
-  // idle: the view has rested for about 300 ms. Thumbnails are requested and swapped in only then:
-  // a new image painted mid-gesture re-rasters the canvas layer, and every request keeps the
-  // server's background Chrome busy while the user pans or zooms.
-  let idle = false, idleTimer = 0;
+  // idle: the view has rested. Live boards mount only then (130 ms after the last input at a live
+  // zoom), and thumbnails are requested and swapped in only then (300 ms when zoomed out): a new
+  // image painted mid-gesture re-rasters the canvas layer, and every request keeps the server's
+  // background Chrome busy while the user pans or zooms. idleSeq counts the rests.
+  let idle = false, idleTimer = 0, idleSeq = 0;
+  const SETTLE_MS = 130, THUMB_IDLE_MS = 170;
   function schedule() { if (!frameReq) frameReq = requestAnimationFrame(frame); }
   function frame() {
     frameReq = 0;
     if (xformDirty) {
       xformDirty = false;
+      // A jump far out (the F key): the layer was painted at the old zoom, and the whole canvas
+      // coming into view would be painted into it at that zoom. Without the layer the browser
+      // paints at the new zoom; the layer comes back once the view rests.
+      const jump = layerScale && sc < layerScale * 0.5;
+      if (jump) { cvs.classList.remove('layer'); layerScale = 0; if (THUMBS && sc < LIVE_OUT) coverLive(); }
       cvs.style.transform = `translate(${vx}px,${vy}px) scale(${sc})`;
       if ((VIRTUAL && sc < BAR_TEXT_ZOOM) !== far) { far = !far; cvs.classList.toggle('far', far); }   // the overview PNG keeps its titles
-      if (moving && !layerScale) promote();
+      if (moving && !layerScale && !jump) promote();
       zoomLbl.textContent = Math.round(sc * 100) + '%';
     }
     if (dragging && dragging.dirty) {
@@ -311,12 +329,12 @@
   }
 
   // ── Transform ────────────────────────────────────────────────────────────
+  // Input handlers only set the new view; loads are cancelled (or kept) in the next frame
   function applyXform() {
-    if (!moving && VIRTUAL) cancelLoading();
     xformDirty = true; visDirty = true; moving = true; idle = false;
     clearTimeout(settleTimer);
     clearTimeout(idleTimer);
-    settleTimer = setTimeout(settle, 150);
+    settleTimer = setTimeout(settle, SETTLE_MS);
     schedule();
   }
   // The canvas keeps its own GPU layer (will-change) between gestures: promoting it when a gesture
@@ -340,39 +358,95 @@
     if (layerScale && layerScale !== sc) { cvs.classList.remove('layer'); layerScale = 0; }
     visDirty = true;
     schedule();
-    idleTimer = setTimeout(() => {
-      idle = true; visDirty = true;
-      if (!layerScale && VIRTUAL) { promote(); warmLayer(); }
-      schedule();
-    }, 150);
+    if (THUMBS && sc < LIVE_OUT) idleTimer = setTimeout(goIdle, THUMB_IDLE_MS);
+    else goIdle();
+  }
+  function goIdle() {
+    idle = true; idleSeq++; visDirty = true;
+    if (!layerScale && VIRTUAL) { promote(); warmLayer(); }
+    schedule();
   }
 
   // ── Virtualization ───────────────────────────────────────────────────────
+  let lastVisSc = 0;
   function updateVisibility() {
     if (!canvasData) return;
-    const mx = SW * 0.5 / sc, my = SH * 0.5 / sc;   // keep boards half a screen beyond the edges
-    const x0 = -vx / sc - mx, y0 = -vy / sc - my, x1 = (SW - vx) / sc + mx, y1 = (SH - vy) / sc + my;
+    const zoomed = sc !== lastVisSc;
+    lastVisSc = sc;
+    const vx0 = -vx / sc, vy0 = -vy / sc, vx1 = (SW - vx) / sc, vy1 = (SH - vy) / sc;
+    const mx = SW * MARGIN / sc, my = SH * MARGIN / sc;
+    const x0 = vx0 - mx, y0 = vy0 - my, x1 = vx1 + mx, y1 = vy1 + my;
     seenTick++;
+    const mountVis = [], mountNear = [], thumbs = [];
+    let visLoading = false;
     for (const file in recs) {
       const r = recs[file], b = canvasData.boards[file];
       if (!b) continue;
       // The overview render (not virtual) needs every iframe before its load event
       if (!VIRTUAL) { if (r.kind !== 'live') mountLive(r); continue; }
-      const vis = !r.hidden && b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0;
-      if (!vis) continue;   // off screen: keeps what it shows (evictLive unloads old iframes)
+      const near = !r.hidden && b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0;
+      // A load still running is stopped when the zoom changes (the board repaints at every step)
+      // or the board leaves the view and its margin; a pan that keeps it near lets it finish
+      if (r.kind === 'live' && r.iframe && r.iframe.__loading && (zoomed || !near)) cancelLoad(r);
+      if (!near) {
+        // Off screen: keeps what it shows (evictLive unloads old iframes), except that the new
+        // thumbnail of an edited board is swapped in right away. A collapsed board unloads.
+        if (r.hidden && r.kind === 'live') standIn(r);
+        else if (idle && r.fresh && r.kind === 'thumb') showThumb(r);
+        continue;
+      }
       r.seen = seenTick;
+      const area = Math.max(0, Math.min(b.x + b.w, vx1) - Math.max(b.x, vx0)) *
+                   Math.max(0, Math.min(b.y + b.h, vy1) - Math.max(b.y, vy0));
       const live = !THUMBS || sc >= LIVE_IN || (sc >= LIVE_OUT && r.kind === 'live');
       if (live) {
-        // New iframes are created only once the view is idle (loading a board mid-gesture drops
-        // frames; ones still loading when a gesture starts are cancelled, see cancelLoading)
-        if (r.kind !== 'live') { if (idle) mountLive(r); else standIn(r); }
+        if (r.kind === 'live') {
+          if (r.covered) uncover(r);
+          if (r.iframe.__loading) {
+            if (area > 0) visLoading = true;
+            if (!moving && r.iframe.__ready) reveal(r, r.iframe);   // loaded during a pan
+          }
+        } else if (r.stale && !zoomed) mountLive(r);   // shows an old version: no idle gate
+        // New iframes are created only once the view rests (loading a board mid-gesture drops frames)
+        else if (idle) (area > 0 ? mountVis : mountNear).push([r, area]);
+        else standIn(r);
       } else if (r.kind === 'live') {
         // Zoomed out: swap to the thumbnail once one is decoded, never to a blank card
         if (idle) { if (r.img || r.fresh) showThumb(r); else requestThumb(r); }
-      } else if (idle) showThumb(r);
+      } else if (idle) thumbs.push([r, area]);
+      else if (r.stale && r.fresh) showThumb(r);
       else if (r.kind !== 'thumb') standIn(r);
     }
+    if (idle) {
+      // The server renders the most recent request first: the largest on screen are asked last
+      thumbs.sort((a, b) => a[1] - b[1]);
+      for (const [r] of thumbs) showThumb(r);
+      // Visible boards first, largest first, a few per frame; the margin once they have loaded
+      const queue = mountVis.length ? mountVis.sort((a, b) => b[1] - a[1]) : visLoading ? [] : mountNear;
+      for (let i = 0; i < queue.length && i < MOUNTS_PER_FRAME; i++) mountLive(queue[i][0]);
+      if (queue.length > MOUNTS_PER_FRAME) { visDirty = true; schedule(); }
+    }
     if (VIRTUAL && !moving) evictLive();
+  }
+
+  // A jump to a thumbnail zoom (the F key): live boards that have a thumbnail show it at once and
+  // their iframes stop painting (WebKit and Firefox took 150 to 300 ms to paint 16 live boards
+  // at the new zoom). The iframes are removed once the view rests, or shown again if the zoom
+  // comes back up first.
+  function coverLive() {
+    for (const file in recs) {
+      const r = recs[file];
+      if (r.kind !== 'live' || r.iframe.__loading || !r.img) continue;
+      r.iframe.classList.add('pending');
+      if (!r.img.isConnected) r.div.appendChild(r.img);
+      r.covered = true;
+    }
+  }
+  function uncover(r) {
+    r.covered = false;
+    if (r.kind !== 'live' || r.iframe.__loading) return;
+    r.iframe.classList.remove('pending');
+    if (r.img) r.img.remove();
   }
 
   function liveArea(r) { const b = canvasData.boards[r.file]; return b ? b.w * b.h : 0; }
@@ -397,19 +471,15 @@
         (!r.thumbState || r.thumbState === 'stale' || r.thumbState === 'pending')) loadThumb(r);
   }
 
-  // A gesture starts: boards still loading go back to their stand-in and load again once the
-  // view is idle. Their parse, layout and first paint would otherwise land on gesture frames.
-  // A board reloading after an edit keeps showing its previous iframe instead.
-  function cancelLoading() {
-    for (const file in recs) {
-      const r = recs[file];
-      if (r.kind !== 'live' || !r.iframe || !r.iframe.__loading) continue;
-      if (r.prev) { r.iframe.remove(); r.iframe = r.prev; r.prev = null; }
-      else standIn(r);
-    }
+  // A board still loading goes back to its stand-in and loads again once the view rests. A board
+  // reloading after an edit keeps showing its previous iframe instead.
+  function cancelLoad(r) {
+    if (r.prev) { r.iframe.remove(); r.iframe = r.prev; r.prev = null; }
+    else standIn(r);
   }
 
   function dropIframe(r) {
+    r.covered = false;
     if (r.iframe) { r.iframe.remove(); r.iframe = null; }
     if (r.prev) { r.prev.remove(); r.prev = null; }
   }
@@ -436,24 +506,37 @@
     iframe.setAttribute('scrolling', 'no');
     iframe.tabIndex = -1;
     iframe.__loading = true;
+    iframe.__ready = false;
     iframe.addEventListener('load', () => {
       if (r.iframe !== iframe) return;
-      // Reveal after a painted frame (the load event can come before the first paint)
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (r.iframe !== iframe) return;
-        iframe.__loading = false;
-        iframe.classList.remove('pending');
-        requestAnimationFrame(() => {
-          if (r.iframe !== iframe) return;
-          if (r.prev) { r.prev.remove(); r.prev = null; }
-          if (r.img) r.img.remove();
-        });
-      }));
+      reveal(r, iframe);
       requestThumb(r);   // so this board has a thumbnail to show once its iframe is unloaded
     });
     r.div.appendChild(iframe);
     r.iframe = iframe;
     r.kind = 'live';
+  }
+
+  // Shows a loaded iframe after a painted frame (the load event can come before the first paint).
+  // While the view moves it waits (__ready) and updateVisibility reveals it once the view rests:
+  // the first paint of a board would land on a gesture frame.
+  function reveal(r, iframe) {
+    iframe.__ready = true;
+    if (moving && VIRTUAL) return;
+    iframe.__ready = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (r.iframe !== iframe || !iframe.__loading) return;
+      if (moving && VIRTUAL) { iframe.__ready = true; return; }
+      iframe.__loading = false;
+      iframe.classList.remove('pending');
+      r.stale = false;
+      visDirty = true; schedule();   // boards in the margin wait for the visible ones
+      requestAnimationFrame(() => {
+        if (r.iframe !== iframe) return;
+        if (r.prev) { r.prev.remove(); r.prev = null; }
+        if (r.img) r.img.remove();
+      });
+    }));
   }
 
   // Cheap content while a board is off screen or the view is moving: the thumbnail it already
@@ -467,13 +550,16 @@
   }
 
   // Called only while idle: swaps in a decoded thumbnail and requests a missing or stale one
+  // A thumbnail still being rendered is asked for again once per rest: the server renders the most
+  // recent request first, so the boards in view move to the front of its queue.
   function showThumb(r) {
     dropIframe(r);
     if (r.fresh) {
       if (r.img) r.img.replaceWith(r.fresh); else r.div.appendChild(r.fresh);
       r.img = r.fresh; r.fresh = null;
+      if (r.img.__ver === r.ver) r.stale = false;
     }
-    if (!r.thumbState || r.thumbState === 'stale') loadThumb(r);
+    if (!r.thumbState || r.thumbState === 'stale' || (r.thumbState === 'pending' && r.askedAt !== idleSeq)) loadThumb(r);
     if (r.img && !r.img.isConnected) r.div.appendChild(r.img);
     r.kind = 'thumb';
   }
@@ -482,7 +568,9 @@
   // on a frame of a gesture. A 202 (still rendering) fails to decode; a 'thumb' event follows.
   function loadThumb(r) {
     r.thumbState = 'loading';
+    r.askedAt = idleSeq;
     const img = new Image();
+    img.__ver = r.ver;
     img.className = 'thumb ok';
     img.alt = '';
     img.decoding = 'async';
@@ -497,6 +585,7 @@
       if (r.loader !== img) return;
       r.loader = null;
       if (r.thumbState === 'loading') r.thumbState = 'pending';
+      else if (r.thumbState === 'stale' && r.stale) loadThumb(r);   // rendered while this request was out
     });
   }
 
@@ -1018,7 +1107,13 @@
       r.ver++;
       if (r.thumbState) r.thumbState = 'stale';
       if (r.kind === 'live') mountLive(r);   // loads hidden over the old one, then replaces it
-      else if (r.kind === 'thumb') { visDirty = true; schedule(); }
+      else if (r.kind === 'thumb') {
+        // Shows an old version (also off screen): ask for the new thumbnail now, and mount live
+        // without the idle wait when it comes into view at a live zoom (r.stale)
+        r.stale = true; r.fresh = null; r.loader = null;
+        loadThumb(r);
+        visDirty = true; schedule();
+      }
     }
     changedBoards.clear();
     if (canvasChanged) { canvasChanged = false; loadCanvas(true); }
@@ -1027,8 +1122,9 @@
     const r = recs[file];
     if (!r || !r.thumbState) return;
     r.thumbState = 'stale';
-    if (r.kind === 'thumb' || r.kind === 'none') { visDirty = true; schedule(); }
-    else requestThumb(r);   // live now: decode it in the background for when it is unloaded
+    // Live now, or showing an old version: decode it in the background (also off screen)
+    if (r.kind === 'live' || r.stale) requestThumb(r);
+    if (r.kind !== 'live') { visDirty = true; schedule(); }
   }
   let es = null;
   function setupSSE() {

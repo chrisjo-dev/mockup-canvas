@@ -149,7 +149,8 @@ test.describe(`UX feel of the large canvas (${VP}, DPR 2)`, () => {
     await page.addInitScript(uxInit);
     const srv = await sandbox.serve([sandbox.alphaDesign]);
     await open(page, `${srv.origin}/trailmate/`);
-    await expect.poll(() => page.locator('.board img.thumb').count(), { timeout: 60_000 }).toBeGreaterThan(0);
+    // Boards show content: thumbnails, or live boards when the fit zoom is above the live threshold (2x screens)
+    await expect.poll(() => page.locator('.board img.thumb, .board iframe:not(.pending)').count(), { timeout: 60_000 }).toBeGreaterThan(0);
     const files = await page.locator('.board').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.file!));
     for (const mode of ['first', 'second']) {
       await page.keyboard.press('f'); await page.waitForTimeout(1200);

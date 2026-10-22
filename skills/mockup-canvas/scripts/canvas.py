@@ -1126,15 +1126,18 @@ def _watch_thread(design_dirs):
 # At low zoom the viewer shows PNG thumbnails instead of live iframes. They are rendered lazily
 # with the DevTools capture, a few at a time in background threads that reuse one Chrome each,
 # and cached in <idea>/render/.thumbs/ under a name keyed by the board file's mtime, the
-# tokens.css mtime, and the board size, so an edit makes a new thumbnail.
+# tokens.css mtime, the board size, and the scale, so an edit makes a new thumbnail.
+# The viewer asks for the scale that stays sharp up to the zoom where boards go live (40%) on its
+# screen: 0.8 on a 2x display, 0.4 on a 1x one (`?s=`). 0.6 looked blurry at 30 to 40% on 2x.
 
-THUMB_SCALE = 0.6
+THUMB_SCALES = {'0.4': 0.4, '0.6': 0.6, '0.8': 0.8, '1': 1.0}
+THUMB_SCALE = 0.8   # without ?s=
 THUMB_WORKERS = 1   # a second background Chrome rendered faster but made first-open zoom stutter
 THUMB_IDLE_SECS = 15
-THUMB_VERSION = 2   # in the cache key: version 1 rendered without the file:// guard
+THUMB_VERSION = 3   # in the cache key: version 1 rendered without the file:// guard, 2 had no scale
 
 
-def _thumb_target(idea_dir, fname):
+def _thumb_target(idea_dir, fname, scale=THUMB_SCALE):
     """-> (board path, w, h, cached png path) for a registered board, or None."""
     if not fname.endswith('.html'):
         return None
@@ -1149,7 +1152,7 @@ def _thumb_target(idea_dir, fname):
         w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
         if not (0 < w <= 8000 and 0 < h <= 8000):
             return None
-        key = f'{THUMB_VERSION:x}-{os.stat(src).st_mtime_ns:x}'
+        key = f'{THUMB_VERSION:x}-{round(scale * 10):x}-{os.stat(src).st_mtime_ns:x}'
         tok = os.path.join(idea_dir, 'shared', 'tokens.css')
         if os.path.isfile(tok):
             key += f'-{os.stat(tok).st_mtime_ns:x}'
@@ -1167,7 +1170,7 @@ class _ThumbQueue:
         self.starting = 0   # workers inside _CdpSession(): Chrome may be running but not listed yet
         self.closed = False
 
-    def request(self, url, w, h, out, sse_key, fname, file_roots=()):
+    def request(self, url, w, h, out, sse_key, fname, file_roots=(), scale=THUMB_SCALE):
         """Queue a render unless it is running or failed before. Most recent request first: the
         viewer asks for boards near its viewport once the view rests, so a board asked again moves
         to the front of the queue."""
@@ -1183,7 +1186,7 @@ class _ThumbQueue:
                         break
                 return True
             self.pending.add(out)
-            self.jobs.append((url, w, h, out, sse_key, fname, tuple(file_roots)))
+            self.jobs.append((url, w, h, out, sse_key, fname, tuple(file_roots), scale))
             if self.started < self.workers:
                 self.started += 1
                 threading.Thread(target=self._work, daemon=True).start()
@@ -1202,7 +1205,7 @@ class _ThumbQueue:
                         self.started -= 1
                         return
                     job = self.jobs.pop()
-                url, w, h, out, sse_key, fname, roots = job
+                url, w, h, out, sse_key, fname, roots, scale = job
                 ok = False
                 try:
                     if session is None:
@@ -1219,7 +1222,7 @@ class _ThumbQueue:
                         if self.closed:   # shut down while Chrome was starting
                             raise CdpError('thumbnail queue closed')
                     os.makedirs(os.path.dirname(out), exist_ok=True)
-                    session.capture(url, w, h, 250, out, timeout=30, scale=THUMB_SCALE, file_roots=roots)
+                    session.capture(url, w, h, 250, out, timeout=30, scale=scale, file_roots=roots)
                     ok = True
                 except CdpConnectError as e:
                     if not self.closed:
@@ -1231,8 +1234,11 @@ class _ThumbQueue:
                         self._drop(session)
                         session = None
                 if ok:
-                    # older thumbnails of this board: <board id>-<w>x<h>-<hex key>.png
-                    stale = re.compile(re.escape(fname[:-5]) + r'-\d+x\d+-[0-9a-f-]+\.png$')
+                    # older thumbnails of this board at this scale or from an older version:
+                    # <board id>-<w>x<h>-<version>-<scale>-<hex key>.png (a 1x and a 2x viewer
+                    # keep their own)
+                    stale = re.compile(re.escape(fname[:-5]) + r'-\d+x\d+-(?:%x-%x-|(?!%x-))[0-9a-f-]+\.png$'
+                                       % (THUMB_VERSION, round(scale * 10), THUMB_VERSION))
                     folder = os.path.dirname(out)
                     for old in os.listdir(folder):
                         if stale.match(old) and old != os.path.basename(out):
@@ -1538,7 +1544,9 @@ class CanvasHandler(BaseHTTPRequestHandler):
 
     def _serve_thumb(self, idea_dir, name, sse_key):
         """thumbs/<board id>.png: the cached thumbnail (ETag), or 202 while it is being rendered."""
-        target = _thumb_target(idea_dir, name[:-4] + '.html') if name.endswith('.png') else None
+        s = parse_qs(urlparse(self.path).query).get('s', [''])[0]
+        scale = THUMB_SCALES.get(s, THUMB_SCALE)
+        target = _thumb_target(idea_dir, name[:-4] + '.html', scale) if name.endswith('.png') else None
         if not target:
             self._404(); return
         src, w, h, out = target
@@ -1558,7 +1566,8 @@ class CanvasHandler(BaseHTTPRequestHandler):
         # sandbox instead gave it an opaque origin, whose HTTP cache is partitioned: every board
         # downloaded its web fonts again, and a 71-board idea took minutes instead of 30 s.
         board = name[:-4] + '.html'
-        if not _THUMBS.request(pathlib.Path(src).as_uri(), w, h, out, sse_key, board, file_roots=[idea_dir]):
+        if not _THUMBS.request(pathlib.Path(src).as_uri(), w, h, out, sse_key, board, file_roots=[idea_dir],
+                               scale=scale):
             self._404(); return
         self._json({'pending': True}, 202)
 
