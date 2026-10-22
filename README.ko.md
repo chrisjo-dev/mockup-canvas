@@ -295,7 +295,7 @@ mockup-canvas는 호스팅형 디자인 도구나 앱 생성기가 아닙니다.
 
 ## 기여하기
 
-이슈와 PR 모두 환영합니다. PR을 올리기 전에 테스트(170개)를 돌려 주세요.
+이슈와 PR 모두 환영합니다. PR을 올리기 전에 테스트(171개)를 돌려 주세요.
 
 ```bash
 cd tests && python3 -m unittest discover .
