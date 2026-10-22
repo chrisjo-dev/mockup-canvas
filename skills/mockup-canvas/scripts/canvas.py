@@ -503,13 +503,22 @@ class _Cdp:
                     return
 
 
-def _cdp_launch_args(profile_dir):
+def _cdp_launch_args(profile_dir, background=False):
     """Headless Chrome flags for the DevTools path. No file-access flags; throwaway profile;
-    DevTools listens on a random localhost port that only this run uses."""
-    return [_get_chrome(), '--headless=new', '--use-mock-keychain', f'--user-data-dir={profile_dir}',
+    DevTools listens on a random localhost port that only this run uses.
+
+    background (viewer thumbnails): software rendering and one renderer process, so it does not
+    compete with the viewer's browser for the GPU, and a lower CPU priority (nice) that Chrome's
+    helper processes inherit."""
+    args = [_get_chrome(), '--headless=new', '--use-mock-keychain', f'--user-data-dir={profile_dir}',
             '--no-first-run', '--no-default-browser-check',
             '--disable-features=IsolateSandboxedIframes', '--hide-scrollbars',
             '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', 'about:blank']
+    if not background:
+        return args
+    args[1:1] = ['--disable-gpu', '--renderer-process-limit=1']
+    nice = shutil.which('nice')
+    return [nice, '-n', '10'] + args if nice else args   # nice execs Chrome: same pid
 
 
 def _cdp_page_ws(port, timeout):
@@ -532,9 +541,10 @@ class _CdpSession:
     Raises CdpConnectError when DevTools cannot be reached. close() always kills Chrome and
     deletes the profile. capture() can be called many times (thumbnails reuse one Chrome)."""
 
-    def __init__(self, connect_timeout=20):
+    def __init__(self, connect_timeout=20, background=False):
         self.profile = tempfile.mkdtemp(prefix='mockup-canvas-chrome-')
         self.proc = self.ws = self.cdp = None
+        self.background = background
         try:
             self._start(time.monotonic() + connect_timeout)
         except BaseException:
@@ -543,7 +553,7 @@ class _CdpSession:
 
     def _start(self, connect_by):
         try:
-            self.proc = subprocess.Popen(_cdp_launch_args(self.profile),
+            self.proc = subprocess.Popen(_cdp_launch_args(self.profile, self.background),
                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
             raise CdpConnectError(f'cannot start Chrome: {e}')
@@ -827,7 +837,7 @@ def _watch_thread(design_dirs):
 # tokens.css mtime, and the board size, so an edit makes a new thumbnail.
 
 THUMB_SCALE = 0.6
-THUMB_WORKERS = 2
+THUMB_WORKERS = 1   # a second background Chrome rendered faster but made first-open zoom stutter
 THUMB_IDLE_SECS = 15
 
 
@@ -864,12 +874,20 @@ class _ThumbQueue:
         self.closed = False
 
     def request(self, src, w, h, out, sse_key, fname):
-        """Queue a render unless it is queued, running, or failed before."""
+        """Queue a render unless it is running or failed before. Most recent request first: the
+        viewer asks for boards near its viewport once the view rests, so a board asked again moves
+        to the front of the queue."""
         with self.cv:
             if self.closed:
                 return False
-            if out in self.pending or out in self.failed:
-                return out not in self.failed
+            if out in self.failed:
+                return False
+            if out in self.pending:
+                for i, job in enumerate(self.jobs):
+                    if job[3] == out:
+                        self.jobs.append(self.jobs.pop(i))
+                        break
+                return True
             self.pending.add(out)
             self.jobs.append((src, w, h, out, sse_key, fname))
             if self.started < self.workers:
@@ -889,12 +907,12 @@ class _ThumbQueue:
                         # idle: let Chrome go; a new request starts a new worker
                         self.started -= 1
                         return
-                    job = self.jobs.pop(0)
+                    job = self.jobs.pop()
                 src, w, h, out, sse_key, fname = job
                 ok = False
                 try:
                     if session is None:
-                        session = _CdpSession()
+                        session = _CdpSession(background=True)
                         with self.cv:
                             self.sessions.append(session)
                             if self.closed:   # shut down while Chrome was starting
