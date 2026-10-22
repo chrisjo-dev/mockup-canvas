@@ -12,7 +12,7 @@
 
     #stage { position: fixed; inset: 0; overflow: hidden; cursor: default; }
     #canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
-    #canvas.moving { will-change: transform; }
+    #canvas.layer { will-change: transform; }
 
     /* Groups */
     .grp-bg {
@@ -39,12 +39,17 @@
       border-radius: 0 0 4px 4px; pointer-events: none; }
     .board-bar {
       position: absolute; top: -30px; left: 0; right: 0; height: 28px;
-      background: rgba(42,42,42,0.92); backdrop-filter: blur(4px);
+      /* No backdrop-filter: it blurred only the flat canvas color behind the bar, and 70 blurred
+         bars in the canvas layer cost WebKit about 20 FPS while panning */
+      background: rgba(42,42,42,0.92);
       border-radius: 6px 6px 0 0;
       display: flex; align-items: center; padding: 0 8px; gap: 6px;
       cursor: grab; font-size: 11px; white-space: nowrap; overflow: hidden;
     }
     .board-bar:active { cursor: grabbing; }
+    /* Far out the bar text is a few px tall and unreadable; drawing it on every board made
+       WebKit drop frames while panning. The bar itself stays as the drag handle. */
+    #canvas.far .board-bar > * { visibility: hidden; }
     .board-id {
       color: rgba(255,255,255,0.4); font-size: 10px; flex-shrink: 0;
       font-family: ui-monospace, monospace;
@@ -111,8 +116,20 @@
       color: rgba(255,255,255,0.65); font-size: 12px;
       box-shadow: 0 2px 16px rgba(0,0,0,0.5);
       z-index: 1000; white-space: nowrap;
+      max-width: calc(100vw - 16px); box-sizing: border-box;
     }
-    #toolbar .idea-name { color: #fff; font-weight: 700; }
+    #toolbar > * { flex-shrink: 0; }
+    #toolbar .idea-name {
+      color: #fff; font-weight: 700;
+      flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* Touch screens have no F or L key: hide the hints. Narrow screens get a tighter bar. */
+    @media (hover: none) and (pointer: coarse) {
+      #toolbar .key-hint { display: none; }
+    }
+    @media (max-width: 480px) {
+      #toolbar { padding: 6px 12px; gap: 8px; bottom: 10px; }
+    }
     #toolbar kbd {
       background: rgba(255,255,255,0.12); border-radius: 4px;
       padding: 1px 6px; font-size: 11px; color: rgba(255,255,255,0.8);
@@ -148,10 +165,10 @@
 <div id="stage"><div id="canvas"><div id="grp-layer"></div><div id="board-layer"></div><svg id="arrow-svg" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
 <div id="toolbar">
   <span class="idea-name" id="idea-lbl"></span>
-  <span class="sep">|</span>
-  <span><kbd>F</kbd> Fit</span>
-  <span class="sep">|</span>
-  <span><kbd>L</kbd> Arrows</span>
+  <span class="sep key-hint">|</span>
+  <span class="key-hint"><kbd>F</kbd> Fit</span>
+  <span class="sep key-hint">|</span>
+  <span class="key-hint"><kbd>L</kbd> Arrows</span>
   <span class="sep">|</span>
   <span id="zoom-lbl">35%</span>
   <span id="ro-badge" class="ro-badge" style="display:none">Read-only</span>
@@ -247,6 +264,8 @@
   // live iframes. Only boards near the viewport keep a live iframe at any zoom. The overview
   // render needs every board live, so it keeps them all.
   const LOD_ZOOM = 0.35;
+  const BAR_TEXT_ZOOM = 0.2;   // below this zoom the board bars hide their text (#canvas.far)
+  let far = false;
   const THUMBS = !STATIC;
   const VIRTUAL = !OVERVIEW;
   let SW = stage.clientWidth, SH = stage.clientHeight;
@@ -259,7 +278,7 @@
   // ── Frame scheduler: input handlers only update state; DOM writes happen once per frame ──
   let frameReq = 0, xformDirty = false, visDirty = false, moving = false, settleTimer = 0;
   // idle: the view has rested for about 300 ms. Thumbnails are requested and swapped in only then:
-  // a new image painted mid-gesture re-rasters the moving layer, and every request keeps the
+  // a new image painted mid-gesture re-rasters the canvas layer, and every request keeps the
   // server's background Chrome busy while the user pans or zooms.
   let idle = false, idleTimer = 0;
   function schedule() { if (!frameReq) frameReq = requestAnimationFrame(frame); }
@@ -268,9 +287,8 @@
     if (xformDirty) {
       xformDirty = false;
       cvs.style.transform = `translate(${vx}px,${vy}px) scale(${sc})`;
-      // Keep a GPU layer only while moving, then drop it so the browser repaints sharply at the current zoom
-      // (a permanent will-change stretches the bitmap painted at the first zoom, e.g. 5%, and looks blurry)
-      if (moving) cvs.classList.add('moving');
+      if ((VIRTUAL && sc < BAR_TEXT_ZOOM) !== far) { far = !far; cvs.classList.toggle('far', far); }   // the overview PNG keeps its titles
+      if (moving && !layerScale) promote();
       zoomLbl.textContent = Math.round(sc * 100) + '%';
     }
     if (dragging && dragging.dirty) {
@@ -290,12 +308,32 @@
     settleTimer = setTimeout(settle, 150);
     schedule();
   }
+  // The canvas keeps its own GPU layer (will-change) between gestures: promoting it when a gesture
+  // starts repaints every live board, which cost WebKit a 100 to 150 ms first frame. The layer keeps
+  // the bitmap painted at the zoom it was promoted at, so after a zoom the layer is dropped (the
+  // browser repaints sharply at the new zoom) and promoted again once the view is idle.
+  // WebKit paints a new layer on its first transform change, so a promotion made at rest is followed
+  // by a 0.01 px nudge: that paint (about 100 ms with live boards) happens now, not on the first
+  // frame of the next gesture.
+  let layerScale = 0;   // zoom of the current layer bitmap; 0 = no layer
+  function promote() { cvs.classList.add('layer'); layerScale = sc; }
+  function warmLayer() {
+    requestAnimationFrame(() => {
+      if (moving) return;
+      cvs.style.transform = `translate(${vx + 0.01}px,${vy}px) scale(${sc})`;
+      requestAnimationFrame(() => { xformDirty = true; schedule(); });
+    });
+  }
   function settle() {
     moving = false;
-    cvs.classList.remove('moving');
+    if (layerScale && layerScale !== sc) { cvs.classList.remove('layer'); layerScale = 0; }
     visDirty = true;
     schedule();
-    idleTimer = setTimeout(() => { idle = true; visDirty = true; schedule(); }, 150);
+    idleTimer = setTimeout(() => {
+      idle = true; visDirty = true;
+      if (!layerScale && VIRTUAL) { promote(); warmLayer(); }
+      schedule();
+    }, 150);
   }
 
   // ── Virtualization ───────────────────────────────────────────────────────

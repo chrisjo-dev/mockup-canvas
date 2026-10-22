@@ -1,7 +1,7 @@
 // spec: specs/mockup-canvas-journeys.md
 // seed: seed.spec.ts
 import { Page } from '@playwright/test';
-import { test, expect, openCanvas, board, bar, xform, settled, zoomInOn, shot, Sandbox } from './fixtures';
+import { test, expect, board, bar, xform, settled, zoomInOn, shot, Sandbox } from './fixtures';
 
 async function startShare(sandbox: Sandbox) {
   // 1. serve <design> --share --minutes 5 (single-root mode, read-only)
@@ -16,8 +16,13 @@ async function openShared(page: Page, sandbox: Sandbox) {
   await page.goto(`${srv.origin}/?t=${srv.token}`);
   // The token is swapped for a cookie and removed from the URL
   await expect(page).toHaveURL(`${srv.origin}/`);
+  // Follow the link only. Navigating again (page.goto) right after the click cancelled the first
+  // viewer's live reload stream while it connected, which WebKit reports as
+  // "api/events due to access control checks" (the request log shows it as "cancelled").
   await page.getByRole('link', { name: /trailmate/ }).click();
-  await openCanvas(page, page.url());
+  await page.waitForURL(`${srv.origin}/trailmate/`);
+  await expect(page.locator('#loading')).toHaveClass(/gone/, { timeout: 15_000 });
+  await expect(page.locator('.board').first()).toBeAttached();
   await settled(page);
   return srv;
 }
@@ -74,12 +79,8 @@ test.describe('Share mode', () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dirs: ['~'] }) })).status);
     expect([403, 404]).toContain(roots);
     expect(srv.token).toBeTruthy();
-    // Expected 403s are logged by some browsers. Under parallel load WebKit once reported the live
-    // reload stream (/api/events) as blocked "due to access control checks"; the viewer reconnects,
-    // and the cause is not confirmed (see README, observations), so it is recorded, not asserted.
-    const sse = consoleErrors.filter((e) => /\/api\/events/.test(e));
-    if (sse.length) testInfo.annotations.push({ type: 'sse-error', description: sse.join(' | ') });
-    expect(consoleErrors.filter((e) => !/403|Forbidden/.test(e) && !/\/api\/events/.test(e))).toEqual([]);
+    // Expected 403s are logged by some browsers; anything else, including the live reload stream, fails
+    expect(consoleErrors.filter((e) => !/403|Forbidden/.test(e))).toEqual([]);
   });
 });
 
@@ -143,15 +144,21 @@ test.describe('Share mode on a phone @mobile', () => {
   });
 
   test('Toolbar fits inside the phone viewport @mobile', async ({ page, sandbox }, testInfo) => {
-    // Product bug (reported, not fixed here): on a 390 px wide phone the toolbar is wider than the
-    // viewport (white-space: nowrap, centred with translateX(-50%)), so both rounded ends are cut off.
-    // Screenshot: 08-mobile-share.png. Remove test.fail() when the toolbar wraps or shrinks.
-    test.fail();
     await openShared(page, sandbox);
     const vp = page.viewportSize()!;
     const tb = (await page.locator('#toolbar').boundingBox())!;
     testInfo.annotations.push({ type: 'toolbar-box', description: JSON.stringify({ tb, vp }) });
+    await shot(page, testInfo, '08-mobile-toolbar');
     expect(tb.x).toBeGreaterThanOrEqual(0);
     expect(tb.x + tb.width).toBeLessThanOrEqual(vp.width);
+    // A phone has no F or L key, so the key hints are hidden; zoom and the read-only badge stay
+    await expect(page.locator('#toolbar .key-hint').first()).toBeHidden();
+    await expect(page.locator('#zoom-lbl')).toBeVisible();
+    await expect(page.locator('#ro-badge')).toBeVisible();
+    // A long idea name is cut with an ellipsis instead of widening the bar
+    await page.locator('#idea-lbl').evaluate((e) => { e.textContent = 'A very long idea name '.repeat(6); });
+    const tb2 = (await page.locator('#toolbar').boundingBox())!;
+    expect(tb2.x).toBeGreaterThanOrEqual(0);
+    expect(tb2.x + tb2.width).toBeLessThanOrEqual(vp.width);
   });
 });

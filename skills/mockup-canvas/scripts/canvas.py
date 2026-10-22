@@ -1018,7 +1018,7 @@ def _watch_thread(design_dirs):
 THUMB_SCALE = 0.6
 THUMB_WORKERS = 1   # a second background Chrome rendered faster but made first-open zoom stutter
 THUMB_IDLE_SECS = 15
-THUMB_VERSION = 2   # in the cache key: version 1 rendered boards from file:// (no sandbox)
+THUMB_VERSION = 2   # in the cache key: version 1 rendered without the file:// guard
 
 
 def _thumb_target(idea_dir, fname):
@@ -1054,7 +1054,7 @@ class _ThumbQueue:
         self.starting = 0   # workers inside _CdpSession(): Chrome may be running but not listed yet
         self.closed = False
 
-    def request(self, url, w, h, out, sse_key, fname):
+    def request(self, url, w, h, out, sse_key, fname, file_roots=()):
         """Queue a render unless it is running or failed before. Most recent request first: the
         viewer asks for boards near its viewport once the view rests, so a board asked again moves
         to the front of the queue."""
@@ -1070,7 +1070,7 @@ class _ThumbQueue:
                         break
                 return True
             self.pending.add(out)
-            self.jobs.append((url, w, h, out, sse_key, fname))
+            self.jobs.append((url, w, h, out, sse_key, fname, tuple(file_roots)))
             if self.started < self.workers:
                 self.started += 1
                 threading.Thread(target=self._work, daemon=True).start()
@@ -1089,7 +1089,7 @@ class _ThumbQueue:
                         self.started -= 1
                         return
                     job = self.jobs.pop()
-                url, w, h, out, sse_key, fname = job
+                url, w, h, out, sse_key, fname, roots = job
                 ok = False
                 try:
                     if session is None:
@@ -1106,7 +1106,7 @@ class _ThumbQueue:
                         if self.closed:   # shut down while Chrome was starting
                             raise CdpError('thumbnail queue closed')
                     os.makedirs(os.path.dirname(out), exist_ok=True)
-                    session.capture(url, w, h, 250, out, timeout=30, scale=THUMB_SCALE)
+                    session.capture(url, w, h, 250, out, timeout=30, scale=THUMB_SCALE, file_roots=roots)
                     ok = True
                 except CdpConnectError as e:
                     if not self.closed:
@@ -1163,8 +1163,9 @@ _THUMBS = _ThumbQueue()
 
 @__import__('atexit').register
 def _close_chrome_at_exit():
+    _THUMBS.close_all(wait=0)   # no new jobs, and workers stay quiet about the kills below
     _kill_all_chrome()
-    _THUMBS.close_all()
+    _THUMBS.close_all()         # wait for workers still starting a Chrome
 
 
 def _stop_on_sigterm():
@@ -1187,6 +1188,15 @@ _SANDBOX_CSP = 'sandbox allow-scripts allow-forms allow-popups'
 _ACTIVE_TYPES = ('text/html', 'image/svg+xml', 'application/xhtml+xml', 'text/xml', 'application/xml')
 _FONT_EXTS = ('.woff', '.woff2', '.ttf', '.otf', '.eot')
 
+class _NullWriter:
+    """Drops a HEAD response's body."""
+    def write(self, data):
+        return len(data)
+
+    def flush(self):
+        pass
+
+
 class CanvasHandler(BaseHTTPRequestHandler):
     design_dir: str = ''
     share_token: str = ''
@@ -1196,6 +1206,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
     server_version = 'mockup-canvas'
     sys_version = ''
     timeout = 15              # socket timeout per connection (SSE clears it)
+    _head = False             # answering HEAD: headers as for GET, no body
 
     def version_string(self):
         return self.server_version
@@ -1417,7 +1428,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
         target = _thumb_target(idea_dir, name[:-4] + '.html') if name.endswith('.png') else None
         if not target:
             self._404(); return
-        _, w, h, out = target
+        src, w, h, out = target
         etag = '"' + os.path.basename(out) + '"'
         if os.path.isfile(out):
             if self.headers.get('If-None-Match') == etag:
@@ -1429,16 +1440,27 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._serve_file(out, 'image/png', {'X-Content-Type-Options': 'nosniff', 'ETag': etag},
                              cache='no-cache')
             return
-        # Render the board the way the viewer shows it: from this server, under the board CSP
-        # sandbox (an http page cannot load file:// URLs). Share mode uses the /_k/<key>/ prefix
-        # that sandboxed boards use, since Chrome has no token cookie.
+        # Rendered from file:// with every file:// request outside the idea folder failed over
+        # DevTools (_CdpSession._file_guard). Loading the board from this server under its CSP
+        # sandbox instead gave it an opaque origin, whose HTTP cache is partitioned: every board
+        # downloaded its web fonts again, and a 71-board idea took minutes instead of 30 s.
         board = name[:-4] + '.html'
-        prefix = f'/_k/{self._asset_key()}' if self.share_token else ''
-        url = (f'http://127.0.0.1:{self.server.server_address[1]}{prefix}/'
-               f'{_urlquote(sse_key)}/boards/{_urlquote(board)}')
-        if not _THUMBS.request(url, w, h, out, sse_key, board):
+        if not _THUMBS.request(pathlib.Path(src).as_uri(), w, h, out, sse_key, board, file_roots=[idea_dir]):
             self._404(); return
         self._json({'pending': True}, 202)
+
+    def do_HEAD(self):
+        """Same status and headers as GET (auth and Host checks included), without the body."""
+        wfile, self._head = self.wfile, True
+        try:
+            self.do_GET()
+        finally:
+            self.wfile, self._head = wfile, False
+
+    def end_headers(self):
+        super().end_headers()
+        if self._head:
+            self.wfile = _NullWriter()   # what follows is the body
 
     def do_GET(self):
         parts = self._gate_get()
@@ -1597,6 +1619,13 @@ class CanvasHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _serve_sse(self, key):
+        if self._head:   # a HEAD must not open the stream
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.send_header('Cache-Control', 'no-cache')
+            self._add_root_header()
+            self.end_headers()
+            return
         if not _add_sse(key, self.wfile):
             self._json({'ok': False, 'error': 'Too many connections'}, 503)
             return

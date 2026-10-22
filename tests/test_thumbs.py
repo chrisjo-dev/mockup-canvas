@@ -1,5 +1,6 @@
 """Board thumbnails for the viewer's low-zoom level of detail: route, auth, cache key, queue."""
 import os
+import pathlib
 import threading
 import time
 import unittest
@@ -14,8 +15,8 @@ class FakeQueue:
     def __init__(self, ok=True):
         self.calls, self.ok = [], ok
 
-    def request(self, *args):
-        self.calls.append(args)
+    def request(self, *args, **kw):
+        self.calls.append((args, kw))
         return self.ok
 
 
@@ -41,13 +42,11 @@ class ThumbRoute(ServerCase):
         self.serve()
         status, _, body = self.request('GET', '/demo/thumbs/A01-One.png')
         self.assertEqual(status, 202)
-        (url, w, h, out, key, fname), = self.queue.calls
-        # rendered from this server under the board sandbox, not from file://
+        (url, w, h, out, key, fname), = [c[0] for c in self.queue.calls]
         self.assertEqual((url, w, h, key, fname),
-                         (f'http://127.0.0.1:{self.port}/demo/boards/A01-One.html', 390, 844, 'demo', 'A01-One.html'))
-        status, headers, _ = self.request('GET', url.split(str(self.port), 1)[1])
-        self.assertEqual(status, 200)
-        self.assertIn('sandbox', headers['Content-Security-Policy'])
+                         (pathlib.Path(self.idea, 'boards', 'A01-One.html').as_uri(), 390, 844, 'demo', 'A01-One.html'))
+        # file:// requests are allowed only inside the idea folder (see test_file_access)
+        self.assertEqual(self.queue.calls[0][1], {'file_roots': [self.idea]})
         self.assertEqual(os.path.dirname(out), os.path.join(self.idea, 'render', '.thumbs'))
         self.assertRegex(os.path.basename(out), r'^A01-One-390x844-2-[0-9a-f]+-[0-9a-f]+\.png$')
         os.makedirs(os.path.dirname(out))
@@ -105,10 +104,6 @@ class ThumbRoute(ServerCase):
         h = canvas.CanvasHandler.__new__(canvas.CanvasHandler)
         h.share_token = token
         key = h._asset_key()
-        # Chrome has no cookie, so the board is loaded through the keyed prefix
-        url = self.queue.calls[0][0]
-        self.assertEqual(url, f'http://127.0.0.1:{self.port}/_k/{key}/demo/boards/A01-One.html')
-        self.assertEqual(self.request('GET', url.split(str(self.port), 1)[1])[0], 200)
         # The keyed asset prefix for sandboxed boards does not reach thumbnails
         self.assertEqual(self.request('GET', f'/_k/{key}/demo/thumbs/A01-One.png')[0], 404)
         status, _, _ = self.request('GET', '/demo/thumbs/A01-One.png',
@@ -119,8 +114,7 @@ class ThumbRoute(ServerCase):
         self.write_json(os.path.join(self.data_dir, 'roots.json'), {'roots': [{'name': 'p', 'path': self.design}]})
         self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
         self.assertEqual(self.request('GET', '/p/demo/thumbs/A02-Two.png')[0], 202)
-        self.assertEqual(self.queue.calls[0][4:], ('p/demo', 'A02-Two.html'))
-        self.assertEqual(self.queue.calls[0][0], f'http://127.0.0.1:{self.port}/p/demo/boards/A02-Two.html')
+        self.assertEqual(self.queue.calls[0][0][4:], ('p/demo', 'A02-Two.html'))
         self.assertEqual(self.request('GET', '/p/demo/thumbs/..%2F..%2Fx.png')[0], 404)
 
 
@@ -132,7 +126,7 @@ class FakeSession:
         self.captured = []
         FakeSession.instances.append(self)
 
-    def capture(self, url, w, h, wait_ms, out, full_page=False, timeout=60, scale=1):
+    def capture(self, url, w, h, wait_ms, out, full_page=False, timeout=60, scale=1, file_roots=()):
         self.captured.append((url, w, h, scale))
         if 'Broken' in url:
             raise canvas.CdpError('boom')
@@ -183,7 +177,7 @@ class ThumbQueue(TempHomeCase):
         self.assertEqual(sorted(os.listdir(folder)), sorted([os.path.basename(out), os.path.basename(keep)]))
         captured = [c for s in FakeSession.instances for c in s.captured]
         self.assertEqual(len(captured), 1)
-        self.assertEqual(captured[0][0], src)   # the URL the server passed in
+        self.assertEqual(captured[0][0], src)   # the URL the caller passed in
         self.assertEqual(captured[0][1:], (390, 844, canvas.THUMB_SCALE))
         # idle workers stop and close their Chrome
         self.wait_until(lambda: all(s.closed for s in FakeSession.instances) and self.q.started == 0)

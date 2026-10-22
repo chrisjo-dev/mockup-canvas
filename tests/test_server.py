@@ -32,6 +32,25 @@ class SingleRoot(ServerCase):
         self.assertEqual(self.request('GET', '/demo/boards/A01-One.html')[0], 200)
         self.assertEqual(self.request('GET', '/demo/shared/tokens.css')[0], 200)
 
+    def test_head_is_get_without_a_body(self):
+        for path in ('/', '/demo/', '/demo/canvas.json', '/demo/boards/A01-One.html', '/nope/'):
+            g_status, g_headers, g_body = self.request('GET', path)
+            h_status, h_headers, h_body = self.request('HEAD', path)
+            self.assertEqual(h_status, g_status, path)
+            self.assertEqual(h_body, b'', path)
+            for k in ('Content-Type', 'Content-Length', 'Content-Security-Policy'):
+                self.assertEqual(h_headers.get(k), g_headers.get(k), (path, k))
+        # the live reload stream answers at once instead of staying open
+        t = time.monotonic()
+        status, headers, body = self.request('HEAD', '/demo/api/events')
+        self.assertEqual((status, body), (200, b''))
+        self.assertEqual(headers['Content-Type'], 'text/event-stream')
+        self.assertLess(time.monotonic() - t, 5)
+        status, _, body = self.request('HEAD', '/demo/', headers={'Host': 'evil.example'})
+        self.assertEqual((status, body), (421, b''))
+        # the connection still works for a GET afterwards
+        self.assertIn(b'id="canvas"', self.request('GET', '/demo/')[2])
+
     def test_layout_post_merges_and_writes_atomically(self):
         data = self.read_json(self.cj)
         data['boards']['A01-One.html'].update(status='approved', note='keep me')
@@ -125,6 +144,13 @@ class ShareMode(ServerCase):
         self.idea = self.make_idea(self.design, 'demo')
         self.start_server(canvas.CanvasHandler, design_dir=self.design,
                           share_token=self.TOKEN, share_edit=False, read_only=False)
+
+    def test_head_needs_the_token_too(self):
+        status, _, body = self.request('HEAD', '/demo/canvas.json')
+        self.assertEqual((status, body), (401, b''))
+        status, _, body = self.request('HEAD', '/demo/canvas.json',
+                                       headers={'Cookie': 'canvas_token=' + self.TOKEN})
+        self.assertEqual((status, body), (200, b''))
 
     def test_requires_token_and_401_hides_it(self):
         for path in ('/', '/demo/', '/demo/canvas.json'):
