@@ -10,7 +10,7 @@ display; --dpr 1 for a plain one), and measures:
   bursts-lod 12 s of 1.5 s wheel-zoom bursts with 0.4 s rests between the fit view and about 4x it
              (thumbnail zoom levels; on --cold, while the server renders the thumbnails); only
              frames inside the bursts count
-  bursts-live the same up to about 23x the fit view, so each rest above 35% mounts live boards
+  bursts-live the same up to about 23x the fit view, so each rest above 40% mounts live boards
   pan-fit    3 s of continuous mouse pan at the fit zoom
   zoom       3 s of wheel zoom in and out around the viewport center (in-page wheel events, one per frame)
   pan-60     3 s of continuous pan at about 60% zoom (live boards)
@@ -244,7 +244,7 @@ def bursts(session, seconds=16.0, burst=1.5, rest=0.4, steps=6):
     """Zoom in bursts of `burst` s with `rest` s pauses (longer than the viewer's idle delay, so
     thumbnails are requested and swapped in between) for `seconds`, in one trace. On a cold open
     this covers the background thumbnail rendering. 6 steps keep the zoom between the fit view
-    and about 4x it, below the 35% level of detail, so every rest shows thumbnails. Frames,
+    and about 4x it, below the 30% level of detail, so every rest shows thumbnails. Frames,
     dropped frames and long tasks count only inside the bursts."""
     start_trace(session)
     ev(session, '__perf.longtasks = []; window.__burstI = 0')

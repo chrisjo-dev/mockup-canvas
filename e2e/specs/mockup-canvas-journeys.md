@@ -6,7 +6,7 @@ mockup-canvas is a local, Python standard library server (`skills/mockup-canvas/
 shows HTML artboards on a pan and zoom canvas (`viewer.html`). It has a registry mode (many projects on one
 index page with add, scan, and remove forms), a single-root mode, a token protected share mode
 (read-only by default), and a static export. Boards are loaded in sandboxed iframes, live boards are
-virtualized, and below 35% zoom boards show cached PNG thumbnails. Layout moves are saved to
+virtualized, and zoomed out (below 30% to 40%, with hysteresis) boards show cached PNG thumbnails. Layout moves are saved to
 `canvas.json` and can be undone.
 
 Assumptions for every scenario (fresh state):
@@ -99,7 +99,7 @@ Playwright MCP tools are not available in this session):
 
 **Steps:**
 1. Open `/alpha/trailmate/`.
-2. Zoom in with the mouse wheel over `T01-Home` until the zoom is above 35%.
+2. Zoom in with the mouse wheel over `T01-Home` until the zoom is above 40%.
 
 **Expected Results:**
 - The loading overlay disappears and six boards with title bars are present.
@@ -259,12 +259,12 @@ Playwright MCP tools are not available in this session):
 
 **Steps:**
 1. Open the 71-board idea (copy of a real design folder, path from `MC_E2E_LARGE_IDEA`).
-2. Check the fitted zoom is below 35% and count iframes.
-3. Wheel zoom in over a board until above 35%.
+2. Check the fitted zoom is below 30% and count iframes.
+3. Wheel zoom in over a board until above 40%.
 
 **Expected Results:**
-- Below 35%: no live iframes; each board shows a thumbnail or its title card.
-- Above 35%: some, but not all 71, boards have live iframes (virtualization).
+- Below 30%: no live iframes; each board shows a thumbnail or its title card.
+- Above 40%: some, but not all 71, boards have live iframes (virtualization).
 - No console errors or page errors.
 
 #### 7.2 Pan frame rate

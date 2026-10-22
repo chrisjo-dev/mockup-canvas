@@ -121,8 +121,9 @@ class LiveViewer(ViewerCase):
         self.assertEqual(self.count('.built-badge'), 1)
         self.assertEqual(self.js('document.querySelector(".cmt-badge").textContent'), '2')
 
-        # Fit view of 8 boards is below 35%: thumbnails, no live iframes; they render in the background
-        self.assertLess(self.zoom(), 0.35)
+        # Fit view of 8 boards is below 40%: boards not live yet show thumbnails (no iframes); they
+        # render in the background
+        self.assertLess(self.zoom(), 0.40)
         self.assertEqual(self.count('iframe'), 0)
         self.until('document.querySelectorAll("img.thumb.ok").length === 8', 90)
         thumbs = os.listdir(os.path.join(self.idea, 'render', '.thumbs'))
@@ -131,7 +132,7 @@ class LiveViewer(ViewerCase):
         # Zoom in on the first board: live iframes only near the viewport
         x, y = self.bar_center(a01)
         z = self.wheel_to(1.0, x, y)   # around the title bar, so it stays on screen
-        self.assertGreater(z, 0.35)
+        self.assertGreater(z, 0.40)   # live boards from 40% (they stay live down to 30%)
         self.until(f'!!document.querySelector(\'.board[data-file="{a01}"] iframe\')', 10)
         live = self.count('iframe')
         self.assertGreater(live, 0)

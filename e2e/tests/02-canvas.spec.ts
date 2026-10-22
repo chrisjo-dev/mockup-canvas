@@ -14,7 +14,7 @@ test.describe('Open an idea and navigate', () => {
     await expect(page.locator('.board-bar .board-id')).toHaveText(
       ['T01-Home', 'T02-TrailDetail', 'T03-Invite', 'T04-Plan', 'T05-Empty', 'T06-WebLanding']);
     await shot(page, testInfo, '02-fit');
-    // 2. Zoom in over T01-Home above 35%
+    // 2. Zoom in over T01-Home above 40%
     await zoomInOn(page, 'T01-Home.html', 0.6);
     await expect(board(page, 'T01-Home.html').locator('iframe')).toBeAttached();
     const frame = page.frameLocator('.board[data-file="T01-Home.html"] iframe');

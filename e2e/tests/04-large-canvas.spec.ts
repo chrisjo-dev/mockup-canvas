@@ -61,9 +61,9 @@ test.describe('Large canvas (71 boards)', () => {
       const { count } = await openLarge(page, sandbox);
       await expect(page.locator('.board')).toHaveCount(count);
       record(testInfo, 'boards', count);
-      // 2. Fitted zoom is below 35%, no live iframes
+      // 2. Fitted zoom is below 30%, no live iframes
       const fitted = await xform(page);
-      expect(fitted.s).toBeLessThan(0.35);
+      expect(fitted.s).toBeLessThan(0.30);
       await expect(page.locator('.board iframe')).toHaveCount(0);
       // Each board shows a thumbnail or its title card (.ph) once idle
       await page.waitForTimeout(1500);
@@ -74,7 +74,7 @@ test.describe('Large canvas (71 boards)', () => {
       await expect.poll(() => page.locator('.board img.thumb').count(), { timeout: 60_000 }).toBeGreaterThan(0);
       record(testInfo, 'thumbs-after-load', await page.locator('.board img.thumb').count());
       await shot(page, testInfo, '07-large-zoomed-out');
-      // 3. Zoom in over a board above 35%
+      // 3. Zoom in over a board above 40%
       const first = await page.locator('.board').first().getAttribute('data-file');
       await zoomInOn(page, first!, 0.6);
       await expect.poll(() => page.locator('.board iframe').count()).toBeGreaterThan(0);

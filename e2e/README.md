@@ -15,6 +15,8 @@ The plan is in [`specs/mockup-canvas-journeys.md`](specs/mockup-canvas-journeys.
 | `tests/02-canvas.spec.ts` | 2 to 4. Rendering, zoom, fit, pan, arrows, groups, drag, undo and redo, title click and double click |
 | `tests/03-comments-live.spec.ts` | 5 and 6. Comments, built badge, live reload, CLI `status` and `link` |
 | `tests/04-large-canvas.spec.ts` | 7. Large canvas: thumbnails, virtualization, console errors, pan FPS |
+| `tests/07-perf.spec.ts` | 7. Pan frame rate per engine at fit, 25%, 50%, and 72% (opt-in, see below) |
+| `tests/08-never-blank.spec.ts` | 7. A board seen once never turns white again (pixel sampling of screenshots) |
 | `tests/05-share.spec.ts` | 8. Share mode: 401 without token, read-only viewer, phone touch pan and pinch |
 | `tests/06-export-security.spec.ts` | 9 and 10. Static export, board sandbox, Host and Origin checks |
 
@@ -51,6 +53,7 @@ Environment variables (all optional):
 | `MC_E2E_SHOTS` | Folder for screenshots of key states per browser and `metrics.jsonl` (FPS, live reload time). Default: each test's output folder. |
 | `MC_E2E_KEEP=1` | Keep every sandbox, also after passing tests. |
 | `MC_E2E_PYTHON` | Python executable (default `python3`). |
+| `MC_E2E_PERF=1` | Run `07-perf.spec.ts` (also needs `MC_E2E_LARGE_IDEA`). |
 
 Notes:
 
@@ -80,13 +83,28 @@ The agents need a running app to explore. `seed.spec.ts` starts a sandboxed regi
 the trailmate example, so use it as the seed file. The healer must not weaken an assertion to hide a
 product bug; mark the test with `test.fail()` or `test.fixme()` and a comment instead.
 
-## Observations from the first run
+## Frame rate per engine
 
-- Known product bug, marked `test.fail()`: on an iPhone 13 viewport (390 px) the toolbar is about
-  401 px wide and starts at x = -5.7, so both ends are cut off (`05-share.spec.ts`, "Toolbar fits
-  inside the phone viewport").
-- Unconfirmed: under the full parallel run, WebKit once per run reported the live reload stream
-  (`/api/events`) in share mode as blocked "due to access control checks". It did not reproduce in
-  isolation (8 repeats with 4 workers), and live reload in share mode works in WebKit, so the test
-  records it as an annotation instead of failing.
-- `HEAD` requests get 501 from the canvas server (only GET and POST are implemented).
+`07-perf.spec.ts` pans the large idea for 3 s at each zoom with one synthetic mouse move per frame
+and reports average FPS, p95 and worst frame time, and frames over 50 ms. Targets in every engine:
+at least 55 FPS and no frame over 50 ms. Run it alone so other tests do not share the CPU:
+
+```bash
+MC_E2E_PERF=1 MC_E2E_LARGE_IDEA=/path/to/design/<idea> npx playwright test tests/07-perf.spec.ts --workers=1
+```
+
+It first pans with the canvas hidden (the floor). That run measures the machine and the headless
+browser only; when it already has a frame over 50 ms, the worst-frame checks are skipped and the
+test says so in an annotation. Headless numbers are not the same as a visible browser window:
+Firefox headless is not tied to the display refresh (about 75 FPS), and WebKit headless paints on
+the CPU, so its frame times move with the load of the machine.
+
+## Observations from the first run (since fixed)
+
+- On an iPhone 13 viewport (390 px) the toolbar was about 401 px wide and cut off at both ends.
+  The toolbar now fits narrow screens and hides the keyboard hints on touch screens.
+- WebKit sometimes logged `api/events due to access control checks` in share mode. Cause: the
+  test opened the viewer by following a link and then navigated to the same URL again; the second
+  navigation cancelled the first page's EventSource while it connected, and WebKit reports a
+  cancelled EventSource that way. The test now follows the link only and fails on any console error.
+- `HEAD` requests got 501. They now answer like `GET` without a body.

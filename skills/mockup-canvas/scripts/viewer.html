@@ -50,6 +50,8 @@
     /* Far out the bar text is a few px tall and unreadable; drawing it on every board made
        WebKit drop frames while panning. The bar itself stays as the drag handle. */
     #canvas.far .board-bar > * { visibility: hidden; }
+    /* The board shadow is under half a pixel this far out, and still cost WebKit paint time */
+    #canvas.far .board { box-shadow: none; }
     .board-id {
       color: rgba(255,255,255,0.4); font-size: 10px; flex-shrink: 0;
       font-family: ui-monospace, monospace;
@@ -60,6 +62,9 @@
       border-radius: 0 0 4px 4px;
       background: #fff; pointer-events: none;
     }
+    /* A loading iframe stays hidden over the thumbnail (or the previous iframe) until it has
+       painted, so a board never flashes white */
+    .board iframe.pending { visibility: hidden; }
     .board.collapsed { background: none; box-shadow: none; }
     .board.collapsed iframe, .board.collapsed img.thumb, .board.collapsed .ph { display: none; }
     .board.collapsed .board-bar { border-radius: 6px; }
@@ -260,11 +265,17 @@
   const toast   = document.getElementById('toast');
   const zoomLbl = document.getElementById('zoom-lbl');
 
-  // Level of detail: below this zoom, boards show cached PNG thumbnails (server mode) instead of
-  // live iframes. Only boards near the viewport keep a live iframe at any zoom. The overview
-  // render needs every board live, so it keeps them all.
-  const LOD_ZOOM = 0.35;
-  const BAR_TEXT_ZOOM = 0.2;   // below this zoom the board bars hide their text (#canvas.far)
+  // Level of detail: zoomed out, boards show cached PNG thumbnails (server mode) instead of live
+  // iframes; zoomed in, boards near the viewport get a live iframe. Between LIVE_OUT and LIVE_IN a
+  // board keeps what it shows, so a small zoom around the threshold does not swap anything.
+  // Loaded iframes stay (also off screen) up to LIVE_MAX boards or LIVE_AREA px; the least
+  // recently seen go back to their thumbnail first. A board seen once never shows blank again:
+  // its stand-in is its thumbnail, and an iframe is revealed only after it has painted.
+  // The overview render needs every board live, so it keeps them all.
+  const LIVE_IN = 0.40, LIVE_OUT = 0.30;
+  const LIVE_MAX = 16, LIVE_AREA = 16 * 390 * 844;
+  let seenTick = 0;
+  const BAR_TEXT_ZOOM = 0.3;   // below this zoom the 11 px bar text is under 3.3 px: hidden (#canvas.far)
   let far = false;
   const THUMBS = !STATIC;
   const VIRTUAL = !OVERVIEW;
@@ -341,42 +352,78 @@
     if (!canvasData) return;
     const mx = SW * 0.5 / sc, my = SH * 0.5 / sc;   // keep boards half a screen beyond the edges
     const x0 = -vx / sc - mx, y0 = -vy / sc - my, x1 = (SW - vx) / sc + mx, y1 = (SH - vy) / sc + my;
-    const low = THUMBS && sc < LOD_ZOOM;
+    seenTick++;
     for (const file in recs) {
       const r = recs[file], b = canvasData.boards[file];
       if (!b) continue;
+      // The overview render (not virtual) needs every iframe before its load event
+      if (!VIRTUAL) { if (r.kind !== 'live') mountLive(r); continue; }
       const vis = !r.hidden && b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0;
-      const want = !VIRTUAL ? 'live' : !vis ? 'off' : low ? 'thumb' : 'live';
-      if (want === 'live') {
+      if (!vis) continue;   // off screen: keeps what it shows (evictLive unloads old iframes)
+      r.seen = seenTick;
+      const live = !THUMBS || sc >= LIVE_IN || (sc >= LIVE_OUT && r.kind === 'live');
+      if (live) {
         // New iframes are created only once the view is idle (loading a board mid-gesture drops
-        // frames; ones still loading when a gesture starts are cancelled, see cancelLoading).
-        // The overview render (not virtual) needs them all before its load event.
-        if (r.kind !== 'live') { if (!VIRTUAL || idle) mountLive(r); else standIn(r); }
+        // frames; ones still loading when a gesture starts are cancelled, see cancelLoading)
+        if (r.kind !== 'live') { if (idle) mountLive(r); else standIn(r); }
       } else if (r.kind === 'live') {
-        if (!moving) { if (want === 'thumb' && idle) showThumb(r); else standIn(r); }
-      } else if (want === 'thumb') {
-        if (idle) showThumb(r); else if (r.kind !== 'thumb' || r.fresh) standIn(r);
-      }
+        // Zoomed out: swap to the thumbnail once one is decoded, never to a blank card
+        if (idle) { if (r.img || r.fresh) showThumb(r); else requestThumb(r); }
+      } else if (idle) showThumb(r);
+      else if (r.kind !== 'thumb') standIn(r);
     }
+    if (VIRTUAL && !moving) evictLive();
+  }
+
+  function liveArea(r) { const b = canvasData.boards[r.file]; return b ? b.w * b.h : 0; }
+
+  // Over the budget: the least recently seen off-screen iframes go back to their thumbnails
+  function evictLive() {
+    const live = Object.values(recs).filter((r) => r.kind === 'live');
+    let n = live.length, area = live.reduce((a, r) => a + liveArea(r), 0);
+    if (n <= LIVE_MAX && area <= LIVE_AREA) return;
+    live.sort((a, b) => (a.seen || 0) - (b.seen || 0));
+    for (const r of live) {
+      if (n <= LIVE_MAX && area <= LIVE_AREA) break;
+      if (r.seen === seenTick) break;   // on screen now: never unloaded
+      n--; area -= liveArea(r);
+      standIn(r);
+      requestThumb(r);   // none yet: ask now, so the board is not blank when it comes back
+    }
+  }
+
+  function requestThumb(r) {
+    if (THUMBS && !r.loader && !r.fresh && (!r.img || r.thumbState === 'stale') &&
+        (!r.thumbState || r.thumbState === 'stale' || r.thumbState === 'pending')) loadThumb(r);
   }
 
   // A gesture starts: boards still loading go back to their stand-in and load again once the
   // view is idle. Their parse, layout and first paint would otherwise land on gesture frames.
+  // A board reloading after an edit keeps showing its previous iframe instead.
   function cancelLoading() {
     for (const file in recs) {
       const r = recs[file];
-      if (r.kind === 'live' && r.iframe && r.iframe.__loading) standIn(r);
+      if (r.kind !== 'live' || !r.iframe || !r.iframe.__loading) continue;
+      if (r.prev) { r.iframe.remove(); r.iframe = r.prev; r.prev = null; }
+      else standIn(r);
     }
   }
 
   function dropIframe(r) {
     if (r.iframe) { r.iframe.remove(); r.iframe = null; }
+    if (r.prev) { r.prev.remove(); r.prev = null; }
   }
 
+  // The new iframe loads hidden over what the board shows now (its thumbnail, the title card, or
+  // the previous iframe of an edited board), is revealed one frame after its load event, and then
+  // the thumbnail is detached (kept for the next stand-in) and a previous iframe removed.
   function mountLive(r) {
     const b = canvasData.boards[r.file];
-    if (r.img) r.img.remove();
+    if (r.fresh) { if (r.img) r.img.replaceWith(r.fresh); else r.div.appendChild(r.fresh); r.img = r.fresh; r.fresh = null; }
+    if (r.iframe && !r.iframe.__loading) { if (r.prev) r.prev.remove(); r.prev = r.iframe; }
+    else if (r.iframe) r.iframe.remove();
     const iframe = document.createElement('iframe');
+    iframe.className = 'pending';
     iframe.src = boardUrl(r.file) + (r.ver ? '?_=' + r.ver : '');
     iframe.width = b.w;
     iframe.height = b.h;
@@ -389,7 +436,21 @@
     iframe.setAttribute('scrolling', 'no');
     iframe.tabIndex = -1;
     iframe.__loading = true;
-    iframe.addEventListener('load', () => { iframe.__loading = false; });
+    iframe.addEventListener('load', () => {
+      if (r.iframe !== iframe) return;
+      // Reveal after a painted frame (the load event can come before the first paint)
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (r.iframe !== iframe) return;
+        iframe.__loading = false;
+        iframe.classList.remove('pending');
+        requestAnimationFrame(() => {
+          if (r.iframe !== iframe) return;
+          if (r.prev) { r.prev.remove(); r.prev = null; }
+          if (r.img) r.img.remove();
+        });
+      }));
+      requestThumb(r);   // so this board has a thumbnail to show once its iframe is unloaded
+    });
     r.div.appendChild(iframe);
     r.iframe = iframe;
     r.kind = 'live';
@@ -400,6 +461,7 @@
   // No new request and no swap here.
   function standIn(r) {
     dropIframe(r);
+    if (!r.img && r.fresh) { r.img = r.fresh; r.fresh = null; }   // a blank card is worse than a swap
     if (r.img) { if (!r.img.isConnected) r.div.appendChild(r.img); r.kind = 'thumb'; }
     else r.kind = 'none';
   }
@@ -955,7 +1017,7 @@
       if (!r) continue;
       r.ver++;
       if (r.thumbState) r.thumbState = 'stale';
-      if (r.kind === 'live') r.iframe.src = boardUrl(file) + '?_=' + r.ver;
+      if (r.kind === 'live') mountLive(r);   // loads hidden over the old one, then replaces it
       else if (r.kind === 'thumb') { visDirty = true; schedule(); }
     }
     changedBoards.clear();
@@ -966,6 +1028,7 @@
     if (!r || !r.thumbState) return;
     r.thumbState = 'stale';
     if (r.kind === 'thumb' || r.kind === 'none') { visDirty = true; schedule(); }
+    else requestThumb(r);   // live now: decode it in the background for when it is unloaded
   }
   let es = null;
   function setupSSE() {
