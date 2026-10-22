@@ -278,11 +278,12 @@
       dragging.el.style.transform = `translate(${dragging.x - dragging.ox}px,${dragging.y - dragging.oy}px)`;
       updateArrowsFor(dragging.file);
     }
-    if (visDirty) { visDirty = false; updateVisibility(); if (visDirty) schedule(); }
+    if (visDirty) { visDirty = false; updateVisibility(); }
   }
 
   // ── Transform ────────────────────────────────────────────────────────────
   function applyXform() {
+    if (!moving && VIRTUAL) cancelLoading();
     xformDirty = true; visDirty = true; moving = true; idle = false;
     clearTimeout(settleTimer);
     clearTimeout(idleTimer);
@@ -303,25 +304,30 @@
     const mx = SW * 0.5 / sc, my = SH * 0.5 / sc;   // keep boards half a screen beyond the edges
     const x0 = -vx / sc - mx, y0 = -vy / sc - my, x1 = (SW - vx) / sc + mx, y1 = (SH - vy) / sc + my;
     const low = THUMBS && sc < LOD_ZOOM;
-    let mounts = 0;
     for (const file in recs) {
       const r = recs[file], b = canvasData.boards[file];
       if (!b) continue;
       const vis = !r.hidden && b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0;
       const want = !VIRTUAL ? 'live' : !vis ? 'off' : low ? 'thumb' : 'live';
       if (want === 'live') {
-        // New iframes are created only once the view is idle, one per frame: loading boards
-        // mid-gesture drops frames, and a batch loading at once still runs into the next gesture.
+        // New iframes are created only once the view is idle (loading a board mid-gesture drops
+        // frames; ones still loading when a gesture starts are cancelled, see cancelLoading).
         // The overview render (not virtual) needs them all before its load event.
-        if (r.kind !== 'live') {
-          if (!VIRTUAL || (idle && !mounts)) { mountLive(r); mounts++; }
-          else { standIn(r); if (idle) visDirty = true; }
-        }
+        if (r.kind !== 'live') { if (!VIRTUAL || idle) mountLive(r); else standIn(r); }
       } else if (r.kind === 'live') {
         if (!moving) { if (want === 'thumb' && idle) showThumb(r); else standIn(r); }
       } else if (want === 'thumb') {
         if (idle) showThumb(r); else if (r.kind !== 'thumb' || r.fresh) standIn(r);
       }
+    }
+  }
+
+  // A gesture starts: boards still loading go back to their stand-in and load again once the
+  // view is idle. Their parse, layout and first paint would otherwise land on gesture frames.
+  function cancelLoading() {
+    for (const file in recs) {
+      const r = recs[file];
+      if (r.kind === 'live' && r.iframe && r.iframe.__loading) standIn(r);
     }
   }
 
@@ -344,6 +350,8 @@
     iframe.setAttribute('loading', 'lazy');
     iframe.setAttribute('scrolling', 'no');
     iframe.tabIndex = -1;
+    iframe.__loading = true;
+    iframe.addEventListener('load', () => { iframe.__loading = false; });
     r.div.appendChild(iframe);
     r.iframe = iframe;
     r.kind = 'live';

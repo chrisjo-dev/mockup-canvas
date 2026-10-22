@@ -24,7 +24,8 @@ Usage: python3 tests/perf_check.py [IDEA_DIR] [--json OUT] [--runs N] [--warm | 
   IDEA_DIR defaults to examples/trailmate. --warm runs once untimed first (thumbnail cache).
   --cold is a first open: before each run the server restarts with render/.thumbs cleared, and the
   interactions start one second after the fit view while the thumbnails are still being rendered
-  (full_ms is then measured after the interactions).
+  (full_ms is then measured after the interactions, and thumbs_all_s is the time from opening the
+  viewer until every board has a thumbnail file).
   --canvas serves with another copy of canvas.py (and the viewer.html next to it), for before/after.
 Everything runs in a temp dir (MOCKUP_CANVAS_HOME too); the server and Chrome are stopped at the end.
 """
@@ -36,6 +37,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -400,7 +402,27 @@ def main():
                     shutil.rmtree(os.path.join(design, idea, 'render', '.thumbs'), ignore_errors=True)
                     server, url = start_server()
                     s.call('Network.clearBrowserCache')
-                    results.append(run_once(s, url, cold=True))
+                    folder = os.path.join(design, idea, 'render', '.thumbs')
+                    t0, done = time.monotonic(), []
+
+                    def watch():
+                        # seconds from opening the viewer until every board has a thumbnail
+                        while not done and time.monotonic() - t0 < 300:
+                            try:
+                                n = sum(1 for f in os.listdir(folder) if f.endswith('.png'))
+                            except OSError:
+                                n = 0
+                            if n >= n_boards:
+                                done.append(round(time.monotonic() - t0, 1))
+                                return
+                            time.sleep(0.1)
+                    w = threading.Thread(target=watch, daemon=True)
+                    w.start()
+                    r = run_once(s, url, cold=True)
+                    w.join(300)
+                    done.append(None)
+                    r['thumbs_all_s'] = done[0]
+                    results.append(r)
                     stop_server(server)
                     server = None
             else:
@@ -414,7 +436,8 @@ def main():
             print(f'run {i + 1} ({W}x{H}@{DPR:g}x{", cold" if cold else ""}): {n_boards} boards, fit {r["fit_ms"]} ms, '
                   f'all visible boards shown {r["full_ms"]} ms ({r["visible_boards"]} visible, fit zoom {r["fit_zoom"]:.3f})'
                   + (f', shown at start {r["ready_at_start"][0]}/{r["ready_at_start"][1]}, after the bursts '
-                     f'{r["ready_after_bursts"][0]}/{r["ready_after_bursts"][1]}' if cold else ''))
+                     f'{r["ready_after_bursts"][0]}/{r["ready_after_bursts"][1]}, all {n_boards} thumbnails after '
+                     f'{r["thumbs_all_s"]} s' if cold else ''))
             for k in ('bursts_lod', 'bursts_live', 'pan_fit', 'zoom', 'pan_60'):
                 m = r[k]
                 if 'error' in m:
