@@ -241,7 +241,7 @@ class ThumbQueue(TempHomeCase):
         with mock.patch.object(canvas, '_CdpSession', mock.MagicMock(wraps=FakeSession)) as cls:
             self.q.request(*t, 'demo', 'A01-One.html')
             self.wait_until(lambda: not self.q.pending)
-        cls.assert_called_once_with(background=True)
+        cls.assert_called_once_with(background=True, block_private=True)
         with mock.patch.object(canvas, '_get_chrome', return_value='chrome'):
             fg = canvas._cdp_launch_args('/p')
             bg = canvas._cdp_launch_args('/p', background=True)

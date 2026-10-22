@@ -32,7 +32,7 @@ User data lives in ~/.mockup-canvas/ (override with MOCKUP_CANVAS_HOME):
 """
 import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib, signal
 import socketserver, socket, secrets, mimetypes, http.client, textwrap
-import hmac, hashlib, base64
+import hmac, hashlib, base64, ipaddress
 import html as _html
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
@@ -497,6 +497,13 @@ class _WebSocket:
 
     def __init__(self, host, port, path, timeout):
         self.sock = socket.create_connection((host, port), timeout=timeout)
+        try:
+            self._handshake(host, port, path)
+        except BaseException:
+            self.sock.close()   # connect is retried; do not leak a socket per attempt
+            raise
+
+    def _handshake(self, host, port, path):
         self.buf = bytearray()
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock.sendall((f'GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n'
@@ -619,10 +626,14 @@ class _Cdp:
         except socket.timeout:
             raise TimeoutError
 
-    def send(self, method, **params):
-        """Send without waiting; the reply is skipped by whichever call() reads it."""
+    def send(self, method, _session=None, **params):
+        """Send without waiting; the reply is skipped by whichever call() reads it.
+        _session: an attached child target's sessionId (flat mode)."""
         self.next_id += 1
-        self.ws.send_text(json.dumps({'id': self.next_id, 'method': method, 'params': params}))
+        msg = {'id': self.next_id, 'method': method, 'params': params}
+        if _session:
+            msg['sessionId'] = _session
+        self.ws.send_text(json.dumps(msg))
         return self.next_id
 
     def call(self, method, **params):
@@ -672,31 +683,95 @@ def _cdp_launch_args(profile_dir, background=False):
     return [nice, '-n', '10'] + args if nice else args   # nice execs Chrome: same pid
 
 
-def _cdp_page_ws(port, timeout):
-    """-> websocket path of the first page target."""
+def _cdp_get_json(port, path, timeout):
     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=timeout)
     try:
-        conn.request('GET', '/json/list')
-        targets = json.loads(conn.getresponse().read())
+        conn.request('GET', path)
+        resp = conn.getresponse()
+        body = resp.read()
+        if resp.status != 200:
+            raise ConnectionError(f'GET {path}: HTTP {resp.status}')
+        return json.loads(body)
     finally:
         conn.close()
-    for t in targets:
+
+
+def _cdp_page_ws(port, timeout):
+    """-> websocket path of the first page target."""
+    _cdp_get_json(port, '/json/version', timeout)   # the browser endpoint answers first
+    for t in _cdp_get_json(port, '/json/list', timeout):
         if t.get('type') == 'page' and t.get('webSocketDebuggerUrl'):
             return urlparse(t['webSocketDebuggerUrl']).path
     raise ConnectionError('no page target')
+
+
+_BLOCKED_NETS = [ipaddress.ip_network(n) for n in (
+    '0.0.0.0/8', '10.0.0.0/8', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16',
+    '::/128', '::1/128', 'fc00::/7', 'fe80::/10')]
+_DNS_TIMEOUT = 2
+_DNS_CACHE_SECS = 60
+_DNS_CACHE = {}   # host -> (blocked, time checked)
+_DNS_LOCK = threading.Lock()
+
+
+def _ip_blocked(text):
+    """True for a loopback, private, link-local, or unspecified address. ValueError if text is
+    not an IP literal."""
+    ip = ipaddress.ip_address(text.split('%', 1)[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return (ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_unspecified or
+            any(ip in n for n in _BLOCKED_NETS))
+
+
+def _host_blocked(host):
+    """True when a board render must not reach host: localhost names, private IP literals, and
+    names that resolve to any private address. A lookup that fails or times out blocks too."""
+    host = (host or '').rstrip('.').lower()
+    if not host or host == 'localhost' or host.endswith(('.localhost', '.local')):
+        return True
+    try:
+        return _ip_blocked(host)
+    except ValueError:
+        pass
+    now = time.monotonic()
+    with _DNS_LOCK:
+        hit = _DNS_CACHE.get(host)
+    if hit and now - hit[1] < _DNS_CACHE_SECS:
+        return hit[0]
+    found = []
+
+    def lookup():
+        try:
+            found.append({a[4][0] for a in socket.getaddrinfo(host, None)})
+        except (OSError, UnicodeError):
+            found.append(set())
+    t = threading.Thread(target=lookup, daemon=True)
+    t.start()
+    t.join(_DNS_TIMEOUT)
+    addrs = found[0] if found else set()
+    blocked = not addrs or any(_ip_blocked(a) for a in addrs)
+    with _DNS_LOCK:
+        _DNS_CACHE[host] = (blocked, now)
+    return blocked
 
 
 class _CdpSession:
     """One headless Chrome with a throwaway profile, driven over DevTools.
 
     Raises CdpConnectError when DevTools cannot be reached. close() always kills Chrome and
-    deletes the profile. capture() can be called many times (thumbnails reuse one Chrome)."""
+    deletes the profile. capture() can be called many times (thumbnails reuse one Chrome).
 
-    def __init__(self, connect_timeout=20, background=False):
+    block_private (board renders and thumbnails): http(s) requests to localhost or a private
+    network are failed too, so a board cannot bake a local server's page into a PNG. snap and
+    compare --url leave it off, since they open the user's own dev server."""
+
+    def __init__(self, connect_timeout=20, background=False, block_private=False):
         self.chrome = _Chrome()
         self.profile = self.chrome.profile
         self.proc = self.ws = self.cdp = None
         self.background = background
+        self.block_private = block_private
         self.file_roots = []   # file:// requests are allowed only inside these folders
         try:
             self._start(time.monotonic() + connect_timeout)
@@ -709,12 +784,17 @@ class _CdpSession:
             self.proc = self.chrome.spawn(_cdp_launch_args(self.profile, self.background))
         except OSError as e:
             raise CdpConnectError(f'cannot start Chrome: {e}')
+        # Chrome writes DevToolsActivePort as "<port>\n<browser path>\n"; a file read while it
+        # is still being written can hold a partial port, so wait for both lines.
         port_file = os.path.join(self.profile, 'DevToolsActivePort')
         while True:
             try:
                 with open(port_file) as f:
-                    port = int(f.readline().strip())
-                break
+                    lines = f.read().split('\n')
+                if len(lines) >= 2 and lines[1].strip():
+                    port = int(lines[0].strip())
+                    if 0 < port < 65536:
+                        break
             except (OSError, ValueError):
                 pass
             if self.proc.poll() is not None:
@@ -722,32 +802,64 @@ class _CdpSession:
             if time.monotonic() > connect_by:
                 raise CdpConnectError('DevToolsActivePort did not appear')
             time.sleep(0.05)
-        try:
-            self.ws = _WebSocket('127.0.0.1', port, _cdp_page_ws(port, 10), 10)
-        except (OSError, ValueError) as e:
-            raise CdpConnectError(f'DevTools connection failed: {e}')
+        # The port can refuse connections or list no page for a moment after the file appears
+        delay = 0.05
+        while True:
+            try:
+                self.ws = _WebSocket('127.0.0.1', port, _cdp_page_ws(port, 5), 10)
+                break
+            except (OSError, ValueError, http.client.HTTPException) as e:
+                if self.proc.poll() is not None:
+                    raise CdpConnectError(f'Chrome exited with code {self.proc.returncode}: {e}')
+                if time.monotonic() + delay > connect_by:
+                    raise CdpConnectError(f'DevTools connection failed: {e}')
+                time.sleep(delay)
+                delay = min(delay * 2, 0.5)
         self.cdp = _Cdp(self.ws, time.monotonic() + 30)
         self.cdp.call('Page.enable')
         # Chrome lets a file:// page show any local file in an iframe or image, so every file://
         # request is paused here and failed unless it is inside file_roots (the idea folder).
+        # With block_private, http(s) requests are paused too and failed for private hosts.
         self.cdp.handler = self._file_guard
-        self.cdp.call('Fetch.enable', patterns=[{'urlPattern': 'file://*'}])
+        patterns = ['file://*'] + (['http://*', 'https://*'] if self.block_private else [])
+        self.patterns = [{'urlPattern': p} for p in patterns]
+        self.cdp.call('Fetch.enable', patterns=self.patterns)
+        if self.block_private:
+            # A cross-origin iframe runs as its own target, and this page's Fetch does not see
+            # its requests (an allowed public page could frame localhost). Attach to every child
+            # target paused at start, guard it the same way, then let it run.
+            self.cdp.call('Target.setAutoAttach', autoAttach=True, waitForDebuggerOnStart=True,
+                          flatten=True)
 
     def _file_guard(self, msg):
-        if msg.get('method') != 'Fetch.requestPaused':
+        method = msg.get('method')
+        if method == 'Target.attachedToTarget':
+            child = msg.get('params', {}).get('sessionId')
+            if child:
+                # Sent in order on the child's session, so Fetch is on before it runs
+                self.cdp.send('Fetch.enable', _session=child, patterns=self.patterns)
+                self.cdp.send('Target.setAutoAttach', _session=child, autoAttach=True,
+                              waitForDebuggerOnStart=True, flatten=True)
+                self.cdp.send('Runtime.runIfWaitingForDebugger', _session=child)
             return
+        if method != 'Fetch.requestPaused':
+            return
+        sid = msg.get('sessionId')
         p = msg.get('params', {})
         rid = p.get('requestId')
         try:
             u = urlparse(p['request']['url'])
-            ok = (u.scheme == 'file' and u.netloc in ('', 'localhost') and
-                  any(_within(unquote(u.path), r) for r in self.file_roots))
+            if u.scheme in ('http', 'https'):
+                ok = self.block_private and not _host_blocked(u.hostname)
+            else:
+                ok = (u.scheme == 'file' and u.netloc in ('', 'localhost') and
+                      any(_within(unquote(u.path), r) for r in self.file_roots))
         except (KeyError, TypeError, ValueError):
             ok = False
         if ok:
-            self.cdp.send('Fetch.continueRequest', requestId=rid)
+            self.cdp.send('Fetch.continueRequest', _session=sid, requestId=rid)
         else:
-            self.cdp.send('Fetch.failRequest', requestId=rid, errorReason='AccessDenied')
+            self.cdp.send('Fetch.failRequest', _session=sid, requestId=rid, errorReason='AccessDenied')
 
     def call(self, method, **params):
         return self.cdp.call(method, **params)
@@ -832,7 +944,8 @@ def _cdp_capture(url, w, h, wait_ms, out, full_page, timeout, file_roots=()):
     """Capture url into out over DevTools. Raises CdpConnectError, CdpError, or TimeoutError."""
     start = time.monotonic()
     try:
-        session = _CdpSession(connect_timeout=min(20, timeout))
+        # file_roots is given for board renders (local files): they may not reach private hosts
+        session = _CdpSession(connect_timeout=min(20, timeout), block_private=bool(file_roots))
     except TimeoutError:
         raise CdpConnectError('DevTools connection timed out')
     with session:
@@ -1096,7 +1209,7 @@ class _ThumbQueue:
                         with self.cv:
                             self.starting += 1
                         try:
-                            session = _CdpSession(background=True)
+                            session = _CdpSession(background=True, block_private=True)
                         finally:
                             with self.cv:
                                 self.starting -= 1
@@ -3353,6 +3466,20 @@ def cmd_compare(args):
         return 1
     if png is not None and not os.path.isfile(png):
         print(f'Error: PNG not found: {png}', file=sys.stderr); return 1
+    if png is not None:
+        # Check the claimed size before decoding: an app image far larger than the board only
+        # costs memory and time, since it is resized to the board anyway
+        try:
+            with open(png, 'rb') as f:
+                head = f.read(24)
+        except OSError as e:
+            print(f'Error: {e}', file=sys.stderr); return 1
+        if head[:8] == _PNG_SIG and head[12:16] == b'IHDR':
+            pw, ph = int.from_bytes(head[16:20], 'big'), int.from_bytes(head[20:24], 'big')
+            if pw > 2 * w or ph > 2 * h + FULL_PAGE_MAX_H:
+                print(f'Error: app PNG is {pw}x{ph}, too large for a {w}x{h} board (at most '
+                      f'{2 * w} wide and {2 * h + FULL_PAGE_MAX_H} tall): {png}', file=sys.stderr)
+                return 1
     board_id = key[:-5]
     out_dir = os.path.abspath(vals['--out'][-1]) if vals['--out'] else os.path.join(idea_dir, 'compare', board_id)
     os.makedirs(out_dir, exist_ok=True)

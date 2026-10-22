@@ -71,7 +71,7 @@ The first draft is done when every requested screen is drawn and `check` passes.
 
 - Reply to the user in the user's language.
 - If `config.json` lists `forbidden_chars`, do not use those characters in artboards, documents, or reports (`check` catches them in artboards).
-- Do not touch other ports the user is using. Stop a server you started only for checking by its PID or `lsof -ti:<your port>` (`pkill -f canvas.py` would also stop the user's server). Leave a `serve` started for the user running.
+- Do not touch other ports the user is using. Stop a server you started only for checking by its PID or `lsof -ti:<your port>` (`pkill -f canvas.py` would also stop the user's server). Leave a `serve` started for the user running. Do not kill headless Chrome yourself (`pkill -f mockup-canvas-chrome` also kills renders in other sessions); every command stops its own Chrome when it ends.
 - When drawing many screens at once, you may split the work across subagents by screen group. The main agent sets `tokens.css` first, and `canvas.json` is changed only through `canvas add`, `link`, `status`, `group`, `impl`, and `comment` (direct edits overwrite concurrent changes).
 - A subagent that draws boards runs `canvas check <idea>` before it reports and fixes every problem in its own files (forbidden characters, broken references). It ignores "not registered" lines; the main agent registers the boards.
 - When changing this skill itself: `scripts/canvas.py` is the copy other sessions are running. Never leave it half-edited; make the change in one step (or in a git worktree), run `python3 -m unittest discover tests`, then commit, so the installed script always runs.

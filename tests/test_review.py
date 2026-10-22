@@ -173,12 +173,18 @@ class PngCodec(TempHomeCase):
 # FAKE_CHROME_MODE=screenshot refuses DevTools and acts like the old --screenshot path.
 
 FAKE_CHROME = r"""#!/usr/bin/env python3
-import base64, hashlib, json, os, shutil, socket, sys
+import base64, hashlib, json, os, shutil, socket, sys, time, traceback
 args = sys.argv[1:]
 env = os.environ
 def log(**kw):
     with open(env['FAKE_CHROME_LOG'], 'a') as f:
         f.write(json.dumps(dict(pid=os.getpid(), **kw)) + '\n')
+# A crash of the fake shows up in the test (see FakeChromeCase) instead of as a closed socket
+sys.excepthook = lambda t, v, tb: log(crash=''.join(traceback.format_exception(t, v, tb)))
+# canvas.py kills Chrome with SIGKILL. Another session's `pkill -f mockup-canvas-chrome` (SIGTERM)
+# would otherwise kill this fake mid-test and show up as a flaky "WebSocket closed by Chrome".
+import signal
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
 def fixture(url):
     for needle, png in json.loads(env.get('FAKE_CHROME_MAP', '{}')).items():
         if needle in url:
@@ -199,10 +205,22 @@ if not cdp:
 profile = next(a.split('=', 1)[1] for a in args if a.startswith('--user-data-dir='))
 srv = socket.socket()
 srv.bind(('127.0.0.1', 0))
-srv.listen(4)
 port = srv.getsockname()[1]
-with open(os.path.join(profile, 'DevToolsActivePort'), 'w') as f:
+port_file = os.path.join(profile, 'DevToolsActivePort')
+slow = env.get('FAKE_CHROME_SLOW_START')
+if slow:
+    # Like a real Chrome under load: the file is seen half written (a partial port, no path
+    # line), then complete while the port still refuses connections, and the first target
+    # list is empty
+    with open(port_file, 'w') as f:
+        f.write(str(port)[:2])
+    time.sleep(0.3)
+with open(port_file, 'w') as f:
     f.write(f'{port}\n/devtools/browser/fake\n')
+if slow:
+    time.sleep(0.4)
+srv.listen(4)
+lists = 0
 
 def read_exact(c, n):
     data = b''
@@ -243,8 +261,16 @@ while True:
     while b'\r\n\r\n' not in req:
         req += c.recv(4096)
     line = req.split(b'\r\n')[0].decode()
+    if line.startswith('GET /json/version'):
+        body = json.dumps({'Browser': 'FakeChrome/1',
+                           'webSocketDebuggerUrl': f'ws://127.0.0.1:{port}/devtools/browser/fake'}).encode()
+        c.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n' % len(body) + body)
+        c.close()
+        continue
     if line.startswith('GET /json/list'):
-        body = json.dumps([{'type': 'page',
+        lists += 1
+        body = json.dumps([] if slow and lists == 1 else
+                          [{'type': 'page',
                             'webSocketDebuggerUrl': f'ws://127.0.0.1:{port}/devtools/page/1'}]).encode()
         c.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n' % len(body) + body)
         c.close()
@@ -297,6 +323,13 @@ class FakeChromeCase(TempHomeCase):
         os.chmod(fake, os.stat(fake).st_mode | stat.S_IEXEC)
         self.log = os.path.join(self.tmp, 'chrome.log')
         self.env.update(MOCKUP_CANVAS_CHROME=fake, FAKE_CHROME_LOG=self.log)
+        self.addCleanup(self.fake_did_not_crash)
+
+    def fake_did_not_crash(self):
+        if os.path.exists(self.log):
+            with open(self.log) as f:
+                crashes = [e['crash'] for e in map(json.loads, f) if 'crash' in e]
+            self.assertEqual(crashes, [], 'fake Chrome crashed')
 
     def chrome_map(self, mapping):
         self.env['FAKE_CHROME_MAP'] = json.dumps(mapping)
@@ -349,6 +382,22 @@ class SnapCommand(FakeChromeCase):
         self.assertEqual(self.params(run, 'Page.navigate'), [{'url': 'http://localhost:5999/'}])
         self.assertEqual(self.params(run, 'Page.captureScreenshot'), [{'format': 'png'}])
         self.assertGreater(run['pongs'], 0)          # pings from Chrome are answered
+
+    def test_snap_waits_for_a_slow_devtools_start(self):
+        # A half-written DevToolsActivePort, a port that refuses connections, and an empty
+        # target list are all retried; none of them falls back to --screenshot
+        png = os.path.join(self.tmp, 'fixture.png')
+        solid_png(png, 390, 844, (1, 2, 3))
+        self.chrome_map({'localhost:5999': png})
+        self.env['FAKE_CHROME_SLOW_START'] = '1'
+        out = os.path.join(self.tmp, 'slow.png')
+        r = self.run_cli('snap', 'http://localhost:5999/', '--out', out, '--wait', '0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('Warning', r.stderr)
+        with open(out, 'rb') as f, open(png, 'rb') as g:
+            self.assertEqual(f.read(), g.read())
+        run, = self.chrome_calls()
+        self.assertIn('--remote-debugging-port=0', run['args'])
 
     def test_snap_mobile_full_page_and_real_wait(self):
         png = os.path.join(self.tmp, 'fixture.png')
@@ -424,8 +473,10 @@ class SnapCommand(FakeChromeCase):
         with mock.patch.dict(os.environ, self.env), mock.patch('sys.stderr'):
             t = time.monotonic()
             with self.assertRaises(TimeoutError):
-                canvas._cdp_capture('http://localhost:5999/', 10, 10, 0, out, False, 3)
-            self.assertLess(time.monotonic() - t, 15)
+                # 8 s: the connect step shares this budget, and a loaded machine can take a few
+                # seconds to start the fake Chrome
+                canvas._cdp_capture('http://localhost:5999/', 10, 10, 0, out, False, 8)
+            self.assertLess(time.monotonic() - t, 20)
         run, = self.chrome_calls()
         profile = next(a.split('=', 1)[1] for a in run['args'] if a.startswith('--user-data-dir='))
         self.assertFalse(os.path.exists(profile))
@@ -524,11 +575,32 @@ class CompareCommand(FakeChromeCase):
         half = os.path.join(self.tmp, 'half.png')
         canvas.png_write(half, 40, 30, [bytes([0, 0, 0]) * 20 + bytes([200, 200, 200]) * 20 for _ in range(30)])
         r = self.run_cli('compare', self.idea, 'A01-One', '--png', half, '--threshold', '10')
-        self.assertIn('Mismatch: 50.0%', r.stdout)
+        self.assertIn('Mismatch: 50.0%', r.stdout, r.stderr)
         _, _, _, diff = canvas.png_read(os.path.join(out, 'diff.png'))
         self.assertEqual(diff[0][:3], b'\xff\x00\xff')
         self.assertEqual(diff[0][-3:], canvas._DIM[200:201] * 3)
         self.assertEqual(self.read_json(os.path.join(out, 'report.json'))['threshold'], 10)
+
+    def test_compare_rejects_an_app_png_far_larger_than_the_board(self):
+        # Only the header is written: the size is checked before anything is decoded
+        def header_only(name, w, h):
+            path = os.path.join(self.tmp, name)
+            ihdr = w.to_bytes(4, 'big') + h.to_bytes(4, 'big') + bytes([8, 2, 0, 0, 0])
+            with open(path, 'wb') as f:
+                f.write(b'\x89PNG\r\n\x1a\n' + (13).to_bytes(4, 'big') + b'IHDR' + ihdr +
+                        zlib.crc32(b'IHDR' + ihdr).to_bytes(4, 'big'))
+            return path
+        for w, h in ((81, 30), (40, 2 * 30 + 16384 + 1), (100000, 100000)):
+            r = self.run_cli('compare', self.idea, 'A01-One', '--png', header_only('big.png', w, h))
+            self.assertEqual(r.returncode, 1, (w, h))
+            self.assertIn(f'app PNG is {w}x{h}, too large for a 40x30 board', r.stderr)
+            self.assertEqual(self.chrome_calls(), [])   # rejected before the board render
+        # Up to twice the board (e.g. a 2x device pixel ratio shot) is still compared
+        double = os.path.join(self.tmp, 'double.png')
+        canvas.png_write(double, 80, 60 + 16384, [bytes([200, 200, 200]) * 80] * (60 + 16384))
+        r = self.run_cli('compare', self.idea, 'A01-One', '--png', double)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('Mismatch: 0.0%', r.stdout)
 
     def test_compare_url_snaps_at_board_size(self):
         app = os.path.join(self.tmp, 'app.png')
@@ -660,7 +732,8 @@ class CompareRealChrome(ServerCase):
         rep = self.read_json(os.path.join(idea, 'compare', 'A01-One', 'report.json'))
         self.assertLess(rep['mismatch_percent'], 0.5)
         url2 = f'http://127.0.0.1:{self.port}/demo/boards/A02-Two.html'
-        self.run_cli('compare', idea, 'A01-One', '--url', url2)
+        r = self.run_cli('compare', idea, 'A01-One', '--url', url2)
+        self.assertEqual(r.returncode, 0, r.stderr)
         rep = self.read_json(os.path.join(idea, 'compare', 'A01-One', 'report.json'))
         self.assertGreater(rep['mismatch_percent'], 20)
 
