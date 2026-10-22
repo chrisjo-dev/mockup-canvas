@@ -88,7 +88,7 @@ cd mockup-canvas
 
 - 한쪽만 설치하려면 `./install.sh --claude` 또는 `./install.sh --codex`.
 - `./install.sh --dry-run`은 아무것도 바꾸지 않고 할 일만 출력합니다.
-- 대상 위치에 이미 다른 것이 있으면 먼저 `~/.mockup-canvas/backup/<timestamp>/`로 옮깁니다. 여러 번 실행해도 안전합니다.
+- mockup-canvas만이 아니라 `skills/` 아래의 모든 스킬 폴더(mockup-canvas, mockup-review, mockup-to-code)를 링크합니다. 같은 이름의 스킬이나 다른 파일이 대상 위치에 이미 있으면 먼저 `~/.mockup-canvas/backup/<timestamp>/`로 옮기고 링크로 바꿉니다. 여러 번 실행해도 안전합니다.
 
 Codex에서는 스킬 이름으로 부릅니다. 예: `Use $mockup-canvas to draw the sign-up flow.`, `Use $mockup-review to review the sign-up mockups.`, `Use $mockup-to-code to build the approved sign-up screens.`
 

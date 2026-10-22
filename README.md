@@ -88,7 +88,7 @@ cd mockup-canvas
 
 - `./install.sh --claude` or `./install.sh --codex` installs for one tool only.
 - `./install.sh --dry-run` prints what it would do without changing anything.
-- Anything already at a target is moved to `~/.mockup-canvas/backup/<timestamp>/` first. Running it again is safe.
+- It links every skill folder under `skills/` (mockup-canvas, mockup-review, mockup-to-code), not just mockup-canvas. If you already have a skill with one of these names, or anything else at a target, it is moved to `~/.mockup-canvas/backup/<timestamp>/` first and replaced by the link. Running it again is safe.
 
 In Codex, call a skill by name, for example: `Use $mockup-canvas to draw the sign-up flow.`, `Use $mockup-review to review the sign-up mockups.`, or `Use $mockup-to-code to build the approved sign-up screens.`
 

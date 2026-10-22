@@ -41,11 +41,15 @@ class ThumbRoute(ServerCase):
         self.serve()
         status, _, body = self.request('GET', '/demo/thumbs/A01-One.png')
         self.assertEqual(status, 202)
-        (src, w, h, out, key, fname), = self.queue.calls
-        self.assertEqual((src, w, h, key, fname),
-                         (os.path.join(self.idea, 'boards', 'A01-One.html'), 390, 844, 'demo', 'A01-One.html'))
+        (url, w, h, out, key, fname), = self.queue.calls
+        # rendered from this server under the board sandbox, not from file://
+        self.assertEqual((url, w, h, key, fname),
+                         (f'http://127.0.0.1:{self.port}/demo/boards/A01-One.html', 390, 844, 'demo', 'A01-One.html'))
+        status, headers, _ = self.request('GET', url.split(str(self.port), 1)[1])
+        self.assertEqual(status, 200)
+        self.assertIn('sandbox', headers['Content-Security-Policy'])
         self.assertEqual(os.path.dirname(out), os.path.join(self.idea, 'render', '.thumbs'))
-        self.assertRegex(os.path.basename(out), r'^A01-One-390x844-[0-9a-f]+-[0-9a-f]+\.png$')
+        self.assertRegex(os.path.basename(out), r'^A01-One-390x844-2-[0-9a-f]+-[0-9a-f]+\.png$')
         os.makedirs(os.path.dirname(out))
         with open(out, 'wb') as f:
             f.write(PNG)
@@ -98,10 +102,14 @@ class ThumbRoute(ServerCase):
         self.assertEqual(self.request('GET', '/demo/thumbs/A01-One.png')[0], 401)
         cookie = {'Cookie': 'canvas_token=' + token}
         self.assertEqual(self.request('GET', '/demo/thumbs/A01-One.png', headers=cookie)[0], 202)
-        # The keyed asset prefix for sandboxed boards does not reach thumbnails
         h = canvas.CanvasHandler.__new__(canvas.CanvasHandler)
         h.share_token = token
         key = h._asset_key()
+        # Chrome has no cookie, so the board is loaded through the keyed prefix
+        url = self.queue.calls[0][0]
+        self.assertEqual(url, f'http://127.0.0.1:{self.port}/_k/{key}/demo/boards/A01-One.html')
+        self.assertEqual(self.request('GET', url.split(str(self.port), 1)[1])[0], 200)
+        # The keyed asset prefix for sandboxed boards does not reach thumbnails
         self.assertEqual(self.request('GET', f'/_k/{key}/demo/thumbs/A01-One.png')[0], 404)
         status, _, _ = self.request('GET', '/demo/thumbs/A01-One.png',
                                     headers=dict(cookie, Host='evil.example:%d' % self.port))
@@ -112,6 +120,7 @@ class ThumbRoute(ServerCase):
         self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
         self.assertEqual(self.request('GET', '/p/demo/thumbs/A02-Two.png')[0], 202)
         self.assertEqual(self.queue.calls[0][4:], ('p/demo', 'A02-Two.html'))
+        self.assertEqual(self.queue.calls[0][0], f'http://127.0.0.1:{self.port}/p/demo/boards/A02-Two.html')
         self.assertEqual(self.request('GET', '/p/demo/thumbs/..%2F..%2Fx.png')[0], 404)
 
 
@@ -174,7 +183,7 @@ class ThumbQueue(TempHomeCase):
         self.assertEqual(sorted(os.listdir(folder)), sorted([os.path.basename(out), os.path.basename(keep)]))
         captured = [c for s in FakeSession.instances for c in s.captured]
         self.assertEqual(len(captured), 1)
-        self.assertTrue(captured[0][0].startswith('file://'))
+        self.assertEqual(captured[0][0], src)   # the URL the server passed in
         self.assertEqual(captured[0][1:], (390, 844, canvas.THUMB_SCALE))
         # idle workers stop and close their Chrome
         self.wait_until(lambda: all(s.closed for s in FakeSession.instances) and self.q.started == 0)

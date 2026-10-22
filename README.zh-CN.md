@@ -88,7 +88,7 @@ cd mockup-canvas
 
 - 只为其中一个工具安装：`./install.sh --claude` 或 `./install.sh --codex`。
 - `./install.sh --dry-run` 只打印将要执行的操作，不做任何修改。
-- 目标位置已有内容时，会先移到 `~/.mockup-canvas/backup/<timestamp>/`。重复运行是安全的。
+- 它会链接 `skills/` 下的所有技能文件夹（mockup-canvas、mockup-review、mockup-to-code），而不只是 mockup-canvas。目标位置已有同名技能或其他内容时，会先移到 `~/.mockup-canvas/backup/<timestamp>/`，再换成链接。重复运行是安全的。
 
 在 Codex 中用技能名调用，例如：`Use $mockup-canvas to draw the sign-up flow.`、`Use $mockup-review to review the sign-up mockups.`、`Use $mockup-to-code to build the approved sign-up screens.`
 

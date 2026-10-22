@@ -44,7 +44,7 @@ Short mapping tips. The project's existing conventions always win over these not
 
 - One page per board, one shared `tokens.css` and one shared layout stylesheet linked from every page.
 - Extract repeated parts by convention (a shared header partial if there is a build step, otherwise keep the markup identical and note it).
-- Serve with any static server for `compare`, for example `python3 -m http.server 8000`, and stop it by PID afterward.
+- Serve with any static server for `compare`, for example `python3 -m http.server 8000 --bind 127.0.0.1` (local only), and stop it by PID afterward.
 
 ## Responsive breakpoints from board sizes
 

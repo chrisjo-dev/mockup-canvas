@@ -88,7 +88,7 @@ cd mockup-canvas
 
 - 片方だけなら `./install.sh --claude` または `./install.sh --codex`。
 - `./install.sh --dry-run` は何も変更せず、実行内容だけを表示します。
-- インストール先に既存のものがあれば、先に `~/.mockup-canvas/backup/<timestamp>/` へ移動します。何度実行しても安全です。
+- mockup-canvas だけでなく、`skills/` 以下のすべてのスキルフォルダ（mockup-canvas、mockup-review、mockup-to-code）をリンクします。同じ名前のスキルなど既存のものがインストール先にあれば、先に `~/.mockup-canvas/backup/<timestamp>/` へ移動してからリンクに置き換えます。何度実行しても安全です。
 
 Codex ではスキル名で呼び出します。例: `Use $mockup-canvas to draw the sign-up flow.`、`Use $mockup-review to review the sign-up mockups.`、`Use $mockup-to-code to build the approved sign-up screens.`
 

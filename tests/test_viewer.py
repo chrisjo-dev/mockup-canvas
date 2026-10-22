@@ -229,6 +229,7 @@ class StaticViewer(ViewerCase):
         out = os.path.join(self.tmp, 'out')
         self.assertEqual(self.run_cli('export', self.idea, out).returncode, 0)
         index = pathlib.Path(out, 'index.html').as_uri()
+        self.s.file_roots = [out]   # sessions refuse every file:// URL outside the allowed folders
         self.open(index)
         # No server: no thumbnails; visible boards are live iframes at any zoom
         self.until('document.querySelectorAll("iframe").length > 0', 10)

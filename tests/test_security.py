@@ -499,7 +499,8 @@ class EmbeddedJson(TempHomeCase):
 # ── H2: render and overview launch Chrome without file access ──────────────
 
 class ChromeLaunchArgs(TempHomeCase):
-    """Both capture paths: DevTools and the --screenshot fallback (both Popen)."""
+    """DevTools launch flags. A local board never falls back to --screenshot, which could not
+    stop it from showing other local files."""
 
     def setUp(self):
         super().setUp()
@@ -513,15 +514,10 @@ class ChromeLaunchArgs(TempHomeCase):
             calls.append((list(cmd), os.path.isdir(profile), profile))
 
         class FakePopen:
-            # DevTools never comes up, so the capture falls back to --screenshot, which succeeds
+            # DevTools never comes up
             def __init__(self, cmd, **kw):
                 record(cmd)
                 self.returncode = 1
-                shot = [a.split('=', 1)[1] for a in cmd if a.startswith('--screenshot=')]
-                if shot:
-                    with open(shot[0], 'wb') as f:
-                        f.write(b'\x89PNG')
-                    self.returncode = 0
 
             def poll(self):
                 return self.returncode
@@ -530,27 +526,26 @@ class ChromeLaunchArgs(TempHomeCase):
                 return self.returncode
         with mock.patch.object(canvas, '_get_chrome', return_value='/fake/chrome'), \
                 mock.patch.object(canvas.subprocess, 'Popen', FakePopen), \
-                mock.patch('sys.stdout'), mock.patch('sys.stderr'):
-            fn(list(args))
+                mock.patch('sys.stdout'), mock.patch('sys.stderr') as err:
+            with self.assertRaises(SystemExit):   # the render fails
+                fn(list(args))
+        self.assertIn('a local board is not rendered without it',
+                      ''.join(str(c.args[0]) for c in err.write.call_args_list))
         return calls
 
     def check(self, calls):
         self.assertTrue(calls)
-        self.assertEqual(len(calls) % 2, 0)
         profiles = set()
-        for i, (cmd, existed, profile) in enumerate(calls):
+        for cmd, existed, profile in calls:
             self.assertNotIn('--allow-file-access-from-files', cmd)
             self.assertFalse(any('allow-file-access' in a or 'disable-web-security' in a for a in cmd), cmd)
             self.assertTrue(existed)
             self.assertFalse(os.path.exists(profile), 'profile not deleted')
-            if i % 2 == 0:   # DevTools launch: random localhost port, page loaded later over CDP
-                self.assertIn('--remote-debugging-port=0', cmd)
-                self.assertIn('--remote-debugging-address=127.0.0.1', cmd)
-                self.assertEqual(cmd[-1], 'about:blank')
-            else:
-                self.assertFalse(any(a.startswith('--remote-debugging') for a in cmd))
-                self.assertTrue(cmd[-1].startswith('file:///'), cmd[-1])
-                self.assertNotIn(' ', cmd[-1])
+            # DevTools launch: random localhost port, page loaded later over CDP; no --screenshot
+            self.assertIn('--remote-debugging-port=0', cmd)
+            self.assertIn('--remote-debugging-address=127.0.0.1', cmd)
+            self.assertEqual(cmd[-1], 'about:blank')
+            self.assertFalse(any(a.startswith('--screenshot') for a in cmd))
             profiles.add(profile)
         self.assertEqual(len(profiles), len(calls), 'profile reused')
 
@@ -558,10 +553,7 @@ class ChromeLaunchArgs(TempHomeCase):
         self.check(self.run_cmd(canvas.cmd_render, self.idea))
 
     def test_overview_args(self):
-        calls = self.run_cmd(canvas.cmd_overview, self.idea)
-        self.check(calls)
-        self.assertTrue(calls[1][0][-1].endswith('/index.html?overview=1'))
-        self.assertIn('demo%20board', calls[1][0][-1])
+        self.check(self.run_cmd(canvas.cmd_overview, self.idea))
 
 
 # ── install.sh --dry-run ───────────────────────────────────────────────────

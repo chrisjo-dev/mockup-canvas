@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import unittest
+from unittest import mock
 import zlib
 
 from helpers import REPO, SCRIPTS, ServerCase, TempHomeCase, board_html, canvas
@@ -112,6 +113,40 @@ class PngCodec(TempHomeCase):
             f.write(good[:8 + 25] + idat + good[-12:])   # signature + IHDR, new IDAT, IEND
         with self.assertRaisesRegex(canvas.PngError, 'filter type 7'):
             canvas.png_read(p)
+
+    def test_rejects_bad_sizes_and_damaged_files(self):
+        def read(data):
+            p = os.path.join(self.tmp, 'x.png')
+            with open(p, 'wb') as f:
+                f.write(data)
+            return canvas.png_read(p)
+        # sizes are checked before any data is inflated (no rows here at all)
+        for w, h in ((0, 4), (4, 0), (0, 0), (8001, 1), (1, 20001), (2 ** 31, 2 ** 31)):
+            with self.assertRaisesRegex(canvas.PngError, 'outside the supported range', msg=(w, h)):
+                read(encode_png(w, h, 3, []))
+        rows = gradient_rows(4, 4, 3)
+        good = encode_png(4, 4, 3, rows)
+        self.assertEqual(read(good)[3], rows)
+        with self.assertRaisesRegex(canvas.PngError, 'no IEND'):
+            read(good[:-12])                                   # IEND cut off
+        with self.assertRaisesRegex(canvas.PngError, 'past the end'):
+            read(good[:-14])                                   # last chunk cut short
+        big_len = good[:8 + 25] + (10 ** 6).to_bytes(4, 'big') + good[8 + 25 + 4:]
+        with self.assertRaisesRegex(canvas.PngError, 'past the end'):
+            read(big_len)                                      # IDAT length beyond the file
+        flipped = bytearray(good)
+        flipped[8 + 25 + 10] ^= 0xFF                           # a byte inside the IDAT data
+        with self.assertRaisesRegex(canvas.PngError, "CRC mismatch in chunk 'IDAT'"):
+            read(bytes(flipped))
+        # IDAT that inflates to less than the image needs
+        short = zlib.compress(b''.join(b'\x00' + r for r in rows[:2]))
+        idat = len(short).to_bytes(4, 'big') + b'IDAT' + short + zlib.crc32(b'IDAT' + short).to_bytes(4, 'big')
+        with self.assertRaisesRegex(canvas.PngError, 'truncated PNG data'):
+            read(good[:8 + 25] + idat + good[-12:])
+        # extra inflated data past the image is not decoded or kept
+        extra = zlib.compress(b''.join(b'\x00' + r for r in rows) + bytes(10 ** 6))
+        idat = len(extra).to_bytes(4, 'big') + b'IDAT' + extra + zlib.crc32(b'IDAT' + extra).to_bytes(4, 'big')
+        self.assertEqual(read(good[:8 + 25] + idat + good[-12:])[3], rows)
 
     def test_diff_counts_pixels_over_threshold(self):
         a = [bytes([100, 100, 100] * 4)]
@@ -331,6 +366,26 @@ class SnapCommand(FakeChromeCase):
         self.assertEqual(self.params(run, 'Page.captureScreenshot'),
                          [{'format': 'png', 'captureBeyondViewport': True,
                            'clip': {'x': 0, 'y': 0, 'width': 390, 'height': 2000, 'scale': 1}}])
+
+    def test_full_page_height_is_capped_and_file_requests_are_guarded(self):
+        png = os.path.join(self.tmp, 'fixture.png')
+        solid_png(png, 4, 4, (1, 2, 3))
+        self.chrome_map({'localhost:5999': png})
+        self.env['FAKE_CHROME_SCROLL_H'] = '50000'
+        r = self.run_cli('snap', 'http://localhost:5999/', '--out', os.path.join(self.tmp, 'tall.png'),
+                         '--size', '400x300', '--wait', '0', '--full-page')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('the page is 50000 px tall; --full-page captures the first 16384 px', r.stderr)
+        run, = self.chrome_calls()
+        self.assertEqual(self.params(run, 'Page.captureScreenshot')[0]['clip']['height'], 16384)
+        # every file:// request is paused so the session can fail those outside the idea folder
+        self.assertEqual(self.params(run, 'Fetch.enable'), [{'patterns': [{'urlPattern': 'file://*'}]}])
+
+    def test_board_size_is_clamped(self):
+        self.assertEqual(canvas._board_size({'w': 99999, 'h': -5}), (8000, 1))
+        self.assertEqual(canvas._board_size({'w': 'wide', 'h': None}), (canvas.DEFAULT_W, canvas.DEFAULT_H))
+        self.assertEqual(canvas._board_size({}), (canvas.DEFAULT_W, canvas.DEFAULT_H))
+        self.assertEqual(canvas._board_size({'w': 1440, 'h': 900}), (1440, 900))
 
     def test_page_without_viewport_meta_reloads_as_desktop(self):
         png = os.path.join(self.tmp, 'fixture.png')
@@ -623,6 +678,25 @@ class WebSocketFrames(unittest.TestCase):
             self.assertEqual(canvas._ws_mask(f[hdr + 4:], mask), payload)
             self.assertEqual({125: 125, 126: 126, 65535: 126, 65536: 127}.get(n, n), f[1] & 0x7F)
 
+    def ws_with(self, data):
+        ws = canvas._WebSocket.__new__(canvas._WebSocket)
+        ws.buf = bytearray(data)
+        ws.sock = None   # every byte is already buffered; reading past it would fail loudly
+        return ws
+
+    def test_oversized_messages_are_refused_before_reading(self):
+        # a single frame claiming 1 TB: refused from the header alone
+        ws = self.ws_with(bytes([0x81, 127]) + (1 << 40).to_bytes(8, 'big'))
+        with self.assertRaisesRegex(ConnectionError, 'over 256 MB'):
+            ws.recv_text()
+        # fragments that add up past the limit
+        frag = lambda fin, op, body: bytes([(0x80 if fin else 0) | op, len(body)]) + body
+        data = frag(False, 0x1, b'a' * 60) + frag(True, 0x0, b'b' * 60)
+        with mock.patch.object(canvas, 'WS_MAX_MESSAGE', 100):
+            with self.assertRaises(ConnectionError):
+                self.ws_with(data).recv_text()
+        self.assertEqual(self.ws_with(data).recv_text(), 'a' * 60 + 'b' * 60)
+
 
 class CheckLinkLabels(TempHomeCase):
     def test_label_missing_from_source_text_is_info(self):
@@ -670,6 +744,23 @@ class ImplCommand(TempHomeCase):
         r = self.run_cli('impl', self.idea, 'A01-One', '--clear')
         self.assertEqual(r.returncode, 0)
         self.assertNotIn('impl', self.read_json(self.cj)['boards']['A01-One.html'])
+
+    def test_files_must_stay_inside_the_project(self):
+        for bad in ('/etc/passwd', '../outside.txt', 'src/../../outside.txt', '..', '.'):
+            r = self.run_cli('impl', self.idea, 'A01-One', '--route', '/', '--file', 'src/ok.ts', '--file', bad)
+            self.assertEqual(r.returncode, 1, bad)
+            self.assertIn('stays inside it', r.stderr)
+        self.assertNotIn('impl', self.read_json(self.cj)['boards']['A01-One.html'])
+        # a hand-edited canvas.json is checked by containment too
+        os.makedirs(os.path.join(self.project, 'src'))
+        open(os.path.join(self.project, 'src', 'ok.ts'), 'w').close()
+        data = self.read_json(self.cj)
+        data['boards']['A01-One.html']['impl'] = {'route': '/', 'files': ['src/ok.ts', '/etc/hosts', '../x']}
+        self.write_json(self.cj, data)
+        r = self.run_cli('check', self.idea)
+        self.assertIn('impl file is outside the project: A01-One.html -> /etc/hosts', r.stdout + r.stderr)
+        self.assertIn('impl file is outside the project: A01-One.html -> ../x', r.stdout + r.stderr)
+        self.assertNotIn('src/ok.ts', r.stdout + r.stderr)
 
     def test_list_and_strict(self):
         self.run_cli('impl', self.idea, 'A01-One', '--route', '/')

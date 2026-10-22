@@ -477,6 +477,10 @@ def _run_chrome(w, h, budget_ms, out_png, url, timeout=None):
 # out at the exact requested width (Emulation.setDeviceMetricsOverride) and --wait is real time.
 
 
+FULL_PAGE_MAX_H = 16384   # --full-page height cap (a taller PNG is mostly a runaway page)
+MAX_BOARD_SIDE = 8000     # board w/h from canvas.json are clamped to this for render and compare
+
+
 class CdpConnectError(RuntimeError):
     """Could not reach Chrome's DevTools endpoint (the caller falls back to --screenshot)."""
 
@@ -485,19 +489,23 @@ class CdpError(RuntimeError):
     """DevTools was reachable but the capture failed."""
 
 
+WS_MAX_MESSAGE = 256 << 20   # largest DevTools message accepted (a big screenshot is well under)
+
+
 class _WebSocket:
     """Minimal RFC 6455 client: text frames, masked client frames, fragments, ping/pong, close."""
 
     def __init__(self, host, port, path, timeout):
         self.sock = socket.create_connection((host, port), timeout=timeout)
-        self.buf = b''
+        self.buf = bytearray()
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock.sendall((f'GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n'
                            f'Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n'
                            'Sec-WebSocket-Version: 13\r\n\r\n').encode())
         while b'\r\n\r\n' not in self.buf:
             self._fill()
-        head, self.buf = self.buf.split(b'\r\n\r\n', 1)
+        head, rest = bytes(self.buf).split(b'\r\n\r\n', 1)
+        self.buf = bytearray(rest)
         lines = head.decode('latin-1').split('\r\n')
         if not lines[0].startswith('HTTP/1.1 101'):
             raise ConnectionError(f'WebSocket handshake refused: {lines[0]}')
@@ -517,7 +525,8 @@ class _WebSocket:
     def _read(self, n):
         while len(self.buf) < n:
             self._fill()
-        data, self.buf = self.buf[:n], self.buf[n:]
+        data = bytes(self.buf[:n])
+        del self.buf[:n]
         return data
 
     @staticmethod
@@ -541,7 +550,7 @@ class _WebSocket:
 
     def recv_text(self):
         """Next complete text message; answers pings and raises on close."""
-        parts, kind = [], None
+        parts, kind, total = [], None, 0
         while True:
             b0, b1 = self._read(2)
             fin, opcode = b0 & 0x80, b0 & 0x0F
@@ -550,6 +559,9 @@ class _WebSocket:
                 n = int.from_bytes(self._read(2), 'big')
             elif n == 127:
                 n = int.from_bytes(self._read(8), 'big')
+            total += n
+            if total > WS_MAX_MESSAGE:   # checked before reading the payload
+                raise ConnectionError(f'DevTools message over {WS_MAX_MESSAGE >> 20} MB')
             mask = self._read(4) if b1 & 0x80 else None
             payload = self._read(n)
             if mask:
@@ -595,6 +607,7 @@ class _Cdp:
     def __init__(self, ws, deadline):
         self.ws, self.deadline, self.next_id, self.events = ws, deadline, 0, []
         self.sink = None   # set to a list to keep every event message (perf tracing)
+        self.handler = None   # called with every event message as it arrives
 
     def _recv(self):
         left = self.deadline - time.monotonic()
@@ -606,10 +619,14 @@ class _Cdp:
         except socket.timeout:
             raise TimeoutError
 
-    def call(self, method, **params):
+    def send(self, method, **params):
+        """Send without waiting; the reply is skipped by whichever call() reads it."""
         self.next_id += 1
-        mid = self.next_id
-        self.ws.send_text(json.dumps({'id': mid, 'method': method, 'params': params}))
+        self.ws.send_text(json.dumps({'id': self.next_id, 'method': method, 'params': params}))
+        return self.next_id
+
+    def call(self, method, **params):
+        mid = self.send(method, **params)
         while True:
             msg = self._recv()
             if msg.get('id') == mid:
@@ -623,6 +640,8 @@ class _Cdp:
         self.events.append(msg['method'])
         if self.sink is not None:
             self.sink.append(msg)
+        if self.handler:
+            self.handler(msg)
 
     def wait_event(self, name):
         if name in self.events:
@@ -678,6 +697,7 @@ class _CdpSession:
         self.profile = self.chrome.profile
         self.proc = self.ws = self.cdp = None
         self.background = background
+        self.file_roots = []   # file:// requests are allowed only inside these folders
         try:
             self._start(time.monotonic() + connect_timeout)
         except BaseException:
@@ -708,6 +728,26 @@ class _CdpSession:
             raise CdpConnectError(f'DevTools connection failed: {e}')
         self.cdp = _Cdp(self.ws, time.monotonic() + 30)
         self.cdp.call('Page.enable')
+        # Chrome lets a file:// page show any local file in an iframe or image, so every file://
+        # request is paused here and failed unless it is inside file_roots (the idea folder).
+        self.cdp.handler = self._file_guard
+        self.cdp.call('Fetch.enable', patterns=[{'urlPattern': 'file://*'}])
+
+    def _file_guard(self, msg):
+        if msg.get('method') != 'Fetch.requestPaused':
+            return
+        p = msg.get('params', {})
+        rid = p.get('requestId')
+        try:
+            u = urlparse(p['request']['url'])
+            ok = (u.scheme == 'file' and u.netloc in ('', 'localhost') and
+                  any(_within(unquote(u.path), r) for r in self.file_roots))
+        except (KeyError, TypeError, ValueError):
+            ok = False
+        if ok:
+            self.cdp.send('Fetch.continueRequest', requestId=rid)
+        else:
+            self.cdp.send('Fetch.failRequest', requestId=rid, errorReason='AccessDenied')
 
     def call(self, method, **params):
         return self.cdp.call(method, **params)
@@ -734,8 +774,10 @@ class _CdpSession:
                 cdp.call('Page.reload')
                 cdp.wait_event('Page.loadEventFired')
 
-    def capture(self, url, w, h, wait_ms, out, full_page=False, timeout=60, scale=1):
-        """Write a PNG of url at w x h into out. Raises CdpError or TimeoutError."""
+    def capture(self, url, w, h, wait_ms, out, full_page=False, timeout=60, scale=1, file_roots=()):
+        """Write a PNG of url at w x h into out. Raises CdpError or TimeoutError.
+        file_roots: folders whose files the page may load over file:// (nothing else)."""
+        self.file_roots = [os.path.realpath(r) for r in file_roots]
         deadline = time.monotonic() + timeout
         try:
             self.goto(url, w, h, deadline)
@@ -753,6 +795,10 @@ class _CdpSession:
                     'Math.max(document.documentElement.scrollHeight, '
                     'document.body ? document.body.scrollHeight : 0)'))
                 full_h = max(h, int(r.get('result', {}).get('value') or h))
+                if full_h > FULL_PAGE_MAX_H:
+                    print(f'Warning: the page is {full_h} px tall; --full-page captures the first '
+                          f'{FULL_PAGE_MAX_H} px', file=sys.stderr)
+                    full_h = FULL_PAGE_MAX_H
                 shot['captureBeyondViewport'] = True
             if full_page or scale != 1:
                 shot['clip'] = {'x': 0, 'y': 0, 'width': w, 'height': full_h, 'scale': scale}
@@ -782,7 +828,7 @@ class _CdpSession:
         self.close()
 
 
-def _cdp_capture(url, w, h, wait_ms, out, full_page, timeout):
+def _cdp_capture(url, w, h, wait_ms, out, full_page, timeout, file_roots=()):
     """Capture url into out over DevTools. Raises CdpConnectError, CdpError, or TimeoutError."""
     start = time.monotonic()
     try:
@@ -790,19 +836,27 @@ def _cdp_capture(url, w, h, wait_ms, out, full_page, timeout):
     except TimeoutError:
         raise CdpConnectError('DevTools connection timed out')
     with session:
-        session.capture(url, w, h, wait_ms, out, full_page, timeout - (time.monotonic() - start))
+        session.capture(url, w, h, wait_ms, out, full_page, timeout - (time.monotonic() - start),
+                        file_roots=file_roots)
 
 
-def _capture(url, w, h, wait_ms, out, full_page=False):
+def _capture(url, w, h, wait_ms, out, full_page=False, file_roots=()):
     """Screenshot url at exactly w x h CSS px (deviceScaleFactor 1) into out, after the load event
-    plus wait_ms of real time. True when a non-empty PNG was written; errors are printed."""
+    plus wait_ms of real time. True when a non-empty PNG was written; errors are printed.
+    file_roots: the only folders the page may read over file:// (see _CdpSession._file_guard)."""
     if os.path.exists(out):
         os.remove(out)   # a stale file must not count as success
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     limit = wait_ms / 1000 + 60
     try:
-        _cdp_capture(url, w, h, wait_ms, out, full_page, limit)
+        _cdp_capture(url, w, h, wait_ms, out, full_page, limit, file_roots)
     except CdpConnectError as e:
+        if urlparse(url).scheme == 'file':
+            # --screenshot cannot stop a board from showing other local files
+            print(f'Error: could not drive Chrome over DevTools ({e}); a local board is not rendered '
+                  'without it, because only DevTools can block access to files outside the idea folder',
+                  file=sys.stderr)
+            return False
         print(f'Warning: could not drive Chrome over DevTools ({e}); falling back to --screenshot, '
               'so sizes under 500 px wide may be inaccurate' +
               (' and --full-page is ignored' if full_page else ''), file=sys.stderr)
@@ -964,6 +1018,7 @@ def _watch_thread(design_dirs):
 THUMB_SCALE = 0.6
 THUMB_WORKERS = 1   # a second background Chrome rendered faster but made first-open zoom stutter
 THUMB_IDLE_SECS = 15
+THUMB_VERSION = 2   # in the cache key: version 1 rendered boards from file:// (no sandbox)
 
 
 def _thumb_target(idea_dir, fname):
@@ -981,7 +1036,7 @@ def _thumb_target(idea_dir, fname):
         w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
         if not (0 < w <= 8000 and 0 < h <= 8000):
             return None
-        key = f'{os.stat(src).st_mtime_ns:x}'
+        key = f'{THUMB_VERSION:x}-{os.stat(src).st_mtime_ns:x}'
         tok = os.path.join(idea_dir, 'shared', 'tokens.css')
         if os.path.isfile(tok):
             key += f'-{os.stat(tok).st_mtime_ns:x}'
@@ -999,7 +1054,7 @@ class _ThumbQueue:
         self.starting = 0   # workers inside _CdpSession(): Chrome may be running but not listed yet
         self.closed = False
 
-    def request(self, src, w, h, out, sse_key, fname):
+    def request(self, url, w, h, out, sse_key, fname):
         """Queue a render unless it is running or failed before. Most recent request first: the
         viewer asks for boards near its viewport once the view rests, so a board asked again moves
         to the front of the queue."""
@@ -1015,7 +1070,7 @@ class _ThumbQueue:
                         break
                 return True
             self.pending.add(out)
-            self.jobs.append((src, w, h, out, sse_key, fname))
+            self.jobs.append((url, w, h, out, sse_key, fname))
             if self.started < self.workers:
                 self.started += 1
                 threading.Thread(target=self._work, daemon=True).start()
@@ -1034,7 +1089,7 @@ class _ThumbQueue:
                         self.started -= 1
                         return
                     job = self.jobs.pop()
-                src, w, h, out, sse_key, fname = job
+                url, w, h, out, sse_key, fname = job
                 ok = False
                 try:
                     if session is None:
@@ -1051,7 +1106,7 @@ class _ThumbQueue:
                         if self.closed:   # shut down while Chrome was starting
                             raise CdpError('thumbnail queue closed')
                     os.makedirs(os.path.dirname(out), exist_ok=True)
-                    session.capture(pathlib.Path(src).as_uri(), w, h, 250, out, timeout=30, scale=THUMB_SCALE)
+                    session.capture(url, w, h, 250, out, timeout=30, scale=THUMB_SCALE)
                     ok = True
                 except CdpConnectError as e:
                     if not self.closed:
@@ -1362,7 +1417,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
         target = _thumb_target(idea_dir, name[:-4] + '.html') if name.endswith('.png') else None
         if not target:
             self._404(); return
-        src, w, h, out = target
+        _, w, h, out = target
         etag = '"' + os.path.basename(out) + '"'
         if os.path.isfile(out):
             if self.headers.get('If-None-Match') == etag:
@@ -1374,7 +1429,14 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._serve_file(out, 'image/png', {'X-Content-Type-Options': 'nosniff', 'ETag': etag},
                              cache='no-cache')
             return
-        if not _THUMBS.request(src, w, h, out, sse_key, name[:-4] + '.html'):
+        # Render the board the way the viewer shows it: from this server, under the board CSP
+        # sandbox (an http page cannot load file:// URLs). Share mode uses the /_k/<key>/ prefix
+        # that sandboxed boards use, since Chrome has no token cookie.
+        board = name[:-4] + '.html'
+        prefix = f'/_k/{self._asset_key()}' if self.share_token else ''
+        url = (f'http://127.0.0.1:{self.server.server_address[1]}{prefix}/'
+               f'{_urlquote(sse_key)}/boards/{_urlquote(board)}')
+        if not _THUMBS.request(url, w, h, out, sse_key, board):
             self._404(); return
         self._json({'pending': True}, 202)
 
@@ -2497,6 +2559,17 @@ def _parse_wait(vals, default):
     return wait
 
 
+def _board_size(b):
+    """(w, h) of a canvas.json board entry, each clamped to 1..MAX_BOARD_SIDE."""
+    def side(key, default):
+        try:
+            v = int(b.get(key, default))
+        except (TypeError, ValueError, AttributeError):
+            v = default
+        return min(max(v, 1), MAX_BOARD_SIDE)
+    return side('w', DEFAULT_W), side('h', DEFAULT_H)
+
+
 def cmd_render(args):
     usage = ('Usage: canvas.py render <idea dir> [file...] [--full-page] [--wait MS]\n'
              '  Render boards to <idea>/render/<board>.png at their registered size.\n'
@@ -2532,9 +2605,10 @@ def cmd_render(args):
         if not os.path.isfile(src):
             print(f'Not found: {fname}'); continue
         b = boards.get(fname, {})
-        w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
+        w, h = _board_size(b)
         out = os.path.join(render_dir, fname.replace('.html', '.png'))
-        if not _capture(pathlib.Path(src).as_uri(), w, h, wait, out, flags['--full-page']):
+        if not _capture(pathlib.Path(src).as_uri(), w, h, wait, out, flags['--full-page'],
+                        file_roots=[idea_dir]):
             print(f'Error: render failed ({fname})', file=sys.stderr)
             failed.append(fname)
         else:
@@ -2598,7 +2672,8 @@ def cmd_overview(args):
         f.write(static_html)
 
     try:
-        if not _capture(pathlib.Path(tmp_index).as_uri() + '?overview=1', out_w, out_h, 2000, out_png):
+        if not _capture(pathlib.Path(tmp_index).as_uri() + '?overview=1', out_w, out_h, 2000, out_png,
+                        file_roots=[idea_dir]):
             print('Error: overview render failed', file=sys.stderr)
             sys.exit(1)
 
@@ -2703,7 +2778,9 @@ def cmd_check(args):
         if not isinstance(impl, dict):
             continue
         for f in impl.get('files') or []:
-            if not os.path.exists(os.path.join(project_root, str(f))):
+            if not _in_project(project_root, f):
+                errors.append(f'impl file is outside the project: {fname} -> {f}')
+            elif not os.path.exists(os.path.join(project_root, f)):
                 errors.append(f'impl file not found: {fname} -> {f}')
 
     approved = sum(1 for b in boards.values() if b.get('status') == 'approved')
@@ -2919,6 +2996,9 @@ def _png_add(a, b):
     return (((x & lo) + (y & lo)) ^ ((x ^ y) & hi)).to_bytes(n, 'big')
 
 
+PNG_MAX_W, PNG_MAX_H, PNG_MAX_PIXELS = 8000, 20000, 160_000_000
+
+
 def png_read(path):
     """Decode a PNG -> (w, h, channels, rows); each row is w*channels bytes."""
     import zlib
@@ -2927,11 +3007,18 @@ def png_read(path):
     if data[:8] != _PNG_SIG:
         raise PngError(f'not a PNG file: {path}')
     pos, ihdr, idat = 8, None, []
-    while pos + 8 <= len(data):
+    while True:
+        if pos + 12 > len(data):
+            raise PngError(f'truncated PNG (no IEND chunk): {path}')
         length = int.from_bytes(data[pos:pos + 4], 'big')
+        end = pos + 8 + length
+        if end + 4 > len(data):
+            raise PngError(f'PNG chunk runs past the end of the file: {path}')
         ctype = data[pos + 4:pos + 8]
-        body = data[pos + 8:pos + 8 + length]
-        pos += 12 + length
+        body = data[pos + 8:end]
+        if zlib.crc32(ctype + body) != int.from_bytes(data[end:end + 4], 'big'):
+            raise PngError(f'PNG CRC mismatch in chunk {ctype.decode("latin-1")!r}: {path}')
+        pos = end + 4
         if ctype == b'IHDR':
             ihdr = body
         elif ctype == b'IDAT':
@@ -2942,6 +3029,10 @@ def png_read(path):
         raise PngError(f'missing IHDR chunk: {path}')
     w = int.from_bytes(ihdr[0:4], 'big')
     h = int.from_bytes(ihdr[4:8], 'big')
+    # Check the size before inflating anything: a tiny file can claim a huge image
+    if w <= 0 or h <= 0 or w > PNG_MAX_W or h > PNG_MAX_H or w * h > PNG_MAX_PIXELS:
+        raise PngError(f'PNG size {w}x{h} is outside the supported range (1 to {PNG_MAX_W} wide, '
+                       f'1 to {PNG_MAX_H} tall, at most {PNG_MAX_PIXELS} pixels): {path}')
     depth, color, interlace = ihdr[8], ihdr[9], ihdr[12]
     if depth != 8 or color not in (2, 6):
         raise PngError(f'unsupported PNG format (bit depth {depth}, color type {color}); '
@@ -2950,11 +3041,12 @@ def png_read(path):
         raise PngError(f'interlaced PNG is not supported: {path}')
     ch = 3 if color == 2 else 4
     stride = w * ch
+    need = (stride + 1) * h
     try:
-        raw = zlib.decompress(b''.join(idat))
+        raw = zlib.decompressobj().decompress(b''.join(idat), need)   # never more than the image needs
     except zlib.error as e:
         raise PngError(f'corrupt PNG data: {path}: {e}')
-    if len(raw) < (stride + 1) * h:
+    if len(raw) < need:
         raise PngError(f'truncated PNG data: {path}')
     rows = []
     prev = bytes(stride)
@@ -3220,7 +3312,7 @@ def cmd_compare(args):
     if not os.path.isfile(src):
         print(f'Error: board file not found: {src}', file=sys.stderr); return 1
     b = canvas['boards'][key]
-    w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
+    w, h = _board_size(b)
     bands = [_parse_px(vals, o, h) for o in ('--ignore-top', '--ignore-bottom', '--align-top')]
     if None in bands:
         return 1
@@ -3239,7 +3331,7 @@ def cmd_compare(args):
     board_png = os.path.join(out_dir, 'board.png')
     app_png = os.path.join(out_dir, 'app.png')
     app_h = h - align_top    # the app's own viewport is below the board's extra band
-    if not _capture(pathlib.Path(src).as_uri(), w, h, 1000, board_png):
+    if not _capture(pathlib.Path(src).as_uri(), w, h, 1000, board_png, file_roots=[idea_dir]):
         print(f'Error: render failed ({key})', file=sys.stderr); return 1
     if url is not None:
         if not _capture(url, w, app_h, wait, app_png):
@@ -3298,6 +3390,15 @@ def cmd_compare(args):
     print(f'Wrote: {out_dir}/{{board,app,diff,side}}.png, report.json')
 
 # ── impl ───────────────────────────────────────────────────────────────────
+
+def _in_project(project_root, f):
+    """True when f is a relative path that stays inside project_root (no absolute path, no ..)."""
+    if not isinstance(f, str) or not f or os.path.isabs(f):
+        return False
+    root = os.path.normpath(project_root)
+    path = os.path.normpath(os.path.join(root, f))
+    return path != root and path.startswith(root + os.sep)
+
 
 def cmd_impl(args):
     usage = ('Usage: canvas.py impl <idea dir> [--strict]\n'
@@ -3364,7 +3465,12 @@ def cmd_impl(args):
             print(f'  {f}')
         return
     files = []
+    project_root = os.path.dirname(os.path.dirname(idea_dir))
     for f in vals['--file']:
+        if not _in_project(project_root, f):
+            print(f'Error: --file must be a path relative to the project root ({project_root}) '
+                  f'that stays inside it: {f}', file=sys.stderr)
+            return 1
         f = os.path.normpath(f).replace(os.sep, '/')
         if f not in files:
             files.append(f)
