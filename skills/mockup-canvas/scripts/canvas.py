@@ -1585,7 +1585,6 @@ def _design_folder_info(real):
 # ── HTTP handler ───────────────────────────────────────────────────────────
 
 _SANDBOX_CSP = 'sandbox allow-scripts allow-forms allow-popups'
-_ACTIVE_TYPES = ('text/html', 'image/svg+xml', 'application/xhtml+xml', 'text/xml', 'application/xml')
 _FONT_EXTS = ('.woff', '.woff2', '.ttf', '.otf', '.eot')
 
 class _NullWriter:
@@ -1813,17 +1812,23 @@ class CanvasHandler(BaseHTTPRequestHandler):
         return _safe_path(self.design_dir, *parts)
 
     def _serve_static(self, path, fname, board=False):
-        """boards/, assets/, shared/: active documents are sandboxed; fonts get CORS for sandboxed boards."""
+        """boards/, assets/, shared/: every response is sandboxed (default deny: a file opened as a
+        document, whatever its type, runs in an opaque origin; CSS, images, and fonts used by a
+        board ignore the header). Fonts get CORS for sandboxed boards only."""
         if board:
             mt = 'text/html; charset=utf-8'
         else:
             mt, _ = mimetypes.guess_type(fname)
             mt = mt or 'application/octet-stream'
-        extra = {}
-        if board or mt.split(';')[0] in _ACTIVE_TYPES:
-            extra['Content-Security-Policy'] = _SANDBOX_CSP
-        elif fname.lower().endswith(_FONT_EXTS):
-            extra['Access-Control-Allow-Origin'] = '*'
+        extra = {'Content-Security-Policy': _SANDBOX_CSP}
+        if fname.lower().endswith(_FONT_EXTS):
+            # A sandboxed board sends Origin: null. Any other site gets no CORS header, so it
+            # cannot read the font (a page that frames itself sandboxed can, so this is not access
+            # control; fonts carry nothing secret).
+            origin = self.headers.get('Origin', '').strip()
+            if origin == 'null' or origin.rstrip('/').lower() in {'http://' + h for h in self._allowed_hosts()}:
+                extra['Access-Control-Allow-Origin'] = origin
+            extra['Vary'] = 'Origin'
         extra['X-Content-Type-Options'] = 'nosniff'
         extra['Referrer-Policy'] = 'no-referrer'
         self._serve_file(path, mt, extra)

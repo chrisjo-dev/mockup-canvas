@@ -131,20 +131,38 @@ class SandboxedBoards(ServerCase):
             with open(os.path.join(self.idea, 'assets', name), 'w') as f:
                 f.write(data)
 
-    def test_board_and_active_assets_get_sandbox_csp(self):
+    def test_every_static_file_gets_sandbox_csp(self):
+        # Default deny: any file under boards/, assets/, shared/ opened as a document is sandboxed,
+        # whatever its type (an unknown extension, a file served as text, CSS, images, fonts)
+        with open(os.path.join(self.idea, 'assets', 'data.xyz'), 'w') as f:
+            f.write('<script>alert(1)</script>')
         self.start_server(canvas.CanvasHandler, design_dir=self.design,
                           share_token='', share_edit=True, read_only=False)
         csp = 'sandbox allow-scripts allow-forms allow-popups'
-        for path in ('/demo/boards/A01-One.html', '/demo/assets/art.svg', '/demo/assets/page.html'):
+        for path in ('/demo/boards/A01-One.html', '/demo/assets/art.svg', '/demo/assets/page.html',
+                     '/demo/assets/f.woff2', '/demo/assets/pic.png', '/demo/assets/data.xyz',
+                     '/demo/shared/tokens.css'):
             status, headers, _ = self.request('GET', path)
             self.assertEqual(status, 200, path)
             self.assertEqual(headers.get('Content-Security-Policy'), csp, path)
-        status, headers, _ = self.request('GET', '/demo/assets/f.woff2')
-        self.assertEqual(headers.get('Access-Control-Allow-Origin'), '*')
+            self.assertEqual(headers.get('X-Content-Type-Options'), 'nosniff', path)
         for path in ('/demo/assets/pic.png', '/demo/shared/tokens.css', '/demo/canvas.json', '/demo/'):
-            _, headers, _ = self.request('GET', path)
+            _, headers, _ = self.request('GET', path, headers={'Origin': 'null'})
             self.assertNotIn('Access-Control-Allow-Origin', headers, path)
-        self.assertNotIn('Content-Security-Policy', self.request('GET', '/demo/shared/tokens.css')[1])
+
+    def test_font_cors_only_for_sandboxed_boards_and_own_origins(self):
+        self.start_server(canvas.CanvasHandler, design_dir=self.design,
+                          share_token='', share_edit=True, read_only=False)
+        font = '/demo/assets/f.woff2'
+        for origin in ('null', f'http://127.0.0.1:{self.port}', f'http://localhost:{self.port}'):
+            _, headers, _ = self.request('GET', font, headers={'Origin': origin})
+            self.assertEqual(headers.get('Access-Control-Allow-Origin'), origin, origin)
+            self.assertEqual(headers.get('Vary'), 'Origin')
+        for origin in (None, 'https://evil.example', f'http://127.0.0.1:{self.port + 1}', '*',
+                       'http://127.0.0.1.evil.example'):
+            _, headers, _ = self.request('GET', font, headers={'Origin': origin} if origin else {})
+            self.assertNotIn('Access-Control-Allow-Origin', headers, origin)
+            self.assertEqual(headers.get('Vary'), 'Origin')
 
     def test_viewer_iframes_are_sandboxed(self):
         with open(canvas.VIEWER_PATH, encoding='utf-8') as f:
