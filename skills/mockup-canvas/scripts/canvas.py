@@ -1736,22 +1736,29 @@ class CanvasHandler(BaseHTTPRequestHandler):
     # A sandboxed board has an opaque origin, so the SameSite=Strict token cookie is not sent
     # with its CSS, font, and image requests. In share mode the viewer loads boards under
     # /_k/<asset key>/..., and that prefix authorizes GET of boards/, assets/, shared/ files only.
+    # The key is per idea (a board can read it from its own URL), so it opens that idea's files only.
     STATIC_DIR_INDEX = 1   # parts index of 'boards' | 'assets' | 'shared'
 
-    def _asset_key(self):
-        return hmac.new(self.share_token.encode('utf-8'), b'mockup-canvas assets',
+    def _asset_key(self, scope):
+        """scope: the path parts naming the idea ([idea], registry mode [project, idea])."""
+        name = 'assets:' + ('/'.join(scope) if len(scope) > 1 else '/' + scope[0])
+        return hmac.new(self.share_token.encode('utf-8'), name.encode('utf-8', 'surrogateescape'),
                         hashlib.sha256).hexdigest()[:32]
 
     def _keyed_static_parts(self):
-        """Share mode: the path parts after a valid /_k/<key>/ prefix, else None."""
+        """Share mode: the path parts after a /_k/<key>/ prefix whose key belongs to the idea those
+        parts name, else None."""
         if not self.share_token:
             return None
         parts, _ = self._parse()
-        if len(parts) < 2 or parts[0] != '_k':
+        i = self.STATIC_DIR_INDEX
+        if len(parts) < 2 + i or parts[0] != '_k':
             return None
-        if not hmac.compare_digest(parts[1].encode('utf-8', 'surrogateescape'), self._asset_key().encode()):
+        rest = parts[2:]
+        if not hmac.compare_digest(parts[1].encode('utf-8', 'surrogateescape'),
+                                   self._asset_key(rest[:i]).encode()):
             return None
-        return parts[2:]
+        return rest
 
     def _is_static(self, parts):
         i = self.STATIC_DIR_INDEX
@@ -1908,7 +1915,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._404(); return
 
         if len(parts) == 1:
-            self._serve_viewer()
+            self._serve_viewer(parts)
             return
 
         if parts[1] == 'canvas.json' and len(parts) == 2:
@@ -2043,8 +2050,9 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._json({'ok': False, 'error': 'Could not open the file manager'}, 500); return
         self._json({'ok': True})
 
-    def _serve_viewer(self):
-        """Serve viewer.html, injecting CANVAS_READ_ONLY when the session is read-only."""
+    def _serve_viewer(self, scope):
+        """Serve viewer.html, injecting CANVAS_READ_ONLY when the session is read-only.
+        scope: the idea's path parts, for its share-mode asset key."""
         is_ro = (self.share_token and not self.share_edit) or self.read_only
         try:
             with open(VIEWER_PATH, 'rb') as fh:
@@ -2055,7 +2063,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
             inject = b'<script>var CANVAS_READ_ONLY=true;</script>\n'
             data = data.replace(b'</head>', inject + b'</head>', 1)
         if self.share_token:
-            inject = f'<script>var CANVAS_ASSET_PREFIX="/_k/{self._asset_key()}";</script>\n'.encode()
+            inject = f'<script>var CANVAS_ASSET_PREFIX="/_k/{self._asset_key(scope)}";</script>\n'.encode()
             data = data.replace(b'</head>', inject + b'</head>', 1)
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -2223,7 +2231,7 @@ class RegistryHandler(CanvasHandler):
         rest = parts[2:]
 
         if not rest:
-            self._serve_viewer()
+            self._serve_viewer(parts[:2])
             return
 
         if rest[0] == 'canvas.json' and len(rest) == 1:

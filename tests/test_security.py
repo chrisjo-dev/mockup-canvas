@@ -183,8 +183,10 @@ class SandboxedBoards(ServerCase):
         self.assertEqual(self.request('GET', '/demo/shared/tokens.css')[0], 401)
         self.assertEqual(self.request('GET', prefix + '/demo/shared/tokens.css')[0], 200)
         self.assertEqual(self.request('GET', prefix + '/demo/boards/A01-One.html')[0], 200)
-        for path in ('/demo/', '/demo/canvas.json', '/demo/api/events', '/', '/demo/shared/%2e%2e/canvas.json'):
+        for path in ('/demo/', '/demo/canvas.json', '/demo/api/events', '/demo/shared/%2e%2e/canvas.json'):
             self.assertEqual(self.request('GET', prefix + path)[0], 404, path)
+        for path in ('/', ''):   # a key opens one idea; without the idea in the path it is no key
+            self.assertEqual(self.request('GET', prefix + path)[0], 401, path)
         self.assertEqual(self.request('GET', '/_k/' + '0' * 32 + '/demo/shared/tokens.css')[0], 401)
         self.assertEqual(self.request('POST', prefix + '/demo/api/layout', {'board': 'A01-One.html', 'x': 1, 'y': 1},
                                       headers=self.origin())[0], 403)
@@ -206,16 +208,43 @@ class SandboxedBoards(ServerCase):
         self.assertEqual(status, 404)
         self.assertNotIn(b'TOPSECRET', body)
 
+    def test_share_asset_key_opens_its_own_idea_only(self):
+        token = 'tok_keyed_3'
+        other = self.make_idea(self.design, 'other')
+        with open(os.path.join(other, 'shared', 'secret.css'), 'w') as f:
+            f.write('.x{}')
+        self.start_server(canvas.CanvasHandler, design_dir=self.design, share_token=token,
+                          share_edit=False, read_only=False)
+        cookie = {'Cookie': 'canvas_token=' + token}
+
+        def prefix(idea):
+            body = self.request('GET', f'/{idea}/', headers=cookie)[2].decode()
+            return body.split('CANVAS_ASSET_PREFIX="', 1)[1].split('"', 1)[0]
+        demo, oth = prefix('demo'), prefix('other')
+        self.assertNotEqual(demo, oth)
+        self.assertEqual(self.request('GET', demo + '/demo/shared/tokens.css')[0], 200)
+        self.assertEqual(self.request('GET', oth + '/other/shared/secret.css')[0], 200)
+        # A board of demo reads its key from its own URL: it must not open other's files
+        for path in ('/other/shared/secret.css', '/other/shared/tokens.css', '/other/boards/A01-One.html'):
+            self.assertEqual(self.request('GET', demo + path)[0], 401, path)
+        self.assertEqual(self.request('GET', oth + '/demo/shared/tokens.css')[0], 401)
+
     def test_registry_share_keyed_static_path(self):
         token = 'tok_keyed_2'
         self.write_json(os.path.join(self.data_dir, 'roots.json'), {'roots': [{'name': 'p', 'path': self.design}]})
+        design2 = os.path.join(self.home, 'q', 'design')
+        self.make_idea(design2, 'demo')
+        self.make_idea(self.design, 'demo2')
         self.start_server(canvas.RegistryHandler, share_token=token, share_edit=False, read_only=False,
-                          frozen_roots=[{'name': 'p', 'path': self.design}])
+                          frozen_roots=[{'name': 'p', 'path': self.design}, {'name': 'q', 'path': design2}])
         _, _, body = self.request('GET', '/p/demo/', headers={'Cookie': 'canvas_token=' + token})
         prefix = body.decode().split('CANVAS_ASSET_PREFIX="', 1)[1].split('"', 1)[0]
         self.assertEqual(self.request('GET', prefix + '/p/demo/shared/tokens.css')[0], 200)
         self.assertEqual(self.request('GET', prefix + '/p/demo/canvas.json')[0], 404)
         self.assertEqual(self.request('GET', prefix + '/p/demo/')[0], 404)
+        # Scoped to project and idea: the same idea name in another project does not match
+        self.assertEqual(self.request('GET', prefix + '/q/demo/shared/tokens.css')[0], 401)
+        self.assertEqual(self.request('GET', prefix + '/p/demo2/shared/tokens.css')[0], 401)
 
 
 # ── M3: timeouts and connection limit ──────────────────────────────────────

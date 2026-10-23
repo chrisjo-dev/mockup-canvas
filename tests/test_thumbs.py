@@ -114,7 +114,7 @@ class ThumbRoute(ServerCase):
         self.assertEqual(self.request('GET', '/demo/thumbs/A01-One.png', headers=cookie)[0], 202)
         h = canvas.CanvasHandler.__new__(canvas.CanvasHandler)
         h.share_token = token
-        key = h._asset_key()
+        key = h._asset_key(['demo'])
         # The keyed asset prefix for sandboxed boards does not reach thumbnails
         self.assertEqual(self.request('GET', f'/_k/{key}/demo/thumbs/A01-One.png')[0], 404)
         status, _, _ = self.request('GET', '/demo/thumbs/A01-One.png',
