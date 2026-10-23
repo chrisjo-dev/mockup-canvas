@@ -30,9 +30,9 @@ User data lives in ~/.mockup-canvas/ (override with MOCKUP_CANVAS_HOME):
   roots.json   registered design folders (registry mode)
   config.json  options, e.g. {"forbidden_chars": ["\u2014"]}
 """
-import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib, signal
+import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib, signal, stat
 import socketserver, socket, secrets, mimetypes, http.client, textwrap
-import hmac, hashlib, base64, ipaddress, unicodedata
+import hmac, hashlib, base64, ipaddress, unicodedata, select
 import html as _html
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
@@ -440,7 +440,7 @@ class _Chrome:
             if mask:
                 mask(signal.SIG_UNBLOCK, blocked)
 
-    def spawn(self, args):
+    def spawn(self, args, pass_fds=()):
         """Start Chrome. Raises CdpConnectError once kill() or shutdown has run, OSError if it
         cannot start."""
         with _CHROME_LOCK:
@@ -448,7 +448,7 @@ class _Chrome:
                 raise CdpConnectError('Chrome is shutting down')
             self.spawning = True
             self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                         start_new_session=True)
+                                         start_new_session=True, pass_fds=pass_fds)
         return self.proc
 
     def kill(self):
@@ -512,7 +512,11 @@ def _clean_stale_profiles(max_age=3600):
     for n in names:
         path = os.path.join(base, n)
         try:
-            if os.path.islink(path) or not os.path.isdir(path) or now - os.stat(path).st_mtime < max_age:
+            st = os.lstat(path)
+            # A shared temp folder: only this user's own real folders (not a link another user
+            # planted to make us delete or follow something)
+            if (stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode) or
+                    st.st_uid != os.getuid() or now - st.st_mtime < max_age):
                 continue
         except OSError:
             continue
@@ -584,6 +588,9 @@ class _WebSocket:
                    for l in lines[1:] if ':' in l}
         if headers.get('sec-websocket-accept') != accept:
             raise ConnectionError('WebSocket handshake: bad Sec-WebSocket-Accept')
+
+    def settimeout(self, t):
+        self.sock.settimeout(t)
 
     def _fill(self):
         chunk = self.sock.recv(1 << 16)
@@ -663,6 +670,62 @@ class _WebSocket:
         self.sock.close()
 
 
+# Chrome's --remote-debugging-pipe reads commands from fd 3 and writes replies to fd 4. A Python
+# child cannot be given fixed fd numbers without preexec_fn (unsafe with threads), so Chrome is
+# started through this small exec wrapper: the pipe ends are passed with pass_fds at whatever
+# numbers they have, moved to 3 and 4, and then Chrome (or nice, which execs it) replaces it.
+_PIPE_WRAPPER = (
+    'import os,sys,fcntl\n'
+    'a=[int(x) for x in sys.argv[1:3]]\n'
+    'h=[fcntl.fcntl(x,fcntl.F_DUPFD,10) for x in a]\n'   # above 3 and 4 first: a may hold 3 or 4
+    'os.dup2(h[0],3);os.dup2(h[1],4)\n'
+    'for x in h+[x for x in a if x not in (3,4)]:os.close(x)\n'
+    'os.execv(sys.argv[3],sys.argv[3:])\n')
+
+
+class _Pipe:
+    """DevTools over --remote-debugging-pipe: NUL-terminated JSON messages. When this process
+    dies for any reason (kill -9 too), the kernel closes its end and Chrome exits on its own."""
+
+    def __init__(self, wfd, rfd):
+        self.wfd, self.rfd, self.buf, self.timeout = wfd, rfd, bytearray(), None
+        self.poll = select.poll()
+        self.poll.register(rfd, select.POLLIN)
+
+    def settimeout(self, t):
+        self.timeout = t
+
+    def send_text(self, text):
+        data = memoryview(text.encode('utf-8') + b'\0')
+        while data:
+            data = data[os.write(self.wfd, data):]
+
+    def recv_text(self):
+        start = 0
+        while True:
+            end = self.buf.find(b'\0', start)
+            if end >= 0:
+                msg = bytes(self.buf[:end])
+                del self.buf[:end + 1]
+                return msg.decode('utf-8')
+            start = len(self.buf)
+            if start > WS_MAX_MESSAGE:
+                raise ConnectionError(f'DevTools message over {WS_MAX_MESSAGE >> 20} MB')
+            if not self.poll.poll(None if self.timeout is None else max(0, self.timeout) * 1000):
+                raise TimeoutError
+            chunk = os.read(self.rfd, 1 << 20)
+            if not chunk:
+                raise ConnectionError('DevTools pipe closed by Chrome')
+            self.buf += chunk
+
+    def close(self):
+        for fd in (self.wfd, self.rfd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
 def _ws_mask(data, mask):
     """XOR data with the repeating 4-byte mask (done on one big int for speed)."""
     n = len(data)
@@ -675,6 +738,7 @@ def _ws_mask(data, mask):
 class _Cdp:
     def __init__(self, ws, deadline):
         self.ws, self.deadline, self.next_id, self.events = ws, deadline, 0, []
+        self.session = None   # pipe mode: the page's sessionId (the pipe talks to the browser)
         self.sink = None   # set to a list to keep every event message (perf tracing)
         self.handler = None   # called with every event message as it arrives
 
@@ -682,7 +746,7 @@ class _Cdp:
         left = self.deadline - time.monotonic()
         if left <= 0:
             raise TimeoutError
-        self.ws.sock.settimeout(left)
+        self.ws.settimeout(left)
         try:
             return json.loads(self.ws.recv_text())
         except socket.timeout:
@@ -693,8 +757,8 @@ class _Cdp:
         _session: an attached child target's sessionId (flat mode)."""
         self.next_id += 1
         msg = {'id': self.next_id, 'method': method, 'params': params}
-        if _session:
-            msg['sessionId'] = _session
+        if _session or self.session:
+            msg['sessionId'] = _session or self.session
         self.ws.send_text(json.dumps(msg))
         return self.next_id
 
@@ -727,9 +791,10 @@ class _Cdp:
                     return
 
 
-def _cdp_launch_args(profile_dir, background=False):
-    """Headless Chrome flags for the DevTools path. No file-access flags; throwaway profile;
-    DevTools listens on a random localhost port that only this run uses.
+def _cdp_launch_args(profile_dir, background=False, pipe=False):
+    """Headless Chrome flags for the DevTools path. No file-access flags; throwaway profile.
+    pipe: DevTools over inherited pipes (no port; see _Pipe). Otherwise DevTools listens on a random
+    localhost port that only this run uses (the fallback when pipe mode fails).
 
     background (viewer thumbnails): software rendering and one renderer process, so it does not
     compete with the viewer's browser for the GPU, and a lower CPU priority (nice) that Chrome's
@@ -738,6 +803,8 @@ def _cdp_launch_args(profile_dir, background=False):
             '--no-first-run', '--no-default-browser-check',
             '--disable-features=IsolateSandboxedIframes', '--hide-scrollbars',
             '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', 'about:blank']
+    if pipe:
+        args[-3:-1] = ['--remote-debugging-pipe']
     if not background:
         return args
     args[1:1] = ['--disable-gpu', '--renderer-process-limit=1']
@@ -843,6 +910,51 @@ class _CdpSession:
 
     def _start(self, connect_by):
         try:
+            self._start_pipe(min(connect_by, time.monotonic() + 10))
+        except (OSError, ValueError, KeyError, StopIteration, TimeoutError, CdpError) as e:
+            # Pipe mode failed (an old or wrapped Chrome): start a new Chrome with a port
+            if self.ws:
+                self.ws.close()
+            self.ws = self.cdp = None
+            self.chrome.kill()
+            if time.monotonic() > connect_by:
+                raise CdpConnectError(f'DevTools pipe failed: {e!r}')
+            self.chrome = _Chrome()
+            self.profile = self.chrome.profile
+            self._start_port(connect_by)
+        self.cdp.deadline = time.monotonic() + 30
+        self._guard()
+
+    def _start_pipe(self, deadline):
+        """Chrome reads our commands from fd 3 and writes to fd 4; the page is attached flat."""
+        to_chrome, from_chrome = os.pipe(), os.pipe()   # (read, write) each, close-on-exec
+        mine, theirs = (to_chrome[1], from_chrome[0]), (to_chrome[0], from_chrome[1])
+        try:
+            args = _cdp_launch_args(self.profile, self.background, pipe=True)
+            self.proc = self.chrome.spawn([sys.executable, '-I', '-S', '-c', _PIPE_WRAPPER,
+                                           str(theirs[0]), str(theirs[1])] + args, pass_fds=theirs)
+        except BaseException:
+            for fd in mine:
+                os.close(fd)
+            raise
+        finally:
+            for fd in theirs:
+                os.close(fd)
+        self.ws = _Pipe(*mine)
+        self.cdp = _Cdp(self.ws, deadline)
+        while True:
+            pages = [t for t in self.cdp.call('Target.getTargets').get('targetInfos', [])
+                     if t.get('type') == 'page']
+            if pages:
+                break
+            if time.monotonic() > deadline:
+                raise TimeoutError
+            time.sleep(0.05)
+        self.cdp.session = self.cdp.call('Target.attachToTarget', targetId=pages[0]['targetId'],
+                                         flatten=True)['sessionId']
+
+    def _start_port(self, connect_by):
+        try:
             self.proc = self.chrome.spawn(_cdp_launch_args(self.profile, self.background))
         except OSError as e:
             raise CdpConnectError(f'cannot start Chrome: {e}')
@@ -878,6 +990,8 @@ class _CdpSession:
                 time.sleep(delay)
                 delay = min(delay * 2, 0.5)
         self.cdp = _Cdp(self.ws, time.monotonic() + 30)
+
+    def _guard(self):
         self.cdp.call('Page.enable')
         # Chrome lets a file:// page show any local file in an iframe or image, so every file://
         # request is paused here and failed unless it is inside file_roots (the idea folder).

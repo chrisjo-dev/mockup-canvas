@@ -122,6 +122,64 @@ class ChromeCleanupOnSignal(TempHomeCase):
                 self.assert_cleaned(proc, chrome)
 
 
+def processes_using(prefix):
+    """-> [(pid, command)] of processes whose command line mentions prefix."""
+    return [(pid, cmd) for pid, cmd in canvas._ps_commands() or () if prefix in cmd]
+
+
+@unittest.skipUnless(canvas.CHROME, 'Chrome not found')
+class ChromeDiesWithKilledServer(TempHomeCase):
+    """kill -9 skips atexit. DevTools runs over pipes, so Chrome sees them close and exits."""
+
+    def test_sigkill_during_thumbnail_rendering_leaves_no_chrome(self):
+        tmpdir = os.path.join(self.tmp, 'tmp')
+        os.makedirs(tmpdir)
+        self.env['TMPDIR'] = tmpdir
+        design = os.path.join(self.home, 'p', 'design')
+        boards = tuple(f'A{i:02d}-B.html' for i in range(1, 9))
+        self.make_idea(design, 'demo', boards=boards)
+        port = free_port()
+        proc = subprocess.Popen([sys.executable, CANVAS_PY, 'serve', design, '--port', str(port)],
+                                env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+
+        def leftovers():
+            for pid, _ in processes_using(os.path.join(tmpdir, 'mockup-canvas-chrome-')):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+        self.addCleanup(leftovers)
+        end = time.monotonic() + 15
+        while True:
+            try:
+                conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+                conn.request('GET', '/demo/thumbs/A01-B.png')
+                conn.getresponse().read()
+                conn.close()
+                break
+            except OSError:
+                self.assertLess(time.monotonic(), end, 'server did not start')
+                time.sleep(0.1)
+        for b in boards[1:]:
+            conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+            conn.request('GET', f'/demo/thumbs/{b[:-5]}.png')
+            conn.getresponse().read()
+            conn.close()
+        profile = os.path.join(tmpdir, 'mockup-canvas-chrome-')
+        end = time.monotonic() + 20
+        while not any('--type=renderer' in c for _, c in processes_using(profile)):
+            self.assertLess(time.monotonic(), end, 'Chrome did not start rendering')
+            time.sleep(0.05)
+        self.assertGreater(len(processes_using(profile)), 1)
+        os.kill(proc.pid, signal.SIGKILL)
+        proc.wait(5)
+        end = time.monotonic() + 5
+        while processes_using(profile) and time.monotonic() < end:
+            time.sleep(0.1)
+        self.assertEqual(processes_using(profile), [], 'Chrome outlived the killed server')
+
+
 class InFlightStarts(TempHomeCase):
     def test_close_all_waits_for_a_starting_chrome_and_closes_it(self):
         entered, release = threading.Event(), threading.Event()
@@ -212,6 +270,27 @@ class StaleProfiles(TempHomeCase):
         self.assertFalse(os.path.exists(paths['old']))
         for keep in (paths['young'], paths['busy'], other):
             self.assertTrue(os.path.isdir(keep), keep)
+
+    def test_skips_folders_of_other_users(self):
+        base = os.path.join(self.tmp, 'tmp')
+        os.makedirs(base)
+        p = tempfile.mkdtemp(prefix='mockup-canvas-chrome-', dir=base)
+        os.utime(p, (0, 0))
+        # Seen as another user's folder (a shared /tmp): never deleted
+        with mock.patch.object(canvas.tempfile, 'tempdir', base), \
+                mock.patch.object(canvas.os, 'getuid', return_value=os.getuid() + 1):
+            self.assertEqual(canvas._clean_stale_profiles(), 0)
+        self.assertTrue(os.path.isdir(p))
+        # A link planted under the prefix is not followed or deleted
+        target = os.path.join(self.tmp, 'victim')
+        os.makedirs(target)
+        link = os.path.join(base, 'mockup-canvas-chrome-link')
+        os.symlink(target, link)
+        os.utime(link, (0, 0), follow_symlinks=False)
+        with mock.patch.object(canvas.tempfile, 'tempdir', base):
+            self.assertEqual(canvas._clean_stale_profiles(), 1)   # only the user's own folder
+        self.assertFalse(os.path.exists(p))
+        self.assertTrue(os.path.islink(link) and os.path.isdir(target))
 
     def test_keeps_everything_when_ps_fails(self):
         base = os.path.join(self.tmp, 'tmp')

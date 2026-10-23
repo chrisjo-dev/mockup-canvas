@@ -605,13 +605,20 @@ class ChromeLaunchArgs(TempHomeCase):
             self.assertFalse(any('allow-file-access' in a or 'disable-web-security' in a for a in cmd), cmd)
             self.assertTrue(existed)
             self.assertFalse(os.path.exists(profile), 'profile not deleted')
-            # DevTools launch: random localhost port, page loaded later over CDP; no --screenshot
-            self.assertIn('--remote-debugging-port=0', cmd)
-            self.assertIn('--remote-debugging-address=127.0.0.1', cmd)
+            # DevTools launch: over pipes (no port), or as the fallback a random localhost port;
+            # the page is loaded later over CDP; no --screenshot
+            if '--remote-debugging-pipe' in cmd:
+                self.assertFalse(any(a.startswith('--remote-debugging-port') for a in cmd), cmd)
+            else:
+                self.assertIn('--remote-debugging-port=0', cmd)
+                self.assertIn('--remote-debugging-address=127.0.0.1', cmd)
             self.assertEqual(cmd[-1], 'about:blank')
             self.assertFalse(any(a.startswith('--screenshot') for a in cmd))
             profiles.add(profile)
         self.assertEqual(len(profiles), len(calls), 'profile reused')
+        # Each render tries the pipe first and then the port
+        self.assertIn('--remote-debugging-pipe', calls[0][0])
+        self.assertIn('--remote-debugging-port=0', calls[1][0])
 
     def test_render_args(self):
         self.check(self.run_cmd(canvas.cmd_render, self.idea))

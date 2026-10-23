@@ -167,9 +167,12 @@ class PngCodec(TempHomeCase):
 
 
 # ── fake Chrome ────────────────────────────────────────────────────────────
-# Speaks just enough DevTools protocol (HTTP /json/list + WebSocket) for _cdp_capture, answering
-# Page.captureScreenshot with a fixture PNG chosen by URL substring. Server frames are sent
+# Speaks just enough DevTools protocol for _cdp_capture, answering Page.captureScreenshot with a
+# fixture PNG chosen by URL substring. With --remote-debugging-pipe it reads NUL-terminated JSON
+# from fd 3 and writes to fd 4 (the page is reached through Target.attachToTarget, flat sessions).
+# With --remote-debugging-port it serves HTTP /json/list + WebSocket; server frames are sent
 # fragmented and after a ping, so the client's continuation and ping/pong handling are exercised.
+# FAKE_CHROME_NO_PIPE=1 exits at once in pipe mode (canvas.py falls back to the port).
 # FAKE_CHROME_MODE=screenshot refuses DevTools and acts like the old --screenshot path.
 
 FAKE_CHROME = r"""#!/usr/bin/env python3
@@ -189,9 +192,12 @@ def fixture(url):
     for needle, png in json.loads(env.get('FAKE_CHROME_MAP', '{}')).items():
         if needle in url:
             return png
-cdp = '--remote-debugging-port=0' in args
+pipe = '--remote-debugging-pipe' in args
+cdp = pipe or '--remote-debugging-port=0' in args
 if env.get('FAKE_CHROME_EXIT'):
     sys.exit(int(env['FAKE_CHROME_EXIT']))
+if pipe and env.get('FAKE_CHROME_NO_PIPE'):
+    sys.exit(1)
 if cdp and env.get('FAKE_CHROME_MODE') == 'screenshot':
     sys.exit(1)
 log(args=args)
@@ -201,6 +207,53 @@ if not cdp:
     if png:
         shutil.copyfile(png, out)
     sys.exit(0)
+
+state = {'url': '', 'w': 0}
+
+def handle(msg, send_obj):
+    m, p = msg['method'], msg.get('params', {})
+    sid = msg.get('sessionId')
+    if m.startswith('Target.') and pipe:
+        res = ({'targetInfos': [{'type': 'browser', 'targetId': 'B'}, {'type': 'page', 'targetId': 'P1'}]}
+               if m == 'Target.getTargets' else {'sessionId': 'S1'} if m == 'Target.attachToTarget' else {})
+        send_obj({'id': msg['id'], 'result': res}); return
+    if pipe and sid != 'S1':
+        log(error='page command without the page session: ' + m); sys.exit(2)
+    log(method=m, params=p)
+    res, events = {}, []
+    if m == 'Emulation.setDeviceMetricsOverride':
+        state['w'] = p['width']
+    elif m == 'Page.navigate':
+        state['url'] = p['url']
+        res = {'frameId': 'f'}
+        if not env.get('FAKE_CHROME_NO_LOAD'):
+            events.append('Page.loadEventFired')
+    elif m == 'Page.reload':
+        events.append('Page.loadEventFired')
+    elif m == 'Runtime.evaluate':
+        v = (int(env.get('FAKE_CHROME_INNER', state['w'])) if p['expression'] == 'innerWidth'
+             else int(env.get('FAKE_CHROME_SCROLL_H', '2000')))
+        res = {'result': {'type': 'number', 'value': v}}
+    elif m == 'Page.captureScreenshot':
+        png = fixture(state['url'])
+        if not png:
+            send_obj(dict({'id': msg['id'], 'error': {'code': -32000, 'message': 'no fixture'}}, **({'sessionId': sid} if sid else {}))); return
+        with open(png, 'rb') as f:
+            res = {'data': base64.b64encode(f.read()).decode()}
+    send_obj(dict({'id': msg['id'], 'result': res}, **({'sessionId': sid} if sid else {})))
+    for e in events:
+        send_obj(dict({'method': e, 'params': {}}, **({'sessionId': sid} if sid else {})))
+
+if pipe:
+    buf = b''
+    while True:
+        while b'\0' not in buf:
+            chunk = os.read(3, 65536)
+            if not chunk:
+                sys.exit(0)   # canvas.py closed the pipe (or died): exit like Chrome does
+            buf += chunk
+        raw, buf = buf.split(b'\0', 1)
+        handle(json.loads(raw), lambda o: os.write(4, json.dumps(o).encode() + b'\0'))
 
 profile = next(a.split('=', 1)[1] for a in args if a.startswith('--user-data-dir='))
 srv = socket.socket()
@@ -254,7 +307,6 @@ def send(c, obj):
     half = len(data) // 2
     c.sendall(head(False, 0x1, half) + data[:half] + head(True, 0x0, len(data) - half) + data[half:])
 
-state = {'url': '', 'w': 0}
 while True:
     c, _ = srv.accept()
     req = b''
@@ -285,32 +337,7 @@ while True:
             log(pong=data.decode()); continue
         if op == 0x8:
             sys.exit(0)
-        msg = json.loads(data)
-        m, p = msg['method'], msg.get('params', {})
-        log(method=m, params=p)
-        res, events = {}, []
-        if m == 'Emulation.setDeviceMetricsOverride':
-            state['w'] = p['width']
-        elif m == 'Page.navigate':
-            state['url'] = p['url']
-            res = {'frameId': 'f'}
-            if not env.get('FAKE_CHROME_NO_LOAD'):
-                events.append('Page.loadEventFired')
-        elif m == 'Page.reload':
-            events.append('Page.loadEventFired')
-        elif m == 'Runtime.evaluate':
-            v = (int(env.get('FAKE_CHROME_INNER', state['w'])) if p['expression'] == 'innerWidth'
-                 else int(env.get('FAKE_CHROME_SCROLL_H', '2000')))
-            res = {'result': {'type': 'number', 'value': v}}
-        elif m == 'Page.captureScreenshot':
-            png = fixture(state['url'])
-            if not png:
-                send(c, {'id': msg['id'], 'error': {'code': -32000, 'message': 'no fixture'}}); continue
-            with open(png, 'rb') as f:
-                res = {'data': base64.b64encode(f.read()).decode()}
-        send(c, {'id': msg['id'], 'result': res})
-        for e in events:
-            send(c, {'method': e, 'params': {}})
+        handle(json.loads(data), lambda o: send(c, o))
 """
 
 
@@ -372,7 +399,8 @@ class SnapCommand(FakeChromeCase):
             self.assertEqual(f.read(), g.read())
         run, = self.chrome_calls()
         args = run['args']
-        self.assertIn('--remote-debugging-port=0', args)
+        self.assertIn('--remote-debugging-pipe', args)   # no DevTools port at all
+        self.assertFalse(any(a.startswith('--remote-debugging-port') for a in args))
         self.assertTrue(any(a.startswith('--user-data-dir=') for a in args))
         self.assertFalse(any('file-access' in a or 'disable-web-security' in a for a in args))
         profile = next(a.split('=', 1)[1] for a in args if a.startswith('--user-data-dir='))
@@ -381,7 +409,23 @@ class SnapCommand(FakeChromeCase):
                          [{'width': 768, 'height': 1024, 'deviceScaleFactor': 1, 'mobile': False}])
         self.assertEqual(self.params(run, 'Page.navigate'), [{'url': 'http://localhost:5999/'}])
         self.assertEqual(self.params(run, 'Page.captureScreenshot'), [{'format': 'png'}])
+
+    def test_snap_falls_back_to_the_devtools_port_when_the_pipe_fails(self):
+        png = os.path.join(self.tmp, 'fixture.png')
+        solid_png(png, 768, 1024, (1, 2, 3))
+        self.chrome_map({'localhost:5999': png})
+        self.env['FAKE_CHROME_NO_PIPE'] = '1'
+        out = os.path.join(self.tmp, 'port.png')
+        r = self.run_cli('snap', 'http://localhost:5999/', '--size', 'tablet', '--out', out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('Warning', r.stderr)
+        with open(out, 'rb') as f, open(png, 'rb') as g:
+            self.assertEqual(f.read(), g.read())
+        run, = self.chrome_calls()   # the pipe run exited before logging
+        self.assertIn('--remote-debugging-port=0', run['args'])
+        self.assertIn('--remote-debugging-address=127.0.0.1', run['args'])
         self.assertGreater(run['pongs'], 0)          # pings from Chrome are answered
+        self.assertEqual(self.params(run, 'Page.captureScreenshot'), [{'format': 'png'}])
 
     def test_snap_waits_for_a_slow_devtools_start(self):
         # A half-written DevToolsActivePort, a port that refuses connections, and an empty
@@ -390,6 +434,7 @@ class SnapCommand(FakeChromeCase):
         solid_png(png, 390, 844, (1, 2, 3))
         self.chrome_map({'localhost:5999': png})
         self.env['FAKE_CHROME_SLOW_START'] = '1'
+        self.env['FAKE_CHROME_NO_PIPE'] = '1'   # the slow start is a DevTools port case
         out = os.path.join(self.tmp, 'slow.png')
         r = self.run_cli('snap', 'http://localhost:5999/', '--out', out, '--wait', '0')
         self.assertEqual(r.returncode, 0, r.stderr)
