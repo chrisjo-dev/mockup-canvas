@@ -43,6 +43,15 @@ class _Secret(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         _Secret.hits.append(self.path)
         body = b'<!doctype html><body style="margin:0;background:#f00;height:100vh">server secret</body>'
+        ctype = 'text/html'
+        local = f'http://localhost:{self.server.server_address[1]}'
+        if self.path == '/sw-page':
+            # A page on an allowed origin installs a service worker that reaches for localhost
+            body = b'<!doctype html><body><script>navigator.serviceWorker.register("/sw.js")</script></body>'
+        elif self.path == '/sw.js':
+            ctype = 'text/javascript'
+            body = (f'self.addEventListener("install", e => e.waitUntil(fetch("{local}/from-sw").catch(() => 0)));'
+                    f'fetch("{local}/from-sw-top").catch(() => 0);').encode()
         if self.path == '/outer':
             # Stands in for an allowed public page that reaches for localhost from its own process
             local = f'http://localhost:{self.server.server_address[1]}'
@@ -51,7 +60,7 @@ class _Secret(http.server.BaseHTTPRequestHandler):
                     f'new Worker(URL.createObjectURL(new Blob([`fetch("{local}/worker")`])))'
                     '</script></body>').encode()
         self.send_response(200)
-        self.send_header('Content-Type', 'text/html')
+        self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -144,6 +153,45 @@ class CliCaptures(LocalFiles):
         self.assertEqual(set(_Secret.hits), {'/outer'})
         self.assertEqual(colored(out, RED), 0)
 
+    def test_websockets_cannot_reach_private_hosts(self):
+        # Request interception never sees a WebSocket handshake; the guard proxy does
+        import socket
+        lst = socket.socket()
+        lst.bind(('127.0.0.1', 0))
+        lst.listen(8)
+        lst.settimeout(0.2)
+        self.addCleanup(lst.close)
+        port = lst.getsockname()[1]
+        board = os.path.join(self.idea, 'boards', 'A05-Ws.html')
+        with open(board, 'w') as f:
+            f.write('<!doctype html><body><script>'
+                    f'for (const h of ["127.0.0.1", "localhost", "[::ffff:127.0.0.1]"]) '
+                    f'{{ try {{ new WebSocket("ws://" + h + ":{port}/"); }} catch (e) {{}} }}'
+                    '</script></body>')
+        out = os.path.join(self.tmp, 'ws.png')
+        self.assertTrue(canvas._capture(pathlib.Path(board).as_uri(), 400, 300, 1500, out,
+                                        file_roots=[self.idea]))
+        try:
+            conn, _ = lst.accept()
+            conn.close()
+            self.fail('a board render opened a WebSocket to 127.0.0.1')
+        except socket.timeout:
+            pass
+
+    def test_service_workers_cannot_reach_private_hosts(self):
+        # Pretend 127.0.0.1 is public: its page installs a service worker, which runs outside the
+        # board's DevTools targets and fetches localhost
+        board = os.path.join(self.idea, 'boards', 'A06-Sw.html')
+        with open(board, 'w') as f:
+            f.write(frame(f'http://127.0.0.1:{self.server_port}/sw-page'))
+        out = os.path.join(self.tmp, 'sw.png')
+        with mock.patch.object(canvas, '_host_blocked', lambda h: h != '127.0.0.1'):
+            self.assertTrue(canvas._capture(pathlib.Path(board).as_uri(), 400, 300, 2500, out,
+                                            file_roots=[self.idea]))
+        self.assertIn('/sw.js', _Secret.hits)   # the worker did install
+        self.assertNotIn('/from-sw', _Secret.hits)
+        self.assertNotIn('/from-sw-top', _Secret.hits)
+
     def test_overview_blocks_files_outside_the_idea(self):
         r = self.run_cli('overview', self.idea)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -197,9 +245,15 @@ class PrivateHosts(unittest.TestCase):
         for host in ('localhost', 'LOCALHOST.', 'app.localhost', 'printer.local', '', None,
                      '127.0.0.1', '127.8.9.1', '10.1.2.3', '172.16.0.1', '172.31.255.255',
                      '192.168.1.1', '169.254.169.254', '0.0.0.0', '::1', '::', 'fc00::1',
-                     'fd12:3456::1', 'fe80::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1'):
+                     'fd12:3456::1', 'fe80::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1',
+                     # IPv4 inside IPv6: NAT64, local-use NAT64, 6to4, IPv4-compatible, Teredo
+                     '64:ff9b::7f00:1', '64:ff9b::a00:1', '64:ff9b:1::a00:1', '2002:7f00:1::1',
+                     '2002:c0a8:101::', '::127.0.0.1', '::10.0.0.1', '2001:0:4136:e378:8000:63bf:3fff:fdd2',
+                     # shared (CGNAT), multicast, reserved, broadcast
+                     '100.64.0.1', '224.0.0.1', '240.0.0.1', '255.255.255.255', 'ff02::1'):
             self.assertTrue(canvas._host_blocked(host), host)
-        for host in ('8.8.8.8', '172.32.0.1', '192.169.0.1', '2001:4860:4860::8888'):
+        for host in ('8.8.8.8', '172.32.0.1', '192.169.0.1', '2001:4860:4860::8888',
+                     '64:ff9b::808:808', '2002:808:808::1'):
             self.assertFalse(canvas._host_blocked(host), host)
 
     def addr(self, *ips):
@@ -227,6 +281,56 @@ class PrivateHosts(unittest.TestCase):
             t = time.monotonic()
             self.assertTrue(canvas._host_blocked('slow.example'))
             self.assertLess(time.monotonic() - t, 0.8)
+
+
+class GuardProxy(unittest.TestCase):
+    """The SOCKS5 proxy board renders use: one lookup per connection, private answers refused."""
+
+    def socks(self, host, port):
+        import socket
+        c = socket.create_connection(('127.0.0.1', canvas._guard_proxy_port()), timeout=5)
+        self.addCleanup(c.close)
+        c.sendall(b'\x05\x01\x00')
+        self.assertEqual(c.recv(2), b'\x05\x00')
+        name = host.encode()
+        c.sendall(b'\x05\x01\x00\x03' + bytes([len(name)]) + name + port.to_bytes(2, 'big'))
+        return c, c.recv(10)[1]
+
+    def test_names_are_resolved_once_and_private_answers_refused(self):
+        srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _Secret)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        port = srv.server_address[1]
+        _Secret.hits = []
+        real = canvas.socket.getaddrinfo
+        calls = []
+
+        def gai(host, *a, **kw):
+            calls.append(host)
+            if host == 'rebind.test':   # the name now points inward
+                return real('127.0.0.1', *a, **kw)
+            return real(host, *a, **kw)
+        with mock.patch.object(canvas.socket, 'getaddrinfo', gai):
+            for host in ('rebind.test', 'localhost', '127.0.0.1', 'app.localhost'):
+                calls.clear()
+                c, code = self.socks(host, port)
+                self.assertEqual(code, 2, host)   # not allowed by ruleset
+                self.assertLessEqual(calls.count(host), 1, host)   # one lookup, never a second
+        # An allowed literal connects to exactly that address
+        with mock.patch.object(canvas, '_host_blocked', lambda h: h != '127.0.0.1'):
+            c, code = self.socks('127.0.0.1', port)
+            self.assertEqual(code, 0)
+            c.sendall(b'GET /via-proxy HTTP/1.0\r\nHost: x\r\n\r\n')
+            self.assertIn(b'200', c.recv(100))
+        self.assertEqual(_Secret.hits, ['/via-proxy'])
+
+    def test_render_args_route_through_the_proxy(self):
+        args = canvas._cdp_launch_args('/p', pipe=True, proxy_port=1234)
+        self.assertIn('--proxy-server=socks5://127.0.0.1:1234', args)
+        self.assertIn('--proxy-bypass-list=<-loopback>', args)
+        self.assertEqual(args[-1], 'about:blank')
+        self.assertFalse(any('proxy' in a for a in canvas._cdp_launch_args('/p', pipe=True)))
 
 
 if __name__ == '__main__':

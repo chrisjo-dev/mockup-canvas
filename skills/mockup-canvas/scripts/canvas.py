@@ -791,7 +791,7 @@ class _Cdp:
                     return
 
 
-def _cdp_launch_args(profile_dir, background=False, pipe=False):
+def _cdp_launch_args(profile_dir, background=False, pipe=False, proxy_port=0):
     """Headless Chrome flags for the DevTools path. No file-access flags; throwaway profile.
     pipe: DevTools over inherited pipes (no port; see _Pipe). Otherwise DevTools listens on a random
     localhost port that only this run uses (the fallback when pipe mode fails).
@@ -805,6 +805,12 @@ def _cdp_launch_args(profile_dir, background=False, pipe=False):
             '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', 'about:blank']
     if pipe:
         args[-3:-1] = ['--remote-debugging-pipe']
+    if proxy_port:
+        # Board renders: every connection (also WebSockets, workers, service workers) goes through
+        # the guard proxy, which resolves the name itself (_GuardProxy). <-loopback> removes
+        # Chrome's built-in "localhost never uses the proxy" rule; WebRTC may not send UDP around it.
+        args[-1:-1] = [f'--proxy-server=socks5://127.0.0.1:{proxy_port}', '--proxy-bypass-list=<-loopback>',
+                       '--force-webrtc-ip-handling-policy=disable_non_proxied_udp']
     if not background:
         return args
     args[1:1] = ['--disable-gpu', '--renderer-process-limit=1']
@@ -843,14 +849,27 @@ _DNS_CACHE = {}   # host -> (blocked, time checked)
 _DNS_LOCK = threading.Lock()
 
 
+_NAT64 = ipaddress.ip_network('64:ff9b::/96')
+_IPV4_COMPAT = ipaddress.ip_network('::/96')
+
+
 def _ip_blocked(text):
-    """True for a loopback, private, link-local, or unspecified address. ValueError if text is
-    not an IP literal."""
+    """True for any address that is not globally reachable (loopback, private, link-local,
+    shared, reserved, unspecified, multicast), also when an IPv6 address carries such an IPv4
+    address (mapped, IPv4-compatible, 6to4, NAT64, Teredo). ValueError if text is not an IP
+    literal."""
     ip = ipaddress.ip_address(text.split('%', 1)[0])
-    if ip.version == 6 and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
-    return (ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_unspecified or
-            any(ip in n for n in _BLOCKED_NETS))
+    if ip.version == 6:
+        if ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        elif ip.sixtofour:
+            ip = ip.sixtofour
+        elif ip.teredo:
+            return True
+        elif ip in _NAT64 or (ip in _IPV4_COMPAT and int(ip) > 1):
+            ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return (not ip.is_global or ip.is_multicast or ip.is_loopback or ip.is_private or
+            ip.is_link_local or ip.is_unspecified or any(ip in n for n in _BLOCKED_NETS))
 
 
 def _host_blocked(host):
@@ -885,6 +904,131 @@ def _host_blocked(host):
     return blocked
 
 
+def _resolve_public(host, port):
+    """-> (family, address) of host for a board render to connect to, or None when it must not.
+    Resolves once: the address that was checked is the address that is used (no DNS rebinding
+    between the check and the connect)."""
+    host = (host or '').rstrip('.').lower()
+    try:
+        ipaddress.ip_address(host.split('%', 1)[0])
+        literal = True
+    except ValueError:
+        literal = False
+    if _host_blocked(host) if literal else (
+            not host or host == 'localhost' or host.endswith(('.localhost', '.local'))):
+        return None
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return None
+    if not infos or (not literal and any(_ip_blocked(i[4][0]) for i in infos)):
+        return None
+    return infos[0][0], infos[0][4]
+
+
+class _GuardProxy:
+    """SOCKS5 proxy on 127.0.0.1 for board renders (CONNECT only, no auth). Chrome hands it host
+    names, so Chrome itself never resolves them; the proxy refuses names and addresses that are
+    private (_resolve_public) and connects to the address it checked. Covers what request
+    interception does not see: WebSockets, service workers, and DNS that changes its answer."""
+
+    def __init__(self):
+        self.sock = socket.socket()
+        self.sock.bind(('127.0.0.1', 0))
+        self.sock.listen(64)
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            try:
+                c, _ = self.sock.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._client, args=(c,), daemon=True).start()
+
+    @staticmethod
+    def _read(c, n):
+        data = b''
+        while len(data) < n:
+            chunk = c.recv(n - len(data))
+            if not chunk:
+                raise ConnectionError('closed')
+            data += chunk
+        return data
+
+    def _client(self, c):
+        up = None
+        try:
+            c.settimeout(30)
+            ver, n = self._read(c, 2)
+            self._read(c, n)
+            if ver != 5:
+                return
+            c.sendall(b'\x05\x00')                               # no authentication
+            ver, cmd, _, atyp = self._read(c, 4)
+            if atyp == 1:
+                host = socket.inet_ntop(socket.AF_INET, self._read(c, 4))
+            elif atyp == 4:
+                host = socket.inet_ntop(socket.AF_INET6, self._read(c, 16))
+            elif atyp == 3:
+                host = self._read(c, self._read(c, 1)[0]).decode('ascii', 'replace')
+            else:
+                return
+            port = int.from_bytes(self._read(c, 2), 'big')
+            target = _resolve_public(host, port) if cmd == 1 else None
+            if target:
+                try:
+                    up = socket.socket(target[0], socket.SOCK_STREAM)
+                    up.settimeout(10)
+                    up.connect(target[1])
+                except OSError:
+                    c.sendall(b'\x05\x05\x00\x01' + bytes(6))          # connection refused
+                    return
+            if not up:
+                c.sendall(b'\x05\x02\x00\x01' + bytes(6))              # not allowed by ruleset
+                return
+            c.sendall(b'\x05\x00\x00\x01' + bytes(6))
+            c.settimeout(None)
+            up.settimeout(None)
+            t = threading.Thread(target=self._pump, args=(up, c), daemon=True)
+            t.start()
+            self._pump(c, up)
+            t.join()
+        except (OSError, ValueError):
+            pass
+        finally:
+            for s in (c, up):
+                if s:
+                    s.close()
+
+    @staticmethod
+    def _pump(src, dst):
+        try:
+            while True:
+                data = src.recv(1 << 16)
+                if not data:
+                    break
+                dst.sendall(data)
+        except OSError:
+            pass
+        try:
+            dst.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+
+_GUARD = []
+_GUARD_LOCK = threading.Lock()
+
+
+def _guard_proxy_port():
+    with _GUARD_LOCK:
+        if not _GUARD:
+            _GUARD.append(_GuardProxy())
+        return _GUARD[0].port
+
+
 class _CdpSession:
     """One headless Chrome with a throwaway profile, driven over DevTools.
 
@@ -901,6 +1045,7 @@ class _CdpSession:
         self.proc = self.ws = self.cdp = None
         self.background = background
         self.block_private = block_private
+        self.proxy_port = _guard_proxy_port() if block_private else 0
         self.file_roots = []   # file:// requests are allowed only inside these folders
         try:
             self._start(time.monotonic() + connect_timeout)
@@ -930,7 +1075,7 @@ class _CdpSession:
         to_chrome, from_chrome = os.pipe(), os.pipe()   # (read, write) each, close-on-exec
         mine, theirs = (to_chrome[1], from_chrome[0]), (to_chrome[0], from_chrome[1])
         try:
-            args = _cdp_launch_args(self.profile, self.background, pipe=True)
+            args = _cdp_launch_args(self.profile, self.background, pipe=True, proxy_port=self.proxy_port)
             self.proc = self.chrome.spawn([sys.executable, '-I', '-S', '-c', _PIPE_WRAPPER,
                                            str(theirs[0]), str(theirs[1])] + args, pass_fds=theirs)
         except BaseException:
@@ -955,7 +1100,8 @@ class _CdpSession:
 
     def _start_port(self, connect_by):
         try:
-            self.proc = self.chrome.spawn(_cdp_launch_args(self.profile, self.background))
+            self.proc = self.chrome.spawn(_cdp_launch_args(self.profile, self.background,
+                                                           proxy_port=self.proxy_port))
         except OSError as e:
             raise CdpConnectError(f'cannot start Chrome: {e}')
         # Chrome writes DevToolsActivePort as "<port>\n<browser path>\n"; a file read while it
