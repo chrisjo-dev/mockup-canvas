@@ -6,8 +6,13 @@
 <title>Mockup Canvas</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" id="fonts" media="print" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
 <script>
+  // Web fonts do not block the first paint (the stylesheet loads as print, then applies)
+  (function () {
+    var l = document.getElementById('fonts');
+    if (l.sheet) l.media = 'all'; else l.onload = function () { l.media = 'all'; };
+  })();
   // Theme before first paint: ?theme= wins, then the saved choice, then dark
   (function () {
     var t = new URLSearchParams(location.search).get('theme');

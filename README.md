@@ -40,11 +40,11 @@ mockup-canvas exists because text descriptions of UI are ambiguous: when you pla
 - The canvas saves artboard positions to `canvas.json` when you drag them, with undo and redo for moves.
 - The canvas draws flow arrows between screens, labeled with the button or action that leads there.
 - The canvas shows approval badges (approved, rejected), and it shows notes as a tooltip on the artboard title.
-- The canvas shows a blue `built` badge on boards that have a recorded implementation (the route is in its tooltip), and a comment count on boards with review comments; click the count to read them in a panel.
+- The canvas shows a violet `built` badge on boards that have a recorded implementation (the route is in its tooltip), and a comment count on boards with review comments; click the count to read them in a panel.
 - The canvas groups artboards under collapsible headers, for example `current` and `old drafts`.
 - The canvas stays responsive on large boards: only boards near the view keep a live page, zoomed out (below about 30 to 40%) boards show cached PNG thumbnails (when served), a board seen once shows its thumbnail instead of a blank card while it loads again, and screen updates are batched once per animation frame. Thumbnails render in the background at low priority. Measured on a 71-artboard canvas (1440x900, Apple M4, Chrome headless): pan and zoom stay at about 59 to 60 FPS with a p95 frame time of about 20 ms and no frame over 50 ms, both on first open and with cached thumbnails. To reproduce, run `python3 tests/perf_check.py <idea folder>`.
 - The canvas reloads live: the server checks for file changes every second, so an edit to an artboard or `canvas.json` appears within about a second.
-- The canvas server lists every registered project and its ideas on one index page.
+- The canvas server opens on a dashboard of every registered project: idea cards with the newest board thumbnails, status counts, comments, and built boards; filters for what needs a decision; search and a command palette (`/` or `Cmd K`); adding projects or finding design folders; warnings for missing folders; light and dark themes; and phone layouts.
 - The canvas also works on a phone, either live on the same network (share mode) or as a static export you can host anywhere.
 
 **The agent skills** (`skills/<skill>/SKILL.md`)

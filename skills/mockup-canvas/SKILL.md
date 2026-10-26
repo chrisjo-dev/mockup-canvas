@@ -50,7 +50,7 @@ User data lives in `$MOCKUP_CANVAS_HOME` (default `~/.mockup-canvas/`):
 - `canvas snap <url> --size mobile|tablet|desktop|WxH --out FILE.png [--wait MS] [--full-page]`: screenshot a running app page at exactly that size (http/https only; warns when the host is not localhost). `--wait` is real time after the page load event (default 3000 ms).
 - `canvas compare <idea> <file> --url URL` (or `--png FILE`): renders the board at its registered size, takes the app screen at the same size, and writes `board.png`, `app.png`, `diff.png` (mismatches in magenta), `side.png`, and `report.json` to `<idea>/compare/<board id>/`. Look at `side.png` and `diff.png` yourself; the mismatch percent alone is not a verdict. `--ignore-top N` / `--ignore-bottom N` leave a band out of the count; `--align-top N` is for a board that draws N px (a fake status bar) the app does not have. See `canvas compare -h`.
 - `canvas impl <idea> <file> --route /path --file src/page.tsx`: record which route and files implement a board (paths relative to the project root). `canvas impl <idea> [--strict]` lists approved boards with or without an implementation.
-- `canvas comment <idea> <file> "text" [--by NAME]`: review notes on a board (`--clear` removes them, no text lists them). The canvas shows a comment count and a blue "built" badge.
+- `canvas comment <idea> <file> "text" [--by NAME]`: review notes on a board (`--clear` removes them, no text lists them). The canvas shows a comment count and a violet "built" badge.
 
 ## View on a phone
 
