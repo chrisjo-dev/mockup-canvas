@@ -57,7 +57,9 @@ test.describe('Live reload', () => {
     await openCanvas(page, srv.origin + '/alpha/trailmate/');
     await settled(page);
     await zoomInOn(page, 'T01-Home.html', 0.6);
-    const frame = page.frameLocator('.board[data-file="T01-Home.html"] iframe');
+    // A reload loads the new iframe hidden over the old one and removes the old one after its first
+    // paint, so for a moment there are two: the newest (last) is the one that matters.
+    const frame = page.frameLocator('.board[data-file="T01-Home.html"] iframe').last();
     await expect(frame.getByText('Pine Ridge Loop').first()).toBeVisible({ timeout: 10_000 });
     // 1. Marker on window
     await page.evaluate(() => { (window as any).__noReload = 'kept'; });
