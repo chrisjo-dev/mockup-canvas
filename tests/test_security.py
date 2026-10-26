@@ -277,8 +277,8 @@ class RegistryShareIndex(ServerCase):
     def test_local_index_keeps_management(self):
         self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
         html = self.request('GET', '/')[2].decode()
-        for shown in (self.d_a, 'Add project', 'Find in folders', 'removeProject', "'/api/roots/scan'",
-                      "Remove \\'' + name + '\\' from the list?\\n(No files are deleted)"):
+        for shown in ('~/work/alpha/design', 'Add project', 'Find in folders', 'removeProject', "'/api/roots/scan'",
+                      'from the list? No files are deleted.', "'/api/reveal'"):
             self.assertIn(shown, html, shown)
 
     def test_share_roots_are_frozen(self):

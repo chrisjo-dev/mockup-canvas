@@ -123,8 +123,9 @@ class SingleRoot(ServerCase):
         self.make_idea(self.design, evil)
         _, _, body = self.request('GET', '/')
         html = body.decode()
+        # names reach the page only inside the inlined JSON, with < escaped; the page sets them as text
         self.assertNotIn('<img src=x', html)
-        self.assertIn('&quot;&gt;&lt;img src=x onerror=alert(1)&gt;', html)
+        self.assertIn('\\u003cimg src=x onerror=alert(1)>', html)
 
     def test_root_header_present_in_local_mode(self):
         _, headers, _ = self.request('GET', '/')
@@ -244,10 +245,8 @@ class Registry(RegistryBase):
         self.write_json(self.roots_json, data)
         _, _, body = self.request('GET', '/')
         html = body.decode()
-        self.assertNotIn('<script>"', html)
         self.assertNotIn("alert(1);//<script>", html)
-        self.assertNotIn("removeProject('", html)
-        self.assertIn('data-name="x&#x27;);alert(1);//&lt;script&gt;"', html)
+        self.assertIn("x');alert(1);//\\u003cscript>", html)
 
     def test_roots_api_csrf(self):
         body = {'name': 'alpha'}
