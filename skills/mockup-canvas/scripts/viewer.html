@@ -917,7 +917,8 @@
     // #<board id> (from the dashboard's board tiles) fits that one board
     let focus = null;
     try { focus = decodeURIComponent(location.hash.slice(1)); } catch (_) {}
-    const one = focus && (canvasData.boards[focus] || canvasData.boards[focus + '.html']);
+    const own = (k) => Object.prototype.hasOwnProperty.call(canvasData.boards, k) ? canvasData.boards[k] : null;   // not #__proto__
+    const one = focus && (own(focus) || own(focus + '.html'));
     const bds = one ? [one] : Object.values(canvasData.boards || {});
     if (!bds.length) return;
     const minX = Math.min(...bds.map(b => b.x));

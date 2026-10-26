@@ -199,6 +199,22 @@ def _validate_design_path(path_str):
         return 'Not a mockup-canvas design folder (no subfolder contains canvas.json)', None
     return None, real
 
+_RESERVED_NAMES = {'.', '..', 'api', '_k'}   # api: the dashboard's /api/..., _k: share-mode asset paths
+
+def _validate_project_name(name):
+    """A project name is the first URL segment: returns an error message, or None when it is usable."""
+    if not name:
+        return 'The project name is empty'
+    if len(name) > 100:
+        return 'Use a project name of at most 100 characters'
+    if '/' in name or '\\' in name:
+        return f'A project name cannot contain / or \\: {name}'
+    if any(ord(c) < 32 or ord(c) == 127 for c in name):
+        return 'A project name cannot contain control characters'
+    if name in _RESERVED_NAMES:
+        return f'The name {name} is reserved, choose another name'
+    return None
+
 _SCAN_SKIP = {'node_modules', '.git', 'Library', 'System', 'Applications', '.Trash'}
 
 def _scan_for_roots(dirs, max_depth=5, timeout_secs=10):
@@ -1045,6 +1061,7 @@ def _ensure_group(canvas, group_name):
 
 # ── SSE ────────────────────────────────────────────────────────────────────
 
+SSE_SEND_TIMEOUT = 5   # seconds a write to one live reload client may block
 _sse_clients: dict = {}
 _sse_lock = threading.Lock()
 _sse_max = 40
@@ -1174,7 +1191,8 @@ def _thumb_target(idea_dir, fname, scale=THUMB_SCALE):
 class _ThumbQueue:
     def __init__(self, workers=THUMB_WORKERS):
         self.cv = threading.Condition()
-        self.jobs, self.pending, self.failed = [], set(), set()
+        self.jobs, self.pending = [], set()
+        self.failed = {}   # cached png path -> time.time() of the failure
         self.sessions, self.workers, self.started = [], workers, 0
         self.starting = 0   # workers inside _CdpSession(): Chrome may be running but not listed yet
         self.closed = False
@@ -1258,16 +1276,23 @@ class _ThumbQueue:
                 with self.cv:
                     self.pending.discard(out)
                     if not ok:
-                        self.failed.add(out)
+                        self.failed[out] = time.time()
                 if ok:
                     _broadcast(sse_key, {'type': 'thumb', 'file': fname})
         finally:
             if session:
                 self._drop(session)
 
+    RETRY_AFTER = 30   # seconds: a Retry right after a failure would only fail again
+
     def forget_failure(self, out):
+        """Let a failed board render again, once its failure is RETRY_AFTER seconds old."""
         with self.cv:
-            self.failed.discard(out)
+            t = self.failed.get(out)
+            if t is not None and time.time() - t >= self.RETRY_AFTER:
+                del self.failed[out]
+                return True
+            return False
 
     def _drop(self, session):
         with self.cv:
@@ -1322,6 +1347,31 @@ def _stop_on_sigterm():
 DASHBOARD_PATH = os.path.join(HERE, 'dashboard.html')
 DASHBOARD_MANAGE_PATH = os.path.join(HERE, 'dashboard-manage.js')
 _IDEA_CACHE = {}   # canvas.json path -> ((mtime_ns, size), [board summaries])
+_PAGE_CACHE = {}   # manage flag -> (file mtimes, html, CSP script hashes)
+
+
+def _dashboard_page(manage):
+    """-> (html with the management script or not, "'sha256-...'" hashes of its scripts), or None.
+    The scripts are static, so their hashes are computed once per file version, not per request."""
+    paths = [DASHBOARD_PATH] + ([DASHBOARD_MANAGE_PATH] if manage else [])
+    try:
+        stamp = tuple(os.stat(p).st_mtime_ns for p in paths)
+        hit = _PAGE_CACHE.get(manage)
+        if hit and hit[0] == stamp:
+            return hit[1], hit[2]
+        with open(DASHBOARD_PATH, encoding='utf-8') as f:
+            html = f.read()
+        js = ''
+        if manage:
+            with open(DASHBOARD_MANAGE_PATH, encoding='utf-8') as f:
+                js = f.read()
+    except OSError:
+        return None
+    html = html.replace('<!--MANAGE-->', f'<script>\n{js}</script>' if manage else '', 1)
+    hashes = ' '.join("'sha256-%s'" % base64.b64encode(hashlib.sha256(m.encode()).digest()).decode()
+                      for m in re.findall(r'<script>(.*?)</script>', html, re.S))
+    _PAGE_CACHE[manage] = (stamp, html, hashes)
+    return html, hashes
 
 
 def _display_path(path):
@@ -1421,14 +1471,20 @@ def build_index(roots, single=False, share=False):
 
 
 def _reveal_path(path):
-    """Show a folder in the file manager (Finder on macOS)."""
+    """Show a folder in the file manager.
+    macOS: Finder opens the parent folder with this one selected (open -R).
+    Windows: Explorer does the same; its /select switch splits an unquoted argument at commas, so
+    the path goes in double quotes on one command line (Windows paths cannot contain a double quote).
+    Linux and others: there is no common "select" call, so xdg-open opens the parent folder."""
+    quiet = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if sys.platform == 'darwin':
-        cmd = ['open', '-R', path]
+        subprocess.Popen(['open', '-R', path], **quiet)
     elif os.name == 'nt':
-        cmd = ['explorer', '/select,' + path]
+        if '"' in path:
+            raise OSError('path with a double quote')
+        subprocess.Popen(f'explorer /select,"{path}"', **quiet)
     else:
-        cmd = ['xdg-open', os.path.dirname(path)]
-    subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(['xdg-open', os.path.dirname(path) or path], **quiet)
 
 
 def _design_folder_info(real):
@@ -1712,7 +1768,8 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._add_root_header()
             self.end_headers()
             return
-        if qs.get('retry', [''])[0] == '1':
+        # Retry is for the local owner only: a share viewer cannot keep a failing board in the queue
+        if qs.get('retry', [''])[0] == '1' and not self.share_token and not self.read_only:
             _THUMBS.forget_failure(out)
         # Rendered from file:// with every file:// request outside the idea folder failed over
         # DevTools (_CdpSession._file_guard). Loading the board from this server under its CSP
@@ -1835,24 +1892,16 @@ class CanvasHandler(BaseHTTPRequestHandler):
         return data
 
     def _serve_dashboard(self):
-        """dashboard.html with the index inlined (first paint needs no second request). The
-        management script (add, remove, reveal) is left out of share and read-only pages."""
-        try:
-            with open(DASHBOARD_PATH, encoding='utf-8') as f:
-                html = f.read()
-            manage = ''
-            if not self.share_token and not self.read_only:
-                with open(DASHBOARD_MANAGE_PATH, encoding='utf-8') as f:
-                    manage = f.read()
-        except OSError:
+        """dashboard.html with the index inlined as JSON data (first paint needs no second request).
+        The management script (add, remove, reveal) is left out of share and read-only pages."""
+        page = _dashboard_page(manage=not self.share_token and not self.read_only)
+        if not page:
             self._404(); return
+        html, hashes = page
         data = self._index_data()
-        data.pop('now', None)   # the page is the same for a GET and a HEAD (and its script hashes too)
-        html = html.replace('<!--BOOT-->', f'<script>window.MC_BOOT={_embed_json(data)};</script>', 1)
-        html = html.replace('<!--MANAGE-->', f'<script>\n{manage}</script>' if manage else '', 1)
-        # Inline scripts run by their hash: an injected script would not match
-        hashes = ' '.join("'sha256-%s'" % base64.b64encode(hashlib.sha256(m.encode()).digest()).decode()
-                          for m in re.findall(r'<script>(.*?)</script>', html, re.S))
+        data.pop('now', None)   # the page is the same for a GET and a HEAD
+        # Not a script: the browser never runs it, and _embed_json escapes < so it cannot end the block
+        html = html.replace('<!--BOOT-->', f'<script type="application/json" id="boot">{_embed_json(data)}</script>', 1)
         body = html.encode()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -1954,8 +2003,10 @@ class CanvasHandler(BaseHTTPRequestHandler):
         if not _add_sse(key, self.wfile):
             self._json({'ok': False, 'error': 'Too many connections'}, 503)
             return
-        # Long-lived stream: exempt from the per-connection socket timeout
-        self.connection.settimeout(None)
+        # Long-lived stream: no read timeout matters here (nothing is read), but every write gets
+        # SSE_SEND_TIMEOUT: a client that stops reading cannot stall the watch or thumbnail threads
+        # that broadcast to it; the write fails and the client is dropped.
+        self.connection.settimeout(SSE_SEND_TIMEOUT)
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.send_header('Cache-Control', 'no-cache')
@@ -2176,6 +2227,10 @@ class RegistryHandler(CanvasHandler):
             if not name:
                 parent = os.path.dirname(real)
                 name = os.path.basename(parent) or os.path.basename(real)
+            bad = _validate_project_name(name)
+            if bad:
+                self._json({'ok': False, 'error': bad, 'name': name}, 400 if action == 'add' else 200)
+                return
             roots = load_roots_safe()
             same_name = next((r for r in roots if r['name'] == name), None)
             # Locate folder: a project whose folder is gone takes the new path under its old name
@@ -2207,8 +2262,9 @@ class RegistryHandler(CanvasHandler):
             if not name or not new_name:
                 self._json({'ok': False, 'error': 'The name and new_name fields are required'}, 400)
                 return
-            if '/' in new_name or new_name in ('.', '..', 'api') or len(new_name) > 100:
-                self._json({'ok': False, 'error': 'Use a short name without /'}, 400)
+            bad = _validate_project_name(new_name)
+            if bad:
+                self._json({'ok': False, 'error': bad}, 400)
                 return
             roots = load_roots_safe()
             if any(r['name'] == new_name for r in roots):
@@ -2490,6 +2546,11 @@ def cmd_roots(args):
         if name is None:
             parent = os.path.dirname(design_abs)
             name = os.path.basename(parent) or os.path.basename(design_abs)
+        bad = _validate_project_name(name.strip())
+        if bad:
+            print(f'Error: {bad} (pass another one with --name)', file=sys.stderr)
+            sys.exit(2)
+        name = name.strip()
         roots = load_roots()
         for r in roots:
             if r['name'] == name:
@@ -2536,6 +2597,8 @@ def cmd_roots(args):
                 print(f'Skipped (already registered): {item["name"]} -> {item["path"]}')
                 continue
             name = item['name']
+            if _validate_project_name(name):
+                name = 'project'   # e.g. a folder named api: register it under a usable name
             # Resolve name clashes
             base_name = name
             suffix = 2

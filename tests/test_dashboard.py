@@ -86,12 +86,15 @@ class RegistryIndex(IndexBase):
         csp = hdrs['Content-Security-Policy']
         self.assertNotIn('unsafe-inline', csp.split('script-src', 1)[1].split(';')[0])
         scripts = re.findall(r'<script>(.*?)</script>', html, re.S)
-        self.assertGreaterEqual(len(scripts), 4)   # theme, index, core, management
+        self.assertGreaterEqual(len(scripts), 3)   # fonts and theme, core, management
         for sc in scripts:
             digest = base64.b64encode(hashlib.sha256(sc.encode()).digest()).decode()
             self.assertIn(f"'sha256-{digest}'", csp)
-        boot = next(s for s in scripts if s.startswith('window.MC_BOOT='))
-        data = json.loads(boot[len('window.MC_BOOT='):-1])
+        self.assertEqual(len(re.findall(r"'sha256-", csp)), len(scripts))
+        # the index is data, not script: the CSP does not allow it to run
+        boot = re.search(r'<script type="application/json" id="boot">(.*?)</script>', html, re.S).group(1)
+        self.assertNotIn('MC_BOOT', html)
+        data = json.loads(boot)
         self.assertEqual(data['ideas'][0]['name'], 'ideaA')
         self.assertIn('window.MC_MANAGE =', html)
         self.assertEqual(hdrs.get('X-Content-Type-Options'), 'nosniff')
@@ -211,17 +214,95 @@ class RegistryIndex(IndexBase):
             self.assertEqual((st, body), (204, b''))
             req.assert_not_called()
 
-    def test_thumb_retry_forgets_a_failure(self):
+    def test_thumb_retry_forgets_only_an_old_failure(self):
         target = canvas._thumb_target(self.idea, 'A01-One.html', 0.4)
-        canvas._THUMBS.failed.add(target[3])
-        self.addCleanup(canvas._THUMBS.failed.discard, target[3])
-        with mock.patch.object(canvas._THUMBS, 'request', return_value=False) as req:
-            self.assertEqual(self.request('GET', '/alpha/ideaA/thumbs/A01-One.png?s=0.4')[0], 404)
-        self.assertIn(target[3], canvas._THUMBS.failed)
-        with mock.patch.object(canvas._THUMBS, 'request', return_value=True):
-            st, _, _ = self.request('GET', '/alpha/ideaA/thumbs/A01-One.png?s=0.4&retry=1')
-        self.assertEqual(st, 202)
-        self.assertNotIn(target[3], canvas._THUMBS.failed)
+        out = target[3]
+        self.addCleanup(canvas._THUMBS.failed.pop, out, None)
+        url = '/alpha/ideaA/thumbs/A01-One.png?s=0.4'
+        with mock.patch.object(canvas._THUMBS, 'request', side_effect=lambda *a, **k: out not in canvas._THUMBS.failed) as req:
+            canvas._THUMBS.failed[out] = time.time()   # just failed: Retry waits RETRY_AFTER seconds
+            self.assertEqual(self.request('GET', url + '&retry=1')[0], 404)
+            self.assertIn(out, canvas._THUMBS.failed)
+            canvas._THUMBS.failed[out] = time.time() - canvas._THUMBS.RETRY_AFTER - 1
+            self.assertEqual(self.request('GET', url)[0], 404)   # no retry asked: still failed
+            self.assertEqual(self.request('GET', url + '&retry=1')[0], 202)
+            self.assertNotIn(out, canvas._THUMBS.failed)
+            self.assertEqual(req.call_count, 3)
+
+    # ── project names ──
+    def test_add_and_check_reject_unusable_names(self):
+        api = os.path.join(self.home, 'work', 'api', 'design')   # the default name would be "api"
+        self.make_idea(api, 'i1')
+        for body in ({'path': api}, {'path': api, 'name': 'a/b'}, {'path': api, 'name': 'a\\b'}, {'path': api, 'name': '_k'},
+                     {'path': api, 'name': '..'}, {'path': api, 'name': 'x\x01'}, {'path': api, 'name': 'n' * 101}):
+            st, _, raw = self.request('POST', '/api/roots/add', body, headers=self.origin())
+            self.assertEqual(st, 400, body)
+            d = json.loads(self.request('POST', '/api/roots/check', body, headers=self.origin())[2])
+            self.assertFalse(d['ok'], body)
+            self.assertEqual(json.loads(raw)['error'], d['error'])
+        self.assertEqual([r['name'] for r in self.read_json(self.roots_json)['roots']], ['alpha', 'gone'])
+        st, _, _ = self.request('POST', '/api/roots/add', {'path': api, 'name': 'apis'}, headers=self.origin())
+        self.assertEqual(st, 200)
+
+    def test_rename_uses_the_same_rules(self):
+        for bad in ('_k', 'api', '.', 'a\\b', 'tab\there', 'n' * 101):
+            st, _, raw = self.request('POST', '/api/roots/rename', {'name': 'alpha', 'new_name': bad}, headers=self.origin())
+            self.assertEqual(st, 400, bad)
+            self.assertEqual(json.loads(raw)['error'], canvas._validate_project_name(bad))
+
+    def test_cli_roots_add_rejects_unusable_names(self):
+        api = os.path.join(self.home, 'work', 'api', 'design')
+        self.make_idea(api, 'i1')
+        r = self.run_cli('roots', 'add', api)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('reserved', r.stderr)
+        r = self.run_cli('roots', 'add', api, '--name', 'x/y')
+        self.assertEqual(r.returncode, 2)
+        r = self.run_cli('roots', 'add', api, '--name', 'apiproj')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('apiproj', [x['name'] for x in self.read_json(self.roots_json)['roots']])
+
+    # ── page cache and live reload stream ──
+    def test_page_scripts_are_hashed_once_per_file_version(self):
+        a = canvas._dashboard_page(True)
+        b = canvas._dashboard_page(True)
+        self.assertIs(a[0], b[0])
+        self.assertNotEqual(canvas._dashboard_page(False)[1], a[1])   # without the management script
+
+    def test_a_stalled_live_reload_client_is_dropped(self):
+        import socket
+        s = socket.create_connection(('127.0.0.1', self.port))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        self.addCleanup(s.close)
+        s.sendall(f'GET /api/events HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\n\r\n'.encode())
+        deadline = time.time() + 5
+        while not canvas._sse_clients.get(canvas.DASH_SSE_KEY) and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(canvas._sse_clients.get(canvas.DASH_SSE_KEY))
+        big = {'type': 'board', 'file': 'x' * 200_000}
+        t = time.time()
+        for _ in range(200):   # the client never reads: its socket buffers fill, then a write times out
+            canvas._broadcast('alpha/ideaA', big)
+            if not canvas._sse_clients.get(canvas.DASH_SSE_KEY):
+                break
+        self.assertFalse(canvas._sse_clients.get(canvas.DASH_SSE_KEY))
+        self.assertLess(time.time() - t, canvas.SSE_SEND_TIMEOUT * 3)
+
+
+class RevealCommand(unittest.TestCase):
+    def run_reveal(self, platform, osname, path):
+        with mock.patch.object(canvas.sys, 'platform', platform), mock.patch.object(canvas.os, 'name', osname), \
+                mock.patch.object(canvas.subprocess, 'Popen') as po:
+            canvas._reveal_path(path)
+        return po.call_args[0][0]
+
+    def test_each_platform(self):
+        self.assertEqual(self.run_reveal('darwin', 'posix', '/Users/a/x,y'), ['open', '-R', '/Users/a/x,y'])
+        # Explorer splits /select at commas: one command line with the path in quotes
+        self.assertEqual(self.run_reveal('win32', 'nt', r'C:\a,b\c d'), r'explorer /select,"C:\a,b\c d"')
+        self.assertEqual(self.run_reveal('linux', 'posix', '/home/a/p/idea'), ['xdg-open', '/home/a/p'])
+        with self.assertRaises(OSError):
+            self.run_reveal('win32', 'nt', 'C:\\a"b')
 
 
 class ShareIndex(IndexBase):
@@ -251,6 +332,15 @@ class ShareIndex(IndexBase):
             self.assertNotIn('gone', text)
         for hidden in ('window.MC_MANAGE =', '/api/roots', '/api/reveal', 'Add project', 'Find in folders', 'Reveal in Finder'):
             self.assertNotIn(hidden, page, hidden)
+
+    def test_share_cannot_retry_failed_renders(self):
+        target = canvas._thumb_target(self.idea, 'A01-One.html', 0.4)
+        canvas._THUMBS.failed[target[3]] = time.time() - 3600
+        self.addCleanup(canvas._THUMBS.failed.pop, target[3], None)
+        with mock.patch.object(canvas._THUMBS, 'request', return_value=False) as req:
+            st, _, _ = self.request('GET', '/alpha/ideaA/thumbs/A01-One.png?s=0.4&retry=1', headers=self.cookie)
+        self.assertEqual(st, 404)
+        self.assertIn(target[3], canvas._THUMBS.failed)
 
     def test_share_refuses_reveal_and_roots(self):
         with mock.patch.object(canvas, '_reveal_path') as rv:
