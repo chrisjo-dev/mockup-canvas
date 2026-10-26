@@ -1234,6 +1234,13 @@ class _ThumbQueue:
                     job = self.jobs.pop()
                 url, w, h, out, sse_key, fname, roots, scale = job
                 ok = False
+                # <idea>/render/.thumbs/<png>: when the idea folder was moved or deleted while the
+                # job waited, makedirs below would create an empty copy of the old path
+                if not os.path.isdir(os.path.dirname(os.path.dirname(os.path.dirname(out)))):
+                    with self.cv:
+                        self.pending.discard(out)
+                        self.failed[out] = time.time()
+                    continue
                 try:
                     if session is None:
                         with self.cv:
@@ -1248,7 +1255,13 @@ class _ThumbQueue:
                                 self.cv.notify_all()
                         if self.closed:   # shut down while Chrome was starting
                             raise CdpError('thumbnail queue closed')
-                    os.makedirs(os.path.dirname(out), exist_ok=True)
+                    # render/ and .thumbs/ one level at a time: if the idea folder is gone by now,
+                    # mkdir fails instead of creating the old path again (makedirs would)
+                    for d in (os.path.dirname(os.path.dirname(out)), os.path.dirname(out)):
+                        try:
+                            os.mkdir(d)
+                        except FileExistsError:
+                            pass
                     session.capture(url, w, h, 250, out, timeout=30, scale=scale, file_roots=roots)
                     ok = True
                 except CdpConnectError as e:

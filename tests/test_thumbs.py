@@ -207,6 +207,16 @@ class ThumbQueue(TempHomeCase):
         self.wait_until(lambda: self.q.started == 0)
         self.assertTrue(all(s.closed for s in FakeSession.instances))
 
+    def test_a_moved_idea_folder_is_not_recreated(self):
+        src, w, h, out = canvas._thumb_target(self.idea, 'A01-One.html')
+        moved = self.idea + '-moved'
+        os.rename(self.idea, moved)   # the folder moves while the job waits in the queue
+        self.assertTrue(self.q.request(src, w, h, out, 'demo', 'A01-One.html'))
+        self.wait_until(lambda: out in self.q.failed)
+        self.assertFalse(os.path.exists(self.idea))
+        self.assertEqual([c for s in FakeSession.instances for c in s.captured], [])
+        self.assertEqual(self.events, [])
+
     def test_at_most_two_workers(self):
         gate = threading.Event()
         orig = FakeSession.capture
