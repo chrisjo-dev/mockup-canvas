@@ -316,7 +316,6 @@ main { position: relative; padding: var(--sp-6) var(--sp-8) var(--sp-10); min-wi
 .r4 { display: flex; align-items: center; gap: var(--sp-1); min-height: 22px; }
 .r4 .tm { margin-left: auto; font-size: var(--fs-12); color: var(--text-3); white-space: nowrap; }
 /* skeleton card */
-.gc.skel .gw .slot { background: none; }
 .sl { display: block; height: 12px; border-radius: 4px; }
 .sl.thin { height: 4px; margin: 4px 0; }
 .w40 { width: 40%; } .w60 { width: 60%; } .w80 { width: 80%; } .w100 { width: 100%; }
@@ -418,7 +417,8 @@ main { position: relative; padding: var(--sp-6) var(--sp-8) var(--sp-10); min-wi
 .pal .pin input::placeholder { color: var(--text-3); }
 .pal .pin .cnt { color: var(--text-3); font-size: var(--fs-12); white-space: nowrap; }
 .pal .pin .clr { display: none; }
-.pal .res { overflow-y: auto; min-height: 0; padding-bottom: var(--sp-2); }
+.pal .res { overflow-y: auto; min-height: 0; }
+.nf .sortbtn > .i:last-child { display: none; }
 .pal .grp { padding: var(--sp-2) var(--sp-4) var(--sp-1); font-size: var(--fs-12); font-weight: var(--fw-semi); color: var(--text-3); }
 .pal ul { list-style: none; margin: 0; padding: 0 var(--sp-2); }
 .pal li { display: flex; align-items: center; gap: var(--sp-3); height: 40px; padding: 0 var(--sp-2); border-radius: var(--r-sm); color: var(--text); cursor: pointer; }
@@ -558,7 +558,7 @@ body.demo-mode main { padding: 0; }
   .way .btn, .code .btn, .miss .btn { min-height: 44px; }
   .miss { grid-template-columns: minmax(0, 1fr); padding: var(--sp-5); }
   /* full-height sheets (B16, B18) */
-  .dialog { left: 0; right: 0; top: 44px; bottom: 0; width: auto; max-height: none; transform: none; border-radius: var(--r-lg) var(--r-lg) 0 0; border-bottom: 0; animation: sheet var(--dur-3) var(--ease-out); }
+  .dialog { left: 0; right: 0; top: 44px; bottom: 0; width: auto; max-height: none; transform: none; border-radius: var(--r-lg) var(--r-lg) 0 0; border: 0; animation: sheet var(--dur-3) var(--ease-out); }
   @keyframes sheet { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
   .grab { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--line-strong); margin: var(--sp-2) auto 0; flex: none; }
   .pal .pin { padding: 0 var(--sp-1) 0 var(--sp-4); }
@@ -566,7 +566,7 @@ body.demo-mode main { padding: 0; }
   .pal .pin .clr { display: inline-grid; width: 44px; height: 44px; }
   .pal .pf { display: none; }
   .pal li { height: 44px; }
-  .none .acts { flex-direction: column; width: 100%; }
+  .none .acts { flex-direction: column; width: 100%; gap: var(--sp-3); }
   .none .btn { width: 100%; height: 44px; justify-content: center; }
   .menu .mi { height: 44px; }
   .ph-hide { display: none; }
@@ -577,9 +577,9 @@ body.demo-mode main { padding: 0; }
   .dt { padding: var(--sp-3) var(--sp-4) 0; }
   .dt .seg { display: flex; }
   .dt .seg > button { flex: 1; justify-content: center; height: 38px; }
-  .db { padding: var(--sp-4); gap: var(--sp-4); }
+  .db { padding: var(--sp-3) var(--sp-4); gap: var(--sp-4); }
   .input { height: 44px; }
-  .sg-r { flex-direction: column; align-items: stretch; gap: var(--sp-2); padding: 10px var(--sp-3) var(--sp-3); }
+  .sg-r { flex-direction: column; align-items: stretch; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3) var(--sp-3); }
   .sg-r .btn { margin-left: 0; height: 44px; justify-content: center; }
   .df { padding: var(--sp-3) var(--sp-4) var(--sp-6); }
   .df .mono, .df .sp { display: none; }
@@ -624,8 +624,8 @@ body.demo-mode main { padding: 0; }
     <span class="spacer"></span>
     <div class="search" id="search" role="search"></div>
     <span class="spacer"></span>
-    <span id="tb-manage"></span>
     <button class="icon-btn tb-phone" id="tb-search" type="button" aria-label="Search ideas and boards"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg></button>
+    <span id="tb-manage"></span>
     <button class="icon-btn" id="theme" type="button" aria-label="Switch theme (Shift T)"></button>
   </header>
   <div class="banner" id="banner" role="status" hidden></div>
