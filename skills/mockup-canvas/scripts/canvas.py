@@ -1065,7 +1065,11 @@ def _rm_sse(key, wfile):
         except ValueError:
             pass
 
+DASH_SSE_KEY = '*'   # the dashboard listens to every idea's events on one stream (/api/events)
+
 def _broadcast(key, data):
+    if key != DASH_SSE_KEY:
+        _broadcast(DASH_SSE_KEY, dict(data, key=key))
     msg = ('data: ' + json.dumps(data, ensure_ascii=False) + '\n\n').encode()
     dead = []
     with _sse_lock:
@@ -1084,10 +1088,15 @@ def _watch_thread(design_dirs):
     design_dirs: list of (design_dir, key_prefix)
       single-root: [(design_dir, '')]
       registry:    [(design_dir1, 'proj1/'), (design_dir2, 'proj2/')]
+      or a function returning such a list (re-read every second: projects added later are watched)
     """
     mtimes: dict = {}
     while True:
-        for design_dir, prefix in design_dirs:
+        try:
+            dirs = design_dirs() if callable(design_dirs) else design_dirs
+        except Exception:
+            dirs = []
+        for design_dir, prefix in dirs:
             try:
                 for idea in os.listdir(design_dir):
                     idea_dir = os.path.join(design_dir, idea)
@@ -1256,6 +1265,10 @@ class _ThumbQueue:
             if session:
                 self._drop(session)
 
+    def forget_failure(self, out):
+        with self.cv:
+            self.failed.discard(out)
+
     def _drop(self, session):
         with self.cv:
             if session in self.sessions:
@@ -1301,6 +1314,135 @@ def _stop_on_sigterm():
         pass
 
 
+# ── Dashboard index ────────────────────────────────────────────────────────
+# The registry page (dashboard.html) renders from one JSON built from canvas.json and os.stat
+# only: no Chrome and no board HTML is read. canvas.json is parsed again only when its mtime or
+# size changes; board mtimes are stat'ed on every request (a few ms for hundreds of boards).
+
+DASHBOARD_PATH = os.path.join(HERE, 'dashboard.html')
+DASHBOARD_MANAGE_PATH = os.path.join(HERE, 'dashboard-manage.js')
+_IDEA_CACHE = {}   # canvas.json path -> ((mtime_ns, size), [board summaries])
+
+
+def _display_path(path):
+    path = os.path.realpath(path) if os.path.exists(path) else os.path.normpath(path)
+    if path == HOME:
+        return '~'
+    return '~/' + path[len(HOME) + 1:] if path.startswith(HOME + os.sep) else path
+
+
+def _idea_boards(cj):
+    """Board summaries of one canvas.json, cached by its mtime and size."""
+    st = os.stat(cj)
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _IDEA_CACHE.get(cj)
+    if hit and hit[0] == key:
+        return hit[1], st.st_mtime
+    try:
+        with open(cj, encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    boards = data.get('boards') if isinstance(data, dict) else None
+    out = []
+    for fname, b in (boards.items() if isinstance(boards, dict) else ()):
+        if not isinstance(b, dict) or not isinstance(fname, str):
+            continue
+        impl = b.get('impl')
+        comments = b.get('comments')
+        try:
+            w, h = int(b.get('w', DEFAULT_W)), int(b.get('h', DEFAULT_H))
+        except (TypeError, ValueError):
+            w, h = DEFAULT_W, DEFAULT_H
+        out.append({
+            'f': fname,
+            't': str(b.get('title') or (fname[:-5] if fname.endswith('.html') else fname))[:200],
+            's': b.get('status') if b.get('status') in ('approved', 'rejected') else 'draft',
+            'c': len(comments) if isinstance(comments, list) else 0,
+            'b': 1 if isinstance(impl, dict) and (impl.get('route') or impl.get('files')) else 0,
+            'n': str(b.get('note') or '')[:200],
+            'w': w, 'h': h,
+        })
+    _IDEA_CACHE[cj] = (key, out)
+    return out, st.st_mtime
+
+
+def _idea_summary(project, idea, idea_dir, url):
+    boards, cj_mtime = _idea_boards(os.path.join(idea_dir, 'canvas.json'))
+    last = cj_mtime
+    rows = []
+    for b in boards:
+        m = None
+        if b['f'] == os.path.basename(b['f']):   # a key with a path in it is not a board file
+            try:
+                m = os.stat(os.path.join(idea_dir, 'boards', b['f'])).st_mtime
+            except OSError:
+                pass
+        if m is not None and m > last:
+            last = m
+        rows.append(dict(b, m=round(m or cj_mtime, 3)))
+    return {'project': project, 'name': idea, 'url': url, 'boards': rows, 'mtime': round(last, 3)}
+
+
+def _list_ideas(design_dir):
+    try:
+        names = sorted(os.listdir(design_dir))
+    except OSError:
+        return []
+    return [d for d in names if os.path.isfile(os.path.join(design_dir, d, 'canvas.json'))]
+
+
+def build_index(roots, single=False, share=False):
+    """roots: [{'name', 'path'}]. single: one root served at /<idea>/ (serve <design dir>)."""
+    projects, ideas = [], []
+    for r in roots:
+        name, path = r['name'], r['path']
+        missing = not os.path.isdir(path)
+        if missing and share:
+            continue   # a share never names folders that are not there
+        p = {'name': name, 'missing': missing, 'ideas': 0, 'boards': 0}
+        if not share:
+            p['path'] = _display_path(path)
+        if not missing:
+            for idea in _list_ideas(path):
+                if single:
+                    url = '/' + _urlquote(idea, safe='') + '/'
+                else:
+                    url = '/' + _urlquote(name, safe='') + '/' + _urlquote(idea, safe='') + '/'
+                try:
+                    s = _idea_summary(name, idea, os.path.join(path, idea), url)
+                except OSError:
+                    continue
+                ideas.append(s)
+                p['ideas'] += 1
+                p['boards'] += len(s['boards'])
+        projects.append(p)
+    return {'projects': projects, 'ideas': ideas, 'now': round(time.time(), 3)}
+
+
+def _reveal_path(path):
+    """Show a folder in the file manager (Finder on macOS)."""
+    if sys.platform == 'darwin':
+        cmd = ['open', '-R', path]
+    elif os.name == 'nt':
+        cmd = ['explorer', '/select,' + path]
+    else:
+        cmd = ['xdg-open', os.path.dirname(path)]
+    subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _design_folder_info(real):
+    """-> (ideas, boards) of a design folder."""
+    ideas = _list_ideas(real)
+    boards = 0
+    for idea in ideas:
+        try:
+            boards += len(_idea_boards(os.path.join(real, idea, 'canvas.json'))[0])
+        except OSError:
+            pass
+    return len(ideas), boards
+
+
 # ── HTTP handler ───────────────────────────────────────────────────────────
 
 _SANDBOX_CSP = 'sandbox allow-scripts allow-forms allow-popups'
@@ -1322,6 +1464,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
     share_edit: bool = True
     read_only: bool = False
     share_host: str = ''      # LAN IP accepted in the Host header in share mode
+    share_until: float = 0.0  # share mode: when the server stops (time.time()), for the dashboard banner
     server_version = 'mockup-canvas'
     sys_version = ''
     timeout = 15              # socket timeout per connection (SSE clears it)
@@ -1543,8 +1686,11 @@ class CanvasHandler(BaseHTTPRequestHandler):
         self._serve_file(path, mt, extra)
 
     def _serve_thumb(self, idea_dir, name, sse_key):
-        """thumbs/<board id>.png: the cached thumbnail (ETag), or 202 while it is being rendered."""
-        s = parse_qs(urlparse(self.path).query).get('s', [''])[0]
+        """thumbs/<board id>.png: the cached thumbnail (ETag), or 202 while it is being rendered.
+        ?cached=1 answers 204 instead of queueing a render (the dashboard palette's small rows);
+        ?retry=1 renders again a board whose render failed before (the dashboard's Retry)."""
+        qs = parse_qs(urlparse(self.path).query)
+        s = qs.get('s', [''])[0]
         scale = THUMB_SCALES.get(s, THUMB_SCALE)
         target = _thumb_target(idea_dir, name[:-4] + '.html', scale) if name.endswith('.png') else None
         if not target:
@@ -1561,6 +1707,13 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._serve_file(out, 'image/png', {'X-Content-Type-Options': 'nosniff', 'ETag': etag},
                              cache='no-cache')
             return
+        if qs.get('cached', [''])[0] == '1':   # 204, not 404: nothing failed, there is just no PNG yet
+            self.send_response(204)
+            self._add_root_header()
+            self.end_headers()
+            return
+        if qs.get('retry', [''])[0] == '1':
+            _THUMBS.forget_failure(out)
         # Rendered from file:// with every file:// request outside the idea folder failed over
         # DevTools (_CdpSession._file_guard). Loading the board from this server under its CSP
         # sandbox instead gave it an opaque origin, whose HTTP cache is partitioned: every board
@@ -1590,7 +1743,14 @@ class CanvasHandler(BaseHTTPRequestHandler):
             return
 
         if not parts:
-            self._serve_index()
+            self._serve_dashboard()
+            return
+
+        if parts == ['api', 'index']:
+            self._json(self._index_data(), cache='no-store')
+            return
+        if parts == ['api', 'events']:
+            self._serve_sse(DASH_SSE_KEY)
             return
 
         idea = parts[0]
@@ -1644,6 +1804,10 @@ class CanvasHandler(BaseHTTPRequestHandler):
 
         parts, _ = self._parse()
 
+        if parts == ['api', 'reveal']:
+            self._reveal()
+            return
+
         if len(parts) == 3 and parts[1] == 'api' and parts[2] == 'layout':
             idea_dir = self._safe(parts[0])
             if not idea_dir:
@@ -1653,52 +1817,91 @@ class CanvasHandler(BaseHTTPRequestHandler):
 
         self._404()
 
-    def _serve_index(self):
-        ideas = []
+    # ── dashboard (the index page) ──
+    def _index_roots(self):
+        """-> (roots, single). Single-root mode: the design folder as one project named after the
+        folder that holds it (like `roots add`)."""
+        real = os.path.realpath(self.design_dir)
+        return [{'name': os.path.basename(os.path.dirname(real)) or os.path.basename(real),
+                 'path': self.design_dir}], True
+
+    def _index_data(self):
+        roots, single = self._index_roots()
+        share = bool(self.share_token)
+        data = build_index(roots, single=single, share=share)
+        data.update(mode='single' if single else 'registry', share=share,
+                    readOnly=bool(self.read_only or (share and not self.share_edit)),
+                    closesAt=int(self.share_until) if share and self.share_until else None)
+        return data
+
+    def _serve_dashboard(self):
+        """dashboard.html with the index inlined (first paint needs no second request). The
+        management script (add, remove, reveal) is left out of share and read-only pages."""
         try:
-            for d in sorted(os.listdir(self.design_dir)):
-                p = os.path.join(self.design_dir, d)
-                if os.path.isdir(p) and os.path.exists(os.path.join(p, 'canvas.json')):
-                    ideas.append(d)
-        except Exception:
-            pass
-
-        items = ''
-        for idea in ideas:
-            canvas = load_canvas(os.path.join(self.design_dir, idea))
-            cnt = len(canvas.get('boards', {}))
-            idea_url = _urlquote(idea, safe='')
-            idea_text = _html.escape(idea)
-            items += f'<a href="/{idea_url}/">{idea_text}<span class="cnt">{cnt} artboards</span></a>\n'
-
-        html = textwrap.dedent(f"""
-            <!doctype html><html lang="en"><head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>Mockup Canvas</title>
-            <style>
-              *{{box-sizing:border-box}}
-              body{{margin:0;background:#1e1e1e;font:15px -apple-system,sans-serif;
-                    display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:40px 16px}}
-              h1{{color:#fff;font-size:22px;font-weight:700;margin-bottom:20px}}
-              a{{display:flex;justify-content:space-between;align-items:center;
-                 background:#2a2a2a;border-radius:10px;padding:14px 18px;margin-bottom:8px;
-                 max-width:480px;width:100%;color:#e0e0e0;text-decoration:none;font-weight:600}}
-              a:hover{{background:#333}}
-              .cnt{{font-weight:400;color:#888;font-size:13px}}
-            </style></head><body>
-            <h1>Mockup Canvas</h1>
-            {items}
-            </body></html>
-        """).strip()
-
+            with open(DASHBOARD_PATH, encoding='utf-8') as f:
+                html = f.read()
+            manage = ''
+            if not self.share_token and not self.read_only:
+                with open(DASHBOARD_MANAGE_PATH, encoding='utf-8') as f:
+                    manage = f.read()
+        except OSError:
+            self._404(); return
+        data = self._index_data()
+        data.pop('now', None)   # the page is the same for a GET and a HEAD (and its script hashes too)
+        html = html.replace('<!--BOOT-->', f'<script>window.MC_BOOT={_embed_json(data)};</script>', 1)
+        html = html.replace('<!--MANAGE-->', f'<script>\n{manage}</script>' if manage else '', 1)
+        # Inline scripts run by their hash: an injected script would not match
+        hashes = ' '.join("'sha256-%s'" % base64.b64encode(hashlib.sha256(m.encode()).digest()).decode()
+                          for m in re.findall(r'<script>(.*?)</script>', html, re.S))
         body = html.encode()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Security-Policy',
+                         f"default-src 'none'; script-src {hashes}; "
+                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                         "font-src https://fonts.gstatic.com; img-src 'self' blob: data:; connect-src 'self'; "
+                         "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'same-origin')
         self._add_root_header()
         self.end_headers()
         self.wfile.write(body)
+
+    def _reveal_target(self, body):
+        """The folder to reveal: the idea folder, or the design folder without an idea."""
+        return self._reveal_in(self.design_dir, body.get('idea'))
+
+    @staticmethod
+    def _reveal_in(design_dir, idea):
+        if not design_dir or not os.path.isdir(design_dir):
+            return None
+        if idea is None or idea == '':
+            return os.path.realpath(design_dir)
+        idea = str(idea)
+        if idea != os.path.basename(idea) or idea in ('.', '..'):
+            return None
+        p = _safe_path(design_dir, idea)
+        return p if p and os.path.isdir(p) else None
+
+    def _reveal(self):
+        """POST /api/reveal {project?, idea?}: the server picks the folder from its own registry,
+        never from a path the page sends. Local mode only."""
+        if self.share_token or self.read_only:
+            self._json({'ok': False, 'error': 'Not allowed in share mode'}, 403); return
+        body = self._read_json_body()
+        if body is None:
+            return
+        target = self._reveal_target(body)
+        if not target:
+            self._json({'ok': False, 'error': 'Folder not found'}, 404); return
+        try:
+            _reveal_path(target)
+        except OSError as e:
+            self._log_error('reveal failed', e)
+            self._json({'ok': False, 'error': 'Could not open the file manager'}, 500); return
+        self._json({'ok': True})
 
     def _serve_viewer(self):
         """Serve viewer.html, injecting CANVAS_READ_ONLY when the session is read-only."""
@@ -1771,11 +1974,13 @@ class CanvasHandler(BaseHTTPRequestHandler):
         finally:
             _rm_sse(key, self.wfile)
 
-    def _json(self, data, status=200):
+    def _json(self, data, status=200, cache=None):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
+        if cache:
+            self.send_header('Cache-Control', cache)
         self._add_root_header()
         self.end_headers()
         self.wfile.write(body)
@@ -1793,139 +1998,6 @@ class CanvasHandler(BaseHTTPRequestHandler):
 
 # ── Registry handler ───────────────────────────────────────────────────────
 
-_REGISTRY_MANAGE_HTML = """
-  <h2>Add project</h2>
-  <div class="panel">
-    <div class="field">
-      <label for="add-path">Design folder path</label>
-      <input id="add-path" type="text" placeholder="~/project/design" autocomplete="off">
-    </div>
-    <div class="field">
-      <label for="add-name">Name (leave empty to use the folder name)</label>
-      <div class="row">
-        <input id="add-name" type="text" placeholder="project">
-        <button class="btn-primary" onclick="addProject()">Add</button>
-      </div>
-    </div>
-    <div class="msg" id="add-msg"></div>
-  </div>
-
-  <h2>Find in folders</h2>
-  <div class="panel">
-    <div class="field">
-      <label for="scan-dir">Folders to search (comma separated)</label>
-      <div class="row">
-        <input id="scan-dir" type="text" placeholder="~/work, ~/projects" autocomplete="off">
-        <button class="btn-secondary" onclick="scanProjects()">Search</button>
-      </div>
-    </div>
-    <div class="msg" id="scan-msg"></div>
-    <div class="scan-results" id="scan-results"></div>
-    <div id="scan-add-row" style="display:none;margin-top:12px">
-      <button class="btn-primary" onclick="addScanned()">Add selected</button>
-    </div>
-  </div>
-"""
-
-_REGISTRY_MANAGE_SCRIPT = """<script>
-(function(){
-  'use strict';
-
-  function msg(id, text, isErr) {
-    var el = document.getElementById(id);
-    el.textContent = text;
-    el.className = 'msg ' + (isErr ? 'err' : 'ok');
-  }
-
-  async function apiPost(path, body) {
-    const r = await fetch(path, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'Origin': location.origin},
-      body: JSON.stringify(body)
-    });
-    return r.json();
-  }
-
-  window.removeProject = async function(name) {
-    if (!confirm('Remove \\'' + name + '\\' from the list?\\n(No files are deleted)')) return;
-    try {
-      const d = await apiPost('/api/roots/remove', {name});
-      if (d.ok) location.reload();
-      else alert('Error: ' + d.error);
-    } catch(e) { alert('Error: ' + e.message); }
-  };
-
-  window.addProject = async function() {
-    const path = document.getElementById('add-path').value.trim();
-    const name = document.getElementById('add-name').value.trim();
-    if (!path) { msg('add-msg', 'Enter a path', true); return; }
-    msg('add-msg', 'Checking...', false);
-    try {
-      const d = await apiPost('/api/roots/add', {path, name: name || undefined});
-      if (d.ok) { msg('add-msg', 'Added: ' + d.name, false); setTimeout(() => location.reload(), 600); }
-      else msg('add-msg', 'Error: ' + d.error, true);
-    } catch(e) { msg('add-msg', 'Error: ' + e.message, true); }
-  };
-
-  window.scanProjects = async function() {
-    const raw = document.getElementById('scan-dir').value.trim();
-    if (!raw) { msg('scan-msg', 'Enter a folder', true); return; }
-    const dirs = raw.split(',').map(s => s.trim()).filter(Boolean);
-    msg('scan-msg', 'Searching...', false);
-    document.getElementById('scan-results').innerHTML = '';
-    document.getElementById('scan-add-row').style.display = 'none';
-    try {
-      const d = await apiPost('/api/roots/scan', {dirs});
-      if (!d.ok) { msg('scan-msg', 'Error: ' + d.error, true); return; }
-      const found = d.found || [];
-      if (!found.length) { msg('scan-msg', 'No design folders found', false); return; }
-      msg('scan-msg', 'Found ' + found.length, false);
-      const container = document.getElementById('scan-results');
-      found.forEach(function(item, i) {
-        const div = document.createElement('div');
-        div.className = 'scan-item';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.id = 'scan-cb-' + i;
-        cb.dataset.path = item.path;
-        cb.dataset.name = item.name;
-        cb.disabled = item.already_registered;
-        cb.checked = !item.already_registered;
-        const lbl = document.createElement('label');
-        lbl.htmlFor = 'scan-cb-' + i;
-        lbl.innerHTML = '<span>' + escHtml(item.name) + (item.already_registered ? '<span class=\\"tag-registered\\">already registered</span>' : '') + '</span><span class=\\"scan-path\\">' + escHtml(item.path) + '</span>';
-        div.appendChild(cb);
-        div.appendChild(lbl);
-        container.appendChild(div);
-      });
-      if (found.some(f => !f.already_registered))
-        document.getElementById('scan-add-row').style.display = 'block';
-    } catch(e) { msg('scan-msg', 'Error: ' + e.message, true); }
-  };
-
-  window.addScanned = async function() {
-    const cbs = document.querySelectorAll('#scan-results input[type=checkbox]:checked:not(:disabled)');
-    if (!cbs.length) { return; }
-    let added = 0, errors = [];
-    for (const cb of cbs) {
-      try {
-        const d = await apiPost('/api/roots/add', {path: cb.dataset.path, name: cb.dataset.name});
-        if (d.ok) added++;
-        else errors.push(cb.dataset.name + ': ' + d.error);
-      } catch(e) { errors.push(cb.dataset.name + ': ' + e.message); }
-    }
-    if (added) { msg('scan-msg', 'Added ' + added, false); setTimeout(() => location.reload(), 600); }
-    else msg('scan-msg', errors.join(' / '), true);
-  };
-
-  function escHtml(s) {
-    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-})();
-</script>
-"""
-
-
 class RegistryHandler(CanvasHandler):
     """Registry mode: serve many projects from one server."""
     server_port: int = DEFAULT_PORT
@@ -1942,6 +2014,13 @@ class RegistryHandler(CanvasHandler):
 
     def _roots_map(self):
         return {r['name']: r['path'] for r in self._roots()}
+
+    def _index_roots(self):
+        return self._roots(), False
+
+    def _reveal_target(self, body):
+        project = str(body.get('project') or '')
+        return self._reveal_in(self._roots_map().get(project), body.get('idea'))
 
     def _resolve(self, parts):
         """Returns (project, idea, design_dir, idea_dir) or None."""
@@ -1972,7 +2051,14 @@ class RegistryHandler(CanvasHandler):
             self._404(); return
 
         if not parts:
-            self._serve_registry_index()
+            self._serve_dashboard()
+            return
+
+        if parts == ['api', 'index']:
+            self._json(self._index_data(), cache='no-store')
+            return
+        if parts == ['api', 'events']:
+            self._serve_sse(DASH_SSE_KEY)
             return
 
         resolved = self._resolve(parts)
@@ -2028,6 +2114,9 @@ class RegistryHandler(CanvasHandler):
         if len(parts) >= 2 and parts[0] == 'api' and parts[1] == 'roots':
             self._handle_roots_api(parts[2] if len(parts) >= 3 else '')
             return
+        if parts == ['api', 'reveal']:
+            self._reveal()
+            return
 
         # ── Save layout (/<project>/<idea>/api/layout) ───────────────────
         if self.read_only or (self.share_token and not self.share_edit):
@@ -2050,8 +2139,18 @@ class RegistryHandler(CanvasHandler):
 
         self._404()
 
+    @staticmethod
+    def _suggest_design(path_str):
+        """A path that is not a design folder: is there one inside it (<path>/design)?"""
+        real = os.path.realpath(os.path.expanduser(path_str.strip()))
+        err, inner = _validate_design_path(os.path.join(real, 'design'))
+        if err:
+            return None
+        ideas, boards = _design_folder_info(inner)
+        return {'path': _display_path(inner), 'ideas': ideas, 'boards': boards}
+
     def _handle_roots_api(self, action):
-        """POST /api/roots/{add|remove|scan}"""
+        """POST /api/roots/{check|add|remove|rename|scan}"""
         # Never allow registry changes in share mode
         if self.share_token:
             self._json({'ok': False, 'error': 'Not allowed in share mode'}, 403)
@@ -2061,29 +2160,67 @@ class RegistryHandler(CanvasHandler):
         if body is None:
             return
 
-        if action == 'add':
+        if action in ('add', 'check'):
+            # check: the same validation without registering (the dialog's live result)
             path_str = str(body.get('path') or '')
             name = str(body.get('name') or '').strip()
             err, real = _validate_design_path(path_str)
             if err:
-                self._json({'ok': False, 'error': err}, 400)
+                out = {'ok': False, 'error': err}
+                if 'canvas.json' in err:
+                    sug = self._suggest_design(path_str)
+                    if sug:
+                        out['suggest'] = sug
+                self._json(out, 400 if action == 'add' else 200)
                 return
             if not name:
                 parent = os.path.dirname(real)
                 name = os.path.basename(parent) or os.path.basename(real)
             roots = load_roots_safe()
-            existing_names = {r['name'] for r in roots}
-            existing_paths = {os.path.realpath(r['path']) for r in roots}
-            if name in existing_names:
-                self._json({'ok': False, 'error': f'Name already in use: {name}'}, 409)
+            same_name = next((r for r in roots if r['name'] == name), None)
+            # Locate folder: a project whose folder is gone takes the new path under its old name
+            if same_name and os.path.isdir(same_name['path']):
+                self._json({'ok': False, 'error': f'Name already in use: {name}', 'name': name},
+                           409 if action == 'add' else 200)
                 return
-            if real in existing_paths:
-                dup = next(r for r in roots if os.path.realpath(r['path']) == real)
-                self._json({'ok': False, 'error': f'Already registered: {dup["name"]}'}, 409)
+            dup = next((r for r in roots if os.path.realpath(r['path']) == real), None)
+            if dup:
+                self._json({'ok': False, 'error': f'Already registered: {dup["name"]}'},
+                           409 if action == 'add' else 200)
                 return
-            roots.append({'name': name, 'path': real})
+            if action == 'check':
+                ideas, boards = _design_folder_info(real)
+                self._json({'ok': True, 'name': name, 'path': _display_path(real), 'ideas': ideas,
+                            'boards': boards, 'replaces': bool(same_name)})
+                return
+            if same_name:
+                same_name['path'] = real
+            else:
+                roots.append({'name': name, 'path': real})
             save_roots_safe(roots)
             self._json({'ok': True, 'name': name, 'path': real})
+            return
+
+        if action == 'rename':
+            name = str(body.get('name') or '').strip()
+            new_name = str(body.get('new_name') or '').strip()
+            if not name or not new_name:
+                self._json({'ok': False, 'error': 'The name and new_name fields are required'}, 400)
+                return
+            if '/' in new_name or new_name in ('.', '..', 'api') or len(new_name) > 100:
+                self._json({'ok': False, 'error': 'Use a short name without /'}, 400)
+                return
+            roots = load_roots_safe()
+            if any(r['name'] == new_name for r in roots):
+                self._json({'ok': False, 'error': f'Name already in use: {new_name}'}, 409)
+                return
+            target = next((r for r in roots if r['name'] == name), None)
+            if not target:
+                self._json({'ok': False, 'error': f'Not found: {name}'}, 404)
+                return
+            target['name'] = new_name
+            save_roots_safe(roots)
+            self._json({'ok': True, 'name': new_name})
             return
 
         if action == 'remove':
@@ -2117,140 +2254,6 @@ class RegistryHandler(CanvasHandler):
             return
 
         self._json({'ok': False, 'error': 'Unknown API'}, 404)
-
-    def _serve_registry_index(self):
-        roots = self._roots()
-        # Share mode: no absolute paths and no registry management UI
-        share = bool(self.share_token)
-        projects_html = ''
-        for r in roots:
-            name = r['name']
-            path = r['path']
-            exists = os.path.isdir(path)
-            name_esc = _html.escape(name)
-            path_esc = _html.escape(path)
-            name_url = _urlquote(name, safe='')
-
-            if share:
-                if not exists:
-                    continue
-                path_html = ''
-                remove_html = ''
-            else:
-                path_html = f'<span class="proj-path">{path_esc}</span>'
-                remove_html = (f'<button class="btn-remove" data-name="{name_esc}" '
-                               'onclick="removeProject(this.dataset.name)">Remove from list</button>')
-
-            if not exists:
-                projects_html += f'''
-<section class="project missing">
-  <div class="proj-header">
-    <div class="proj-title">
-      <span class="proj-name">{name_esc}</span>
-      <span class="proj-path">{path_esc} <span class="missing-tag">missing</span></span>
-    </div>
-    <button class="btn-remove" data-name="{name_esc}" onclick="removeProject(this.dataset.name)">Remove from list</button>
-  </div>
-</section>'''
-            else:
-                ideas = []
-                try:
-                    for d in sorted(os.listdir(path)):
-                        dp = os.path.join(path, d)
-                        if os.path.isdir(dp) and os.path.exists(os.path.join(dp, 'canvas.json')):
-                            canvas = load_canvas(dp)
-                            cnt = len(canvas.get('boards', {}))
-                            ideas.append((d, cnt))
-                except Exception:
-                    pass
-
-                ideas_html = ''
-                for idea, cnt in ideas:
-                    idea_url = _urlquote(idea, safe='')
-                    idea_esc = _html.escape(idea)
-                    ideas_html += f'<a class="idea-link" href="/{name_url}/{idea_url}/">{idea_esc}<span class="cnt">{cnt} artboards</span></a>\n'
-                if not ideas_html:
-                    ideas_html = '<p class="no-ideas">No ideas yet</p>'
-
-                projects_html += f'''
-<section class="project">
-  <div class="proj-header">
-    <div class="proj-title">
-      <span class="proj-name">{name_esc}</span>
-      {path_html}
-    </div>
-    {remove_html}
-  </div>
-  <div class="ideas">{ideas_html}</div>
-</section>'''
-
-        manage_html = '' if share else _REGISTRY_MANAGE_HTML
-        manage_script = '' if share else _REGISTRY_MANAGE_SCRIPT
-        html = textwrap.dedent(f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mockup Canvas</title>
-<style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#1e1e1e;font:15px/1.5 -apple-system,'Helvetica Neue',Arial,sans-serif;color:#e0e0e0;min-height:100vh;padding:32px 16px 64px}}
-.wrap{{max-width:640px;margin:0 auto}}
-h1{{color:#fff;font-size:22px;font-weight:700;margin-bottom:28px}}
-h2{{color:#ccc;font-size:14px;font-weight:700;margin-bottom:16px;margin-top:36px;text-transform:uppercase;letter-spacing:.05em}}
-.project{{background:#2a2a2a;border-radius:12px;margin-bottom:12px;overflow:hidden}}
-.project.missing{{opacity:.55}}
-.proj-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px}}
-.proj-title{{min-width:0}}
-.proj-name{{font-weight:700;font-size:16px;color:#fff;display:block}}
-.proj-path{{font-size:12px;color:#888;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-.missing-tag{{color:#f87171;margin-left:4px}}
-.ideas{{padding:0 16px 14px;display:flex;flex-direction:column;gap:6px}}
-.idea-link{{display:flex;justify-content:space-between;align-items:center;background:#1e1e1e;border-radius:8px;padding:10px 14px;color:#d0d0d0;text-decoration:none;font-weight:500;font-size:14px}}
-.idea-link:hover{{background:#252525}}
-.cnt{{font-weight:400;color:#888;font-size:12px}}
-.no-ideas{{color:#666;font-size:13px;padding:4px 0}}
-.btn-remove{{flex-shrink:0;background:transparent;border:1px solid #555;color:#999;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;white-space:nowrap}}
-.btn-remove:hover{{background:#3a2020;border-color:#f87171;color:#f87171}}
-.panel{{background:#242424;border:1px solid #383838;border-radius:12px;padding:20px;margin-top:12px}}
-.field{{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}}
-label{{font-size:13px;color:#aaa;font-weight:600}}
-input[type=text]{{background:#1a1a1a;border:1px solid #444;border-radius:8px;padding:9px 12px;color:#e0e0e0;font-size:14px;outline:none;width:100%}}
-input[type=text]:focus{{border-color:#2a52d4}}
-.row{{display:flex;gap:8px}}
-.row input[type=text]{{flex:1}}
-.btn-primary{{background:#2a52d4;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}}
-.btn-primary:hover{{background:#3060e0}}
-.btn-secondary{{background:#333;color:#ccc;border:none;border-radius:8px;padding:9px 14px;font-size:14px;cursor:pointer;white-space:nowrap}}
-.btn-secondary:hover{{background:#3a3a3a}}
-.msg{{font-size:13px;margin-top:10px;min-height:20px}}
-.msg.ok{{color:#4ade80}}
-.msg.err{{color:#f87171}}
-.scan-results{{margin-top:14px;display:flex;flex-direction:column;gap:6px}}
-.scan-item{{display:flex;align-items:center;gap:10px;background:#1e1e1e;border-radius:8px;padding:10px 12px}}
-.scan-item label{{font-size:13px;color:#ccc;font-weight:400;cursor:pointer;flex:1;margin:0}}
-.scan-item .scan-path{{font-size:11px;color:#666;display:block}}
-.scan-item input[type=checkbox]{{width:16px;height:16px;cursor:pointer;flex-shrink:0}}
-.tag-registered{{font-size:11px;color:#888;background:#333;padding:2px 6px;border-radius:4px;margin-left:6px}}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <h1>Mockup Canvas</h1>
-  <div id="projects">{projects_html if projects_html else '<p style="color:#666">No projects registered</p>'}</div>
-{manage_html}
-</div>
-
-{manage_script}</body>
-</html>""")
-
-        body = html.encode()
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
-        self.send_header('Content-Length', str(len(body)))
-        self._add_root_header()
-        self.end_headers()
-        self.wfile.write(body)
 
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
@@ -2327,6 +2330,7 @@ def cmd_serve(args):
     CanvasHandler.share_edit = share_edit or not share
     CanvasHandler.read_only = read_only
     CanvasHandler.share_host = lan_ip
+    CanvasHandler.share_until = time.time() + minutes * 60 if share else 0.0
 
     t = threading.Thread(target=_watch_thread, args=([(design_dir, '')],), daemon=True)
     t.start()
@@ -2380,7 +2384,7 @@ def _cmd_serve_registry(args):
         port = new_port
 
     roots = load_roots()
-    if not roots:
+    if not roots and share:
         print('No projects registered. Add one first with: canvas roots add <design dir>')
         return
     if project is not None:
@@ -2398,10 +2402,13 @@ def _cmd_serve_registry(args):
     RegistryHandler.share_edit = share_edit or not share
     RegistryHandler.read_only = False
     RegistryHandler.share_host = lan_ip
+    RegistryHandler.share_until = time.time() + minutes * 60 if share else 0.0
     # A share serves the projects registered right now; later registry edits do not widen it
     RegistryHandler.frozen_roots = [dict(r) for r in roots] if share else None
 
-    watch_list = [(r['path'], r['name'] + '/') for r in roots if os.path.isdir(r['path'])]
+    def watch_list():
+        current = RegistryHandler.frozen_roots if RegistryHandler.frozen_roots is not None else load_roots_safe()
+        return [(r['path'], r['name'] + '/') for r in current if os.path.isdir(r['path'])]
     t = threading.Thread(target=_watch_thread, args=(watch_list,), daemon=True)
     t.start()
 
@@ -2421,6 +2428,9 @@ def _cmd_serve_registry(args):
         threading.Thread(target=auto_stop, daemon=True).start()
     else:
         print(f'Server started (registry mode): http://127.0.0.1:{port}/', flush=True)
+        if not roots:
+            print('  No projects registered yet: add one on the page or with canvas roots add <design dir>',
+                  flush=True)
         for r in roots:
             exists = 'ok' if os.path.isdir(r['path']) else 'missing'
             print(f'  {r["name"]}: {r["path"]} [{exists}]', flush=True)
