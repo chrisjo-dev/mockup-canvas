@@ -80,7 +80,7 @@
 
     /* Implementation and comment badges */
     .built-badge {
-      flex-shrink: 0; background: #2a52d4; color: #fff; font-size: 9px; font-weight: 700;
+      flex-shrink: 0; background: #6d48d6; color: #fff; font-size: 9px; font-weight: 700;
       padding: 1px 5px; border-radius: 4px; text-transform: uppercase; letter-spacing: .04em;
     }
     .cmt-badge {
@@ -914,7 +914,11 @@
   // ── Fit to view ──────────────────────────────────────────────────────────
   function fitToView() {
     if (!canvasData) return;
-    const bds = Object.values(canvasData.boards || {});
+    // #<board id> (from the dashboard's board tiles) fits that one board
+    let focus = null;
+    try { focus = decodeURIComponent(location.hash.slice(1)); } catch (_) {}
+    const one = focus && (canvasData.boards[focus] || canvasData.boards[focus + '.html']);
+    const bds = one ? [one] : Object.values(canvasData.boards || {});
     if (!bds.length) return;
     const minX = Math.min(...bds.map(b => b.x));
     const minY = Math.min(...bds.map(b => b.y));
@@ -1146,6 +1150,9 @@
   }
 
   // ── Start ────────────────────────────────────────────────────────────────
+  // The dashboard's "N new" badge counts boards edited after the last visit to this idea
+  function markVisit() { try { localStorage.setItem('mc:visit:' + BASE.replace(/^\/+/, ''), String(Date.now())); } catch (_) {} }
+  if (!STATIC) { markVisit(); window.addEventListener('pagehide', markVisit); }
   applyXform();
   loadCanvas().then(() => {
     fitToView();
