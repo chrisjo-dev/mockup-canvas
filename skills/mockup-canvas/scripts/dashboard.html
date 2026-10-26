@@ -252,6 +252,8 @@ main { position: relative; padding: var(--sp-6) var(--sp-8) var(--sp-10); min-wi
 .sh h2 { font-size: var(--fs-15); line-height: var(--lh-15); font-weight: var(--fw-semi); }
 .sh .t3 { font-size: var(--fs-12); }
 .sh .btn { margin-left: auto; align-self: center; }
+.sh .acts { margin-left: auto; display: flex; gap: var(--sp-1); align-self: center; }
+.sh .acts .btn { margin-left: 0; }
 .sh .btn .i { order: 2; }
 .more { font-size: var(--fs-12); color: var(--text-3); margin-top: var(--sp-2); display: flex; align-items: center; gap: var(--sp-3); }
 .note-empty { color: var(--text-2); padding: var(--sp-6) 0; display: flex; align-items: center; gap: var(--sp-3); }
@@ -430,7 +432,7 @@ main { position: relative; padding: var(--sp-6) var(--sp-8) var(--sp-10); min-wi
 .pal li > .i { color: var(--text-2); }
 .pal li .lt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal li .pth { width: 16px; height: 28px; border-radius: 3px; flex: none; background: var(--surface-3); object-fit: cover; object-position: top center; display: block; }
-.pal li .pth.web { width: 28px; height: 18px; }
+.pal li .pth.web { object-position: left top; }   /* every row's thumbnail is 16 px wide, like the icons, so names line up */
 .pal li .x { color: var(--text-3); margin-left: auto; font-size: var(--fs-12); white-space: nowrap; flex: none; }
 .pal li .x + .pill, .pal li .x + .kbd { margin-left: 0; }
 .pal li .pill { flex: none; }
@@ -581,7 +583,8 @@ body.demo-mode main { padding: 0; }
   .dsub { display: none; }
   .dt { padding: var(--sp-3) var(--sp-4) 0; }
   .dt .seg { display: flex; }
-  .dt .seg > button { flex: 1; justify-content: center; height: 38px; }
+  .dt .seg > button { flex: 1; justify-content: center; height: 44px; }
+  .brand { min-height: 44px; }
   .db { padding: var(--sp-3) var(--sp-4); gap: var(--sp-4); }
   .input { height: 44px; }
   .sg-r { flex-direction: column; align-items: stretch; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3) var(--sp-3); }
@@ -645,9 +648,11 @@ body.demo-mode main { padding: 0; }
 <script>
 (function () {
   'use strict';
-  // Everything a page shows comes from the server's index (window.MC_BOOT, then /api/index on
+  // Everything a page shows comes from the server's index (the #boot JSON block, then /api/index on
   // live reload). Names and paths are only ever set as text (textContent), never as HTML.
-  const BOOT = window.MC_BOOT || { projects: [], ideas: [], now: Date.now() / 1000, mode: 'registry' };
+  // The index arrives as data (type="application/json"), never as script
+  let BOOT = { projects: [], ideas: [], now: Date.now() / 1000, mode: 'registry' };
+  try { const el = document.getElementById('boot'); if (el) BOOT = JSON.parse(el.textContent); } catch (_) {}
   const Q = new URLSearchParams(location.search);
   const $ = (id) => document.getElementById(id);
   const main = $('main'), rail = $('rail'), layer = $('layer');
@@ -690,6 +695,14 @@ body.demo-mode main { padding: 0; }
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
   };
   const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+  // A path or name as one shell word; a leading ~/ stays outside the quotes so the shell expands it
+  function shq(s) {
+    s = String(s);
+    const q = (t) => (/^[A-Za-z0-9_.\/@%+=:,-]+$/.test(t) ? t : "'" + t.replace(/'/g, "'\\''") + "'");
+    if (s === '~') return s;
+    if (s.startsWith('~/')) return s.length > 2 ? '~/' + q(s.slice(2)) : s;
+    return s ? q(s) : "''";
+  }
   const both = (long, short) => [h('span', { class: 'ph-hide', text: long }), h('span', { class: 'ph-only', text: short })];
 
   // ── time ──
@@ -739,7 +752,10 @@ body.demo-mode main { padding: 0; }
     DATA = d;
     skew = (d.now || Date.now() / 1000) - Date.now() / 1000;
     if (Math.abs(skew) < 5) skew = 0;
-    PROJ = (d.projects || []).filter((p) => !p.missing).concat((d.projects || []).filter((p) => p.missing));
+    const latest = {};   // projects: most recently edited first, missing folders last
+    for (const x of d.ideas || []) latest[x.project] = Math.max(latest[x.project] || 0, x.mtime);
+    PROJ = (d.projects || []).filter((p) => !p.missing).sort((a, b) => (latest[b.name] || 0) - (latest[a.name] || 0))
+      .concat((d.projects || []).filter((p) => p.missing));
     IDEAS = (d.ideas || []).map((x) => {
       let a = 0, w = 0, r = 0, c = 0, bu = 0, apNB = false;
       for (const b of x.boards) {
@@ -923,7 +939,7 @@ body.demo-mode main { padding: 0; }
     if (o.pending) {   // ?state=loading and the card states sheet: frozen "rendering" look
       for (const s of well.querySelectorAll('.slot')) s.classList.add('shim');
       well.classList.add('pending');
-      well.append(h('span', { class: 'wnote mono', text: 'Rendering previews, ' + o.pending + ' of ' + bs.length }));
+      well.append(h('span', { class: 'wnote mono', text: 'Rendering previews, ' + Math.min(o.pending, bs.length) + ' of ' + bs.length }));
       return;
     }
     io.observe(well);
@@ -1435,25 +1451,31 @@ body.demo-mode main { padding: 0; }
       return [x, bs];
     }).filter(([, bs]) => bs.length);
     const count = groups.reduce((s, [, bs]) => s + bs.length, 0);
+    // Several ideas: each shows its first row and "Show all N"; one idea: 48 at a time on scroll
+    const single = groups.length === 1;
+    const cols = innerWidth >= 1280 ? 8 : innerWidth >= 960 ? 6 : innerWidth >= 768 ? 4 : 3;
     let shown = 0;
     const wrap = h('div', { class: 'allb' });
     for (const [x, bs] of groups) {
-      if (shown >= ST.bLimit) break;
-      const take = bs.slice(0, ST.bLimit - shown);
+      const take = bs.slice(0, single ? ST.bLimit : cols);
       shown += take.length;
       wrap.append(h('div', { class: 'sh' }, h('h2', { text: x.name }),
         h('span', { class: 't3', text: plural(bs.length, 'board') + (ST.sort === 'name' ? ', by name' : ', newest first') }),
-        h('a', { class: 'btn sm ghost', href: x.url }, 'Open canvas', icon('arrow-right', 'sm'))));
+        h('span', { class: 'acts' },
+          !single && bs.length > take.length
+            ? h('button', { class: 'btn sm ghost', type: 'button', onclick: () => go({ bIdea: x.name }, true) }, 'Show all ' + bs.length) : null,
+          h('a', { class: 'btn sm ghost', href: x.url }, 'Open canvas', icon('arrow-right', 'sm')))));
       const tiles = h('div', { class: 'tiles' });
       for (const b of take) tiles.append(tile(b, true));
       wrap.append(tiles);
     }
     main.append(wrap);
     if (!count) { main.append(h('p', { class: 'note-empty', text: 'No board in ' + p.name + ' has this status.' })); return; }
-    const more = h('p', { class: 'more', text: shown < count
-      ? 'Showing ' + shown + ' of ' + count + '. More load as you scroll, 48 at a time.' : 'Showing all ' + plural(count, 'board') + '.' });
+    const more = h('p', { class: 'more', text: shown >= count ? 'Showing all ' + plural(count, 'board') + '.'
+      : single ? 'Showing ' + shown + ' of ' + count + '. More load as you scroll, 48 at a time.'
+      : 'Showing ' + shown + ' of ' + count + '. Show all opens one idea and loads its boards 48 at a time.' });
     main.append(more);
-    if (shown < count) {
+    if (single && shown < count) {
       const sentinel = new IntersectionObserver((ents) => {
         if (ents.some((e) => e.isIntersecting)) { sentinel.disconnect(); ST.bLimit += 48; renderMain(true); }
       }, { root: main, rootMargin: '400px' });
@@ -1469,7 +1491,7 @@ body.demo-mode main { padding: 0; }
       h('div', { class: 'mi-ic' }, icon('folder', 'lg'), h('span', { class: 'x' }, icon('x', 'sm'))),
       h('div', null, h('h2', { text: 'This folder is not on disk' }), text,
         M ? h('div', { class: 'acts' }, M.missingActions(p)) : null,
-        DATA.share ? null : h('div', { class: 'code' }, h('span', { class: 'p', text: '$ ' }), 'canvas roots remove ' + p.name))));
+        DATA.share ? null : h('div', { class: 'code' }, h('span', { class: 'p', text: '$ ' }), 'canvas roots remove ' + shq(p.name)))));
   }
   function renderEmpty() {
     const quote = '"Draw a mockup of a habit tracker: home, add habit, and weekly stats."';
@@ -1727,7 +1749,7 @@ body.demo-mode main { padding: 0; }
 
   function render(keep) { renderTop(); renderRail(); renderMain(keep); }
 
-  window.MC = { h, icon, plural, both, toast, copy, openTab, go, refresh, render, openLayer, closeLayer,
+  window.MC = { h, icon, plural, both, shq, toast, copy, openTab, go, refresh, render, openLayer, closeLayer,
     buildMenu, showMenu, closeMenu, get data() { return DATA; }, get state() { return ST; } };
 
   function start() {

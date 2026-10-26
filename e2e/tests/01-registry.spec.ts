@@ -175,6 +175,78 @@ test.describe('Registry dashboard', () => {
     await expect(page.locator('a.tile')).toHaveCount(2);
   });
 
+  test('Copied shell commands quote paths and names', async ({ page, sandbox }) => {
+    const odd = path.join(sandbox.work, "my proj's", 'design');
+    fs.cpSync(sandbox.idea, path.join(odd, 'second'), { recursive: true });
+    const srv = await sandbox.serveRegistry([[odd, 'odd one']]);
+    await page.goto(srv.origin + '/?project=' + encodeURIComponent('odd one'));
+    await expect(page.locator('.add-idea .mono')).toHaveText(`canvas new ~/'work/my proj'\\''s/design' <idea>`);
+    fs.renameSync(path.dirname(odd), path.join(sandbox.work, 'elsewhere'));
+    await page.reload();
+    await expect(page.locator('.miss .code')).toHaveText(`$ canvas roots remove 'odd one'`);
+    await page.getByRole('button', { name: 'Locate folder' }).click();
+    const dlg = page.getByRole('dialog', { name: 'Add a project' });
+    fs.renameSync(path.join(sandbox.work, 'elsewhere'), path.join(sandbox.work, 'else where'));
+    await dlg.getByLabel('Design folder').fill('~/work/else where/design');
+    await expect(dlg.locator('.df .mono')).toHaveText(`canvas roots add ~/'work/else where/design' --name 'odd one'`);
+    await expect(dlg.locator('.okmsg')).toContainText('Updates the missing folder of odd one');
+  });
+
+  test('Rail lists the most recently edited project first; loading text never counts past the boards', async ({ page, sandbox }) => {
+    const beta = sandbox.makeBeta();
+    const old = new Date(Date.now() - 3_600_000);
+    for (const f of fs.readdirSync(path.join(sandbox.idea, 'boards'))) fs.utimesSync(path.join(sandbox.idea, 'boards', f), old, old);
+    fs.utimesSync(path.join(sandbox.idea, 'canvas.json'), old, old);
+    const srv = await sandbox.serveRegistry([[beta, 'beta']]);
+    await page.goto(srv.origin + '/');
+    const rows = page.locator('nav.rail ul').first().locator('.ri .lb');
+    await expect(rows).toHaveText(['All ideas', 'beta', 'alpha']);
+    // second idea in the loading state has "2 of" its boards; one desktop board means 1 of 1
+    const web = new Date(Date.now() + 1000);
+    const older = new Date(Date.now() - 600_000);
+    for (const f of fs.readdirSync(path.join(sandbox.idea, 'boards'))) fs.utimesSync(path.join(sandbox.idea, 'boards', f), older, older);
+    fs.utimesSync(path.join(sandbox.idea, 'boards', 'T06-WebLanding.html'), web, web);
+    fs.utimesSync(path.join(sandbox.idea, 'canvas.json'), older, older);
+    await page.goto(srv.origin + '/?state=loading');
+    const notes = page.locator('.wnote');
+    await expect(notes.first()).toBeVisible();
+    for (const t of await notes.allTextContents()) {
+      const m = t.match(/(\d+) of (\d+)/)!;
+      expect(Number(m[1])).toBeLessThanOrEqual(Number(m[2]));
+    }
+  });
+
+  test('Palette names line up for ideas, boards, and actions', async ({ page, sandbox }) => {
+    const srv = await sandbox.serveRegistry();
+    await page.goto(srv.origin + '/?palette=t0');
+    const xs = await page.locator('.pal li .lt').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+    expect(xs.length).toBeGreaterThan(2);
+    expect(new Set(xs).size).toBe(1);
+  });
+
+  test('All boards: each idea shows its first row and Show all opens that idea', async ({ page, sandbox }) => {
+    sandbox.makeBeta();
+    fs.cpSync(sandbox.idea, path.join(sandbox.alphaDesign, 'trail-2'), { recursive: true });
+    const srv = await sandbox.serveRegistry();
+    await page.setViewportSize({ width: 900, height: 800 });   // 4 tiles per row
+    await page.goto(srv.origin + '/?project=alpha&page=boards');
+    await expect(page.locator('.allb .tiles')).toHaveCount(2);
+    for (const t of await page.locator('.allb .tiles').all()) await expect(t.locator('a.tile')).toHaveCount(4);
+    await expect(page.locator('.more')).toHaveText('Showing 8 of 12. Show all opens one idea and loads its boards 48 at a time.');
+    await page.getByRole('button', { name: 'Show all 6' }).first().click();
+    await expect(page).toHaveURL(/idea=/);
+    await expect(page.locator('a.tile')).toHaveCount(6);
+    await expect(page.locator('.more')).toHaveText('Showing all 6 boards.');
+  });
+
+  test('The canvas ignores #__proto__ and fits every board', async ({ page, sandbox, consoleErrors }) => {
+    const srv = await sandbox.serveRegistry();
+    await page.goto(srv.origin + '/alpha/trailmate/#__proto__');
+    await expect(page.locator('#loading')).toHaveClass(/gone/, { timeout: 15_000 });
+    await expect(page.locator('.board')).toHaveCount(6);
+    expect(consoleErrors).toEqual([]);
+  });
+
   test('Phone layout: one card per row, 44 px tap targets, palette sheet @mobile', async ({ page, sandbox }, testInfo) => {
     const srv = await sandbox.serveRegistry();
     await page.goto(srv.origin + '/');
@@ -192,5 +264,10 @@ test.describe('Registry dashboard', () => {
     await page.getByRole('combobox').fill('habit');
     await expect(page.getByRole('heading', { name: 'Nothing matches "habit"' })).toBeVisible();
     await shot(page, testInfo, '01-phone-palette');
+    await page.getByRole('button', { name: 'Clear' }).first().tap();
+    await page.keyboard.press('Escape');
+    expect((await page.locator('a.brand').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.getByRole('button', { name: 'Add project' }).first().tap();
+    for (const tab of await page.getByRole('tab').all()) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   });
 });

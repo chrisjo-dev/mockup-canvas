@@ -108,7 +108,7 @@
       addBtn.hidden = !onPath; addSel.hidden = onPath;
       cli.hidden = !onPath;
       const p = pathIn.value.trim(), n = nameIn.value.trim();
-      cli.textContent = 'canvas roots add ' + (p || '<design dir>') + (n ? ' --name ' + n : '');
+      cli.textContent = 'canvas roots add ' + (p ? MC.shq(p) : '<design dir>') + (n ? ' --name ' + MC.shq(n) : '');
       msg.textContent = '';
       pathIn.classList.remove('err');
       sug.hidden = true;
@@ -262,7 +262,7 @@
       return [h('button', { class: 'btn sm', type: 'button', onclick: () => reveal(p.name, '') }, icon('folder', 'sm'), 'Reveal in Finder'), rescan, more];
     },
     newIdeaCard(p) {
-      const cmd = 'canvas new ' + (p.path || '<design dir>') + ' <idea>';
+      const cmd = 'canvas new ' + (p.path ? MC.shq(p.path) : '<design dir>') + ' <idea>';
       return h('div', { class: 'add-idea' }, h('span', { class: 'ic' }, icon('terminal')), h('b', { text: 'New idea in ' + p.name }),
         h('span', { class: 'mono', text: cmd }),
         h('button', { class: 'btn sm ghost', type: 'button', onclick: () => MC.copy(cmd, 'Command copied') }, 'Copy'));
