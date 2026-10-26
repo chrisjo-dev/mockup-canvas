@@ -1,116 +1,196 @@
-// spec: specs/mockup-canvas-journeys.md
+// spec: specs/mockup-canvas-journeys.md (section 1, registry dashboard)
 // seed: seed.spec.ts
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect, openCanvas, shot } from './fixtures';
+import { Page } from '@playwright/test';
+import { test, expect, shot } from './fixtures';
 
-test.describe('Registry index', () => {
-  test('Lists registered projects and their ideas', async ({ page, sandbox }, testInfo) => {
+const card = (page: Page, idea: string) => page.locator('article.gc', { has: page.locator('a.cl', { hasText: idea }) });
+const rail = (page: Page) => page.locator('nav.rail');
+
+test.describe('Registry dashboard', () => {
+  test('Opens the dashboard, shows the idea card with a thumbnail, and opens the canvas', async ({ page, sandbox, consoleErrors }, testInfo) => {
     const srv = await sandbox.serveRegistry();
-    // 2. Open /
     await page.goto(srv.origin + '/');
-    await expect(page.getByRole('heading', { name: 'Mockup Canvas' })).toBeVisible();
-    const project = page.locator('section.project', { hasText: 'alpha' });
-    await expect(project).toBeVisible();
-    const link = project.getByRole('link', { name: /trailmate/ });
-    await expect(link).toContainText('6 artboards');
-    await shot(page, testInfo, '01-registry-index');
-    await link.click();
+    await expect(page.getByRole('heading', { name: 'All ideas' })).toBeVisible();
+    await expect(page.locator('.mh p')).toHaveText('1 idea, 6 boards, 0 open comments');
+    const c = card(page, 'trailmate');
+    await expect(c).toContainText('6 boards');
+    await expect(c.locator('.meter')).toHaveAttribute('aria-label', '2 approved, 4 draft, 0 rejected of 6');
+    await expect(rail(page).getByRole('button', { name: /alpha/ })).toContainText('1');
+    // Thumbnails come from the thumbnail endpoint (PNG), never an iframe
+    await expect(c.locator('.gw img').first()).toBeVisible({ timeout: 45_000 });
+    expect(await page.locator('iframe').count()).toBe(0);
+    await shot(page, testInfo, '01-dashboard');
+    await c.locator('a.cl').click();
     await expect(page).toHaveURL(/\/alpha\/trailmate\/$/);
-    await openCanvas(page, page.url());
-    await expect(page.locator('.board')).toHaveCount(6);
+    await expect(page.locator('#loading')).toHaveClass(/gone/, { timeout: 15_000 });
+    expect(consoleErrors).toEqual([]);
   });
 
-  test('Adds a project with a valid path', async ({ page, sandbox }) => {
-    const beta = sandbox.makeBeta();
+  test('Status filter and search narrow the gallery', async ({ page, sandbox }, testInfo) => {
     const srv = await sandbox.serveRegistry();
     await page.goto(srv.origin + '/');
-    // 1. Fill path and name
-    await page.getByLabel('Design folder path').fill(beta);
-    await page.getByLabel(/^Name/).fill('beta');
-    // 2. Click Add
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
-    await expect(page.locator('#add-msg')).toHaveText('Added: beta');
-    await expect(page.locator('section.project', { hasText: 'beta' })).toBeVisible();
-    expect(sandbox.rootsFile().map((r) => r.name)).toEqual(['alpha', 'beta']);
+    await rail(page).getByRole('button', { name: /Needs decision/ }).click();
+    await expect(page).toHaveURL(/filter=needs-decision/);
+    await expect(page.getByRole('heading', { name: 'Needs decision' })).toBeVisible();
+    await expect(page.locator('.mh p')).toHaveText('1 idea and 4 boards match');
+    // the palette's last action filters the gallery by the query
+    await page.keyboard.press('/');
+    await page.getByRole('combobox').fill('plan');
+    await page.getByRole('option', { name: /Filter the gallery by "plan"/ }).click();
+    await expect(page).toHaveURL(/q=plan/);
+    await expect(page.locator('.mh p')).toHaveText('1 idea and 1 board match');
+    await expect(page.locator('a.tile')).toHaveCount(1);
+    await expect(page.locator('a.tile')).toContainText('T04');
+    await shot(page, testInfo, '01-filtered');
+    // Escape clears the search, Clear all the rest
+    await page.locator('main').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('Escape');
+    await expect(page).not.toHaveURL(/q=plan/);
+    await page.getByRole('button', { name: 'Clear all' }).click();
+    await expect(page.getByRole('heading', { name: 'All ideas' })).toBeVisible();
   });
 
-  test('Shows errors for invalid paths', async ({ page, sandbox }, testInfo) => {
+  test('Command palette finds boards, highlights matches, and says when nothing matches', async ({ page, sandbox }, testInfo) => {
     const srv = await sandbox.serveRegistry();
-    const noCanvas = path.join(sandbox.home, 'plain');
-    fs.mkdirSync(path.join(noCanvas, 'sub'), { recursive: true });
-    const hidden = path.join(sandbox.home, '.secret', 'design');
-    fs.cpSync(sandbox.idea, path.join(hidden, 'trailmate'), { recursive: true });
     await page.goto(srv.origin + '/');
-    const msg = page.locator('#add-msg');
-    const pathInput = page.getByLabel('Design folder path');
-    const add = page.getByRole('button', { name: 'Add', exact: true });
-
-    const nameInput = page.getByLabel(/^Name/);
-    // [path, name, expected message]; the default name is the parent folder, so the duplicate
-    // path case needs a different name to reach the path check
-    const cases: Array<[string, string, RegExp]> = [
-      ['', '', /Enter a path/],
-      ['/etc', '', /Paths outside the home directory are not allowed/],
-      [path.join(sandbox.home, 'nope', 'design'), '', /Directory does not exist/],
-      [noCanvas, '', /Not a mockup-canvas design folder/],
-      [sandbox.alphaDesign, '', /Name already in use: alpha/],
-      [sandbox.alphaDesign, 'other', /Already registered: alpha/],
-      [hidden, '', /System or hidden directories are not allowed/],
-    ];
-    for (const [value, name, expected] of cases) {
-      await pathInput.fill(value);
-      await nameInput.fill(name);
-      await add.click();
-      await expect(msg).toHaveText(expected);
-      await expect(msg).toHaveClass(/err/);
-    }
-    await shot(page, testInfo, '01-registry-add-error');
-    await page.reload();
-    await expect(page.locator('section.project')).toHaveCount(1);
-    expect(sandbox.rootsFile()).toHaveLength(1);
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
+    const input = page.getByRole('combobox');
+    await expect(input).toBeFocused();
+    await expect(page.locator('.pal .grp')).toHaveText(['Recent ideas', 'Recent boards', 'Actions']);
+    await input.fill('trail');
+    await expect(page.locator('.pal .cnt')).toHaveText(/\d+ results?/);
+    const row = page.getByRole('option', { name: /T02 Trail Detail/ });
+    await expect(row.locator('mark')).toHaveText('Trail');
+    await shot(page, testInfo, '01-palette');
+    await input.fill('zzzz');
+    await expect(page.getByRole('heading', { name: 'Nothing matches "zzzz"' })).toBeVisible();
+    await page.getByRole('button', { name: 'Clear search' }).click();
+    await expect(input).toHaveValue('');
+    await input.fill('home');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/alpha\/trailmate\/#T01-Home$/);
   });
 
-  test('Scan finds folders and adds the checked ones', async ({ page, sandbox }, testInfo) => {
+  test('Add project shows the server error, suggests the design folder, and adds it', async ({ page, sandbox }, testInfo) => {
     sandbox.makeBeta();
     const srv = await sandbox.serveRegistry();
     await page.goto(srv.origin + '/');
-    // 1. Fill the folders to search
-    await page.getByLabel(/Folders to search/).fill(sandbox.work);
-    // 2. Search
-    await page.getByRole('button', { name: 'Search' }).click();
-    await expect(page.locator('#scan-msg')).toHaveText('Found 2');
-    const items = page.locator('#scan-results .scan-item');
-    const alpha = items.filter({ hasText: 'alpha' });
-    const beta = items.filter({ hasText: 'beta' });
-    await expect(alpha.locator('input')).toBeDisabled();
-    await expect(alpha).toContainText('already registered');
-    await expect(beta.locator('input')).toBeChecked();
-    await shot(page, testInfo, '01-registry-scan');
-    // 3. Add selected
-    await page.getByRole('button', { name: 'Add selected' }).click();
-    await expect(page.locator('#scan-msg')).toHaveText('Added 1');
-    await expect(page.locator('section.project', { hasText: 'beta' })).toBeVisible();
+    await rail(page).getByRole('button', { name: 'Add project' }).click();
+    const dlg = page.getByRole('dialog', { name: 'Add a project' });
+    const pathIn = dlg.getByLabel('Design folder');
+    const add = dlg.getByRole('button', { name: 'Add project' });
+    await pathIn.fill('/etc');
+    await expect(dlg.getByRole('alert')).toHaveText(/Paths outside the home directory are not allowed/);
+    await expect(add).toBeDisabled();
+    await pathIn.fill(path.join(sandbox.home, 'nope'));
+    await expect(dlg.getByRole('alert')).toHaveText(/Directory does not exist/);
+    // The parent of a design folder: the server suggests the design/ inside it
+    await pathIn.fill(path.dirname(sandbox.betaDesign));
+    await expect(dlg.getByRole('alert')).toHaveText(/no subfolder contains canvas.json/);
+    await expect(dlg.locator('.suggest')).toContainText('1 idea, 6 boards');
+    await expect(add).toBeDisabled();
+    await shot(page, testInfo, '01-add-error');
+    await dlg.getByRole('button', { name: 'Use this folder' }).click();
+    await expect(dlg.locator('.okmsg')).toHaveText('Found 1 idea, 6 boards');
+    await expect(dlg.locator('.df .mono')).toHaveText('canvas roots add ~/work/beta/design');
+    await add.click();
+    await expect(dlg).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'beta' })).toBeVisible();
+    await expect(card(page, 'second')).toBeVisible();
+    expect(sandbox.rootsFile().map((r) => r.name)).toEqual(['alpha', 'beta']);
+  });
+
+  test('Find in folders lists design folders and adds the checked ones', async ({ page, sandbox }) => {
+    sandbox.makeBeta();
+    const srv = await sandbox.serveRegistry();
+    await page.goto(srv.origin + '/');
+    await rail(page).getByRole('button', { name: 'Find in folders' }).click();
+    const dlg = page.getByRole('dialog', { name: 'Add a project' });
+    await dlg.getByLabel('Folders to search').fill(sandbox.work);
+    await dlg.getByRole('button', { name: 'Search' }).click();
+    await expect(dlg.locator('.status-line')).toHaveText('Found 2 design folders');
+    await expect(dlg.locator('.scanitem', { hasText: 'alpha' }).locator('input')).toBeDisabled();
+    await expect(dlg.locator('.scanitem', { hasText: 'beta' }).locator('input')).toBeChecked();
+    await dlg.getByRole('button', { name: 'Add 1 project' }).click();
+    await expect(dlg).toHaveCount(0);
     expect(sandbox.rootsFile().map((r) => r.name).sort()).toEqual(['alpha', 'beta']);
   });
 
-  test('Remove from list asks for confirmation and leaves files untouched', async ({ page, sandbox }) => {
+  test('A missing folder shows a warning page and can be removed from the list', async ({ page, sandbox }, testInfo) => {
+    const beta = sandbox.makeBeta();
+    const srv = await sandbox.serveRegistry([[beta, 'beta']]);
+    fs.renameSync(path.dirname(beta), path.join(sandbox.work, 'beta-moved'));
+    await page.goto(srv.origin + '/');
+    const row = rail(page).getByRole('button', { name: /beta/ });
+    await expect(row).toContainText('Missing');
+    await row.click();
+    await expect(page.getByRole('heading', { name: 'This folder is not on disk' })).toBeVisible();
+    await expect(page.locator('.miss .code')).toHaveText('$ canvas roots remove beta');
+    await shot(page, testInfo, '01-missing');
+    page.once('dialog', (d) => { expect(d.message()).toContain('No files are deleted'); void d.accept(); });
+    await page.getByRole('button', { name: 'Remove from list' }).click();
+    await expect(rail(page).getByRole('button', { name: /beta/ })).toHaveCount(0);
+    expect(sandbox.rootsFile().map((r) => r.name)).toEqual(['alpha']);
+    expect(fs.existsSync(path.join(sandbox.work, 'beta-moved', 'design', 'second', 'canvas.json'))).toBe(true);
+  });
+
+  test('Theme toggle (Shift T) and Compact size persist across reloads', async ({ page, sandbox }, testInfo) => {
     const srv = await sandbox.serveRegistry();
     await page.goto(srv.origin + '/');
-    const project = page.locator('section.project', { hasText: 'alpha' });
-    // 1. Dismiss the confirm dialog
-    let dialogText = '';
-    page.once('dialog', (d) => { dialogText = d.message(); void d.dismiss(); });
-    await project.getByRole('button', { name: 'Remove from list' }).click();
-    await expect.poll(() => dialogText).toContain('No files are deleted');
-    await expect(project).toBeVisible();
-    expect(sandbox.rootsFile()).toHaveLength(1);
-    // 2. Accept
-    page.once('dialog', (d) => void d.accept());
-    await project.getByRole('button', { name: 'Remove from list' }).click();
-    await expect(page.locator('section.project', { hasText: 'alpha' })).toHaveCount(0);
-    expect(sandbox.rootsFile()).toHaveLength(0);
-    expect(fs.existsSync(path.join(sandbox.idea, 'canvas.json'))).toBe(true);
-    expect(fs.readdirSync(path.join(sandbox.idea, 'boards'))).toHaveLength(6);
+    const html = page.locator('html');
+    await expect(html).not.toHaveAttribute('data-theme', 'light');
+    await page.keyboard.press('Shift+T');
+    await expect(html).toHaveAttribute('data-theme', 'light');
+    await page.getByRole('button', { name: 'Compact' }).click();
+    await expect(page.locator('.grid.compact')).toBeVisible();
+    await shot(page, testInfo, '01-light-compact');
+    await page.reload();
+    await expect(html).toHaveAttribute('data-theme', 'light');
+    await expect(page.locator('.grid.compact')).toBeVisible();
+    await page.getByRole('button', { name: /Switch to dark theme/ }).click();
+    await expect(html).not.toHaveAttribute('data-theme', 'light');
+  });
+
+  test('Card menu copies the URL and the project view lists recent boards', async ({ page, sandbox, context, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard permissions are Chromium only in Playwright');
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const srv = await sandbox.serveRegistry();
+    await page.goto(srv.origin + '/');
+    const c = card(page, 'trailmate');
+    await c.hover();
+    await c.getByRole('button', { name: 'More actions for trailmate' }).click();
+    await expect(page.getByRole('menu', { name: 'Idea actions' })).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Copy URL' }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(srv.origin + '/alpha/trailmate/');
+    await rail(page).getByRole('button', { name: /alpha/ }).click();
+    await expect(page).toHaveURL(/project=alpha/);
+    await expect(page.locator('.tiles a.tile')).toHaveCount(6);
+    await page.getByRole('button', { name: 'All 6 boards' }).click();
+    await expect(page.getByRole('heading', { name: 'All boards in alpha' })).toBeVisible();
+    await page.getByRole('button', { name: 'Approved', exact: true }).click();
+    await expect(page.locator('a.tile')).toHaveCount(2);
+  });
+
+  test('Phone layout: one card per row, 44 px tap targets, palette sheet @mobile', async ({ page, sandbox }, testInfo) => {
+    const srv = await sandbox.serveRegistry();
+    await page.goto(srv.origin + '/');
+    await expect(page.locator('nav.rail')).toBeHidden();
+    const tab = page.locator('.tabs .chip').first();
+    expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    const search = page.locator('#tb-search');
+    const box = (await search.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    await search.tap();
+    const sheet = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(sheet).toBeVisible();
+    await expect.poll(async () => Math.round((await sheet.boundingBox())!.y)).toBe(44);
+    await page.getByRole('combobox').fill('habit');
+    await expect(page.getByRole('heading', { name: 'Nothing matches "habit"' })).toBeVisible();
+    await shot(page, testInfo, '01-phone-palette');
   });
 });

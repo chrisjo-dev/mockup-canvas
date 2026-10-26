@@ -42,6 +42,24 @@ test.describe('Share mode', () => {
     expect(ok.headers()['set-cookie']).toMatch(/canvas_token=.*HttpOnly.*SameSite=Strict/);
   });
 
+  test('The shared dashboard is read only: banner, no management, no paths', async ({ page, sandbox, consoleErrors }, testInfo) => {
+    const srv = await startShare(sandbox);
+    await page.goto(`${srv.origin}/?t=${srv.token}`);
+    await expect(page).toHaveURL(`${srv.origin}/`);
+    await expect(page.locator('#banner')).toContainText('Shared view, read only.');
+    await expect(page.locator('#banner')).toContainText(/Closes in \d+ min/);
+    await expect(page.locator('nav.rail')).toContainText('Shared, read only');
+    for (const name of ['Add project', 'Find in folders']) await expect(page.getByRole('button', { name })).toHaveCount(0);
+    const html = await page.content();
+    expect(html).not.toContain(sandbox.home);
+    const card = page.locator('article.gc').first();
+    await card.hover();
+    await expect(card.getByRole('button', { name: 'Copy link' })).toBeVisible();
+    await expect(card.getByRole('button', { name: /More actions/ })).toHaveCount(0);
+    await shot(page, testInfo, '08-share-dashboard');
+    expect(consoleErrors).toEqual([]);
+  });
+
   test('The token URL opens a read-only viewer', async ({ page, sandbox, consoleErrors }, testInfo) => {
     const srv = await openShared(page, sandbox);
     // Read-only badge

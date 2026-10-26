@@ -11,7 +11,7 @@ The plan is in [`specs/mockup-canvas-journeys.md`](specs/mockup-canvas-journeys.
 
 | File | Plan section |
 | --- | --- |
-| `tests/01-registry.spec.ts` | 1. Registry index: list, add, invalid paths, scan, remove |
+| `tests/01-registry.spec.ts` | 1. Registry dashboard: cards and thumbnails, filter, search, palette, add project errors and suggestion, find in folders, missing root, theme, Compact, card menu, phone layout |
 | `tests/02-canvas.spec.ts` | 2 to 4. Rendering, zoom, fit, pan, arrows, groups, drag, undo and redo, title click and double click |
 | `tests/03-comments-live.spec.ts` | 5 and 6. Comments, built badge, live reload, CLI `status` and `link` |
 | `tests/04-large-canvas.spec.ts` | 7. Large canvas: thumbnails, virtualization, console errors, pan FPS |

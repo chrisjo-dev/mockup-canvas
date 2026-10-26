@@ -29,67 +29,33 @@ Playwright MCP tools are not available in this session):
 
 ## Test Scenarios
 
-### 1. Registry index
+### 1. Registry dashboard
 
-**Seed:** `seed.spec.ts`
+**Seed:** `seed.spec.ts`. The page follows the approved boards in `design/canvas-dashboard` (B Gallery).
 
-#### 1.1 Lists registered projects and their ideas
+#### 1.1 Cards and thumbnails
+1. Register `alpha` and open `/`.
+2. Expect "All ideas", the summary "1 idea, 6 boards, 0 open comments", and a trailmate card with "6 boards" and a meter labelled "2 approved, 4 draft, 0 rejected of 6".
+3. Expect a PNG thumbnail in the card within 45 s and no iframe on the page; the card link opens `/alpha/trailmate/` without console errors.
 
-**Steps:**
-1. Register `alpha` with the CLI and start the registry server.
-2. Open `/`.
+#### 1.2 Filter and search
+1. Click "Needs decision" in the rail: the URL has `filter=needs-decision`, the summary says "1 idea and 4 boards match".
+2. Press `/`, type "plan", choose "Filter the gallery by "plan"": one board tile (T04). Escape clears the search, Clear all returns to All ideas.
 
-**Expected Results:**
-- The heading "Mockup Canvas" is visible.
-- The project `alpha` is listed with its path and a link `trailmate` showing "6 artboards".
-- Clicking the link opens `/alpha/trailmate/` and the canvas loads.
+#### 1.3 Command palette
+1. Cmd/Ctrl K focuses the palette field; empty groups are Recent ideas, Recent boards, Actions.
+2. "trail" highlights "Trail" in T02; "zzzz" shows "Nothing matches" and Clear search; "home" and Enter opens `/alpha/trailmate/#T01-Home`.
 
-#### 1.2 Adds a project with a valid path
+#### 1.4 Add project, Find in folders, missing root
+1. Add project shows the server's error under the field for `/etc`, a missing folder, and a folder without canvas.json; Add stays disabled.
+2. For the parent of a design folder it offers "Use this folder"; then "Found 1 idea, 6 boards", the CLI line, and Add registers `beta` and opens it.
+3. Find in folders lists alpha (already registered, disabled) and beta (checked) and adds beta.
+4. A registered folder that was moved shows "Missing" in the rail and the warning page; Remove from list asks first and deletes no files.
 
-**Steps:**
-1. Fill "Design folder path" with the `beta` design folder and "Name" with `beta`.
-2. Click "Add".
-
-**Expected Results:**
-- The message "Added: beta" appears, the page reloads, and `beta` is listed.
-- `roots.json` in `MOCKUP_CANVAS_HOME` contains `beta`.
-
-#### 1.3 Shows errors for invalid paths
-
-**Steps:**
-1. Click "Add" with an empty path.
-2. Add `/etc`.
-3. Add a folder under HOME that does not exist.
-4. Add a folder under HOME without any `canvas.json` subfolder.
-5. Add the already registered `alpha` folder again.
-6. Add a hidden folder under HOME (`~/.secret/design`).
-
-**Expected Results:**
-- Each attempt shows a red error message in the form: "Enter a path", "Paths outside the home
-  directory are not allowed", "Directory does not exist", "Not a mockup-canvas design folder",
-  "Already registered", "System or hidden directories are not allowed".
-- The project list is unchanged.
-
-#### 1.4 Scan finds folders and adds the checked ones
-
-**Steps:**
-1. Fill "Folders to search" with `~/work` style absolute path of the temporary HOME's `work` folder.
-2. Click "Search".
-3. Click "Add selected".
-
-**Expected Results:**
-- "Found 2" appears; `alpha` is disabled and tagged "already registered"; `beta` is checked.
-- After "Add selected", "Added 1" appears, the page reloads, and `beta` is listed.
-
-#### 1.5 Remove from list asks for confirmation and leaves files untouched
-
-**Steps:**
-1. Click "Remove from list" for `alpha` and dismiss the confirm dialog.
-2. Click it again and accept.
-
-**Expected Results:**
-- Dismissing keeps `alpha`. Accepting removes it from the list and from `roots.json`.
-- The dialog text says no files are deleted; the `alpha` design folder and its `canvas.json` still exist.
+#### 1.5 Theme, size, card menu, phone
+1. Shift T switches to light, Compact switches the grid; both survive a reload.
+2. The card menu's Copy URL copies `/alpha/trailmate/` (Chromium); the project view shows 6 recent boards and All 6 boards filters by status.
+3. On a phone (`@mobile`) the rail is hidden, tabs and the search button are at least 44 px, and the palette is a sheet 44 px from the top.
 
 ### 2. Open an idea and navigate
 
