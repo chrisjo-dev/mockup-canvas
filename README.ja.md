@@ -16,6 +16,8 @@ AI アシスタント向けの要約は [llms.txt](llms.txt) にあります。
 
 ![アイデアのキャンバス: スマートフォンのアートボード 3 枚がラベル付きのフロー矢印でつながり、承認マーク、紫の built バッジ、コメント数が付いている](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)
 
+![デモ: ダッシュボードでコメントのあるアイデアに絞り込み、/ でコマンドパレットを開いて trail を検索し、trailmate のアイデアをキャンバスで開いて、移動と拡大で承認済みと却下済みのボードを確かめ、あるボードのレビューコメントを開く様子](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
+
 ## 3 つのスキル
 
 **描く → レビュー → 承認 → 実装 → 比較**

@@ -16,6 +16,8 @@
 
 ![一个创意的画布：三个手机画板由带标签的流程箭头相连，带有批准标记、紫色 built 徽标和评论数](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)
 
+![演示：在仪表板中筛选出有评论的创意，按 / 打开命令面板搜索 trail，在画布上打开 trailmate 创意，再平移和放大查看已批准和已拒绝的画板，最后打开一个画板的评审评论](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
+
 ## 三个技能
 
 **绘制 → 评审 → 批准 → 实现 → 对比**

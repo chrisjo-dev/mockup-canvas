@@ -16,6 +16,8 @@ AI 어시스턴트용 요약은 [llms.txt](llms.txt)에 있습니다.
 
 ![아이디어 캔버스: 휴대폰 아트보드 3개가 이름 붙은 흐름 화살표로 이어져 있고, 승인 표시, 보라색 built 배지, 코멘트 수가 붙어 있음](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)
 
+![데모: 대시보드에서 코멘트가 있는 아이디어만 거르고, /로 명령 팔레트를 열어 trail을 검색한 뒤 trailmate 아이디어를 캔버스로 열고, 이동과 확대로 승인된 보드와 반려된 보드를 살펴본 다음 한 보드의 리뷰 코멘트를 여는 장면](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
+
 ## 세 가지 스킬
 
 **그리기 → 리뷰 → 승인 → 구현 → 비교**

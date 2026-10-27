@@ -16,6 +16,8 @@ AI assistants: a summary is available in [llms.txt](llms.txt).
 
 ![An idea canvas: three phone artboards linked by labeled flow arrows, with approved marks, a violet built badge, and a comment count](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)
 
+![Demo: the dashboard filtered to ideas with comments, the command palette opened with / to search for trail, the trailmate idea opened on its canvas, then panning and zooming in to approved and rejected boards and opening a board's review comments](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
+
 ## The three skills
 
 **draw → review → approve → build → compare**
