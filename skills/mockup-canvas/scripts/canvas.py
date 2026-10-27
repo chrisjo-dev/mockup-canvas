@@ -1034,8 +1034,11 @@ def check_existing_server(port):
         return ''
 
 def _safe_path(base, *parts):
-    real_base = os.path.realpath(base)
-    target = os.path.realpath(os.path.join(base, *parts))
+    try:
+        real_base = os.path.realpath(base)
+        target = os.path.realpath(os.path.join(base, *parts))
+    except ValueError:   # e.g. an embedded NUL in the request path
+        return None
     if not target.startswith(real_base + os.sep) and target != real_base:
         return None
     return target
@@ -1047,9 +1050,16 @@ def _static_sub_path(idea_dir, sub, rest):
     .omc), and the resolved path must stay inside that one folder, so nested
     assets work without exposing canvas.json or sibling folders.
     """
-    if not rest or any(not seg or seg.startswith('.') or '\\' in seg for seg in rest):
+    if not rest or any(not seg or seg.startswith('.') or '\\' in seg or '\x00' in seg for seg in rest):
         return None
-    target = _safe_path(os.path.join(idea_dir, sub), *rest)
+    # The base is the real idea folder plus a fixed name. If assets/ or shared/
+    # is itself a symlink, refuse: otherwise the link target (e.g. ~/.ssh, or the
+    # idea folder holding canvas.json) would become the served folder.
+    real_idea = os.path.realpath(idea_dir)
+    folder = os.path.join(real_idea, sub)
+    if os.path.islink(folder) or os.path.realpath(folder) != folder:
+        return None
+    target = _safe_path(folder, *rest)
     if not target or not os.path.isfile(target):
         return None
     return target

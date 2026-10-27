@@ -147,6 +147,26 @@ class SingleRoot(ServerCase):
             self.assertNotIn(b'TOPSECRET', body, path)
             self.assertNotIn(b'"boards"', body, path)
 
+    def test_symlinked_assets_or_shared_folder_is_refused(self):
+        # A cloned repo can ship assets/ or shared/ as a symlink; it must never expose its target
+        outside = os.path.join(self.home, 'dotssh')
+        os.makedirs(outside)
+        with open(os.path.join(outside, 'id_rsa'), 'w') as f:
+            f.write('TOPSECRET')
+        shared = os.path.join(self.idea, 'shared')
+        assets = os.path.join(self.idea, 'assets')
+        for d in (shared, assets):
+            if os.path.isdir(d) and not os.path.islink(d):
+                os.rename(d, d + '-real')
+        os.symlink(outside, shared)
+        os.symlink(self.idea, assets)          # points at the idea folder that holds canvas.json
+        for path in ('/demo/shared/id_rsa', '/demo/assets/canvas.json',
+                     '/demo/assets/boards/A01-One.html', '/demo/assets/ok.png%00.txt'):
+            status, _, body = self.request('GET', path)
+            self.assertEqual(status, 404, path)
+            self.assertNotIn(b'TOPSECRET', body, path)
+            self.assertNotIn(b'"boards"', body, path)
+
     def test_index_escapes_idea_names(self):
         evil = '"><img src=x onerror=alert(1)>'
         self.make_idea(self.design, evil)
@@ -279,6 +299,19 @@ class Registry(RegistryBase):
             status, _, body = self.request('GET', path)
             self.assertEqual(status, 404, path)
             self.assertNotIn(b'TOPSECRET', body, path)
+
+    def test_registry_refuses_symlinked_shared_folder(self):
+        outside = os.path.join(self.home, 'dotssh2')
+        os.makedirs(outside)
+        with open(os.path.join(outside, 'id_rsa'), 'w') as f:
+            f.write('TOPSECRET')
+        shared = os.path.join(self.d_a, 'ideaA', 'shared')
+        if os.path.isdir(shared) and not os.path.islink(shared):
+            os.rename(shared, shared + '-real')
+        os.symlink(outside, shared)
+        status, _, body = self.request('GET', '/alpha/ideaA/shared/id_rsa')
+        self.assertEqual(status, 404)
+        self.assertNotIn(b'TOPSECRET', body)
 
     def test_index_escapes_project_names(self):
         evil = "x');alert(1);//<script>"

@@ -171,6 +171,23 @@ class SandboxedBoards(ServerCase):
         self.assertEqual(self.request('POST', prefix + '/demo/api/layout', {'board': 'A01-One.html', 'x': 1, 'y': 1},
                                       headers=self.origin())[0], 403)
 
+    def test_share_keyed_path_refuses_symlinked_shared_folder(self):
+        outside = os.path.join(self.home, 'dotssh3')
+        os.makedirs(outside)
+        with open(os.path.join(outside, 'id_rsa'), 'w') as f:
+            f.write('TOPSECRET')
+        shared = os.path.join(self.design, 'demo', 'shared')
+        os.rename(shared, shared + '-real')
+        os.symlink(outside, shared)
+        token = 'tok_keyed_link'
+        self.start_server(canvas.CanvasHandler, design_dir=self.design, share_token=token,
+                          share_edit=False, read_only=False)
+        _, _, body = self.request('GET', '/demo/', headers={'Cookie': 'canvas_token=' + token})
+        prefix = body.decode().split('CANVAS_ASSET_PREFIX="', 1)[1].split('"', 1)[0]
+        status, _, body = self.request('GET', prefix + '/demo/shared/id_rsa')
+        self.assertEqual(status, 404)
+        self.assertNotIn(b'TOPSECRET', body)
+
     def test_registry_share_keyed_static_path(self):
         token = 'tok_keyed_2'
         self.write_json(os.path.join(self.data_dir, 'roots.json'), {'roots': [{'name': 'p', 'path': self.design}]})
