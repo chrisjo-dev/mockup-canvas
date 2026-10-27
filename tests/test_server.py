@@ -118,6 +118,35 @@ class SingleRoot(ServerCase):
             self.assertEqual(status, 404, path)
             self.assertNotIn(b'TOPSECRET', body, path)
 
+    def test_nested_assets_are_served_but_cannot_escape_their_folder(self):
+        # Boards reference images in subfolders such as assets/photos/x.jpg
+        os.makedirs(os.path.join(self.idea, 'assets', 'photos', '.cache'))
+        os.makedirs(os.path.join(self.idea, 'shared', 'fonts'))
+        with open(os.path.join(self.idea, 'assets', 'photos', 'city.jpg'), 'wb') as f:
+            f.write(b'JPEGDATA')
+        with open(os.path.join(self.idea, 'assets', 'photos', '.cache', 'x.txt'), 'w') as f:
+            f.write('TOPSECRET')
+        with open(os.path.join(self.idea, 'shared', 'fonts', 'a.woff2'), 'wb') as f:
+            f.write(b'FONT')
+        os.symlink(self.secret, os.path.join(self.idea, 'assets', 'photos', 'leak.jpg'))
+        status, _, body = self.request('GET', '/demo/assets/photos/city.jpg')
+        self.assertEqual((status, body), (200, b'JPEGDATA'))
+        self.assertEqual(self.request('GET', '/demo/shared/fonts/a.woff2')[0], 200)
+        for path in (
+            '/demo/assets/../canvas.json',
+            '/demo/assets/%2e%2e/canvas.json',
+            '/demo/assets/photos/%2e%2e/%2e%2e/canvas.json',
+            '/demo/assets/photos/..%2f..%2fcanvas.json',
+            '/demo/shared/../boards/A01-One.html',
+            '/demo/assets/photos',
+            '/demo/assets/photos/.cache/x.txt',
+            '/demo/assets/photos/leak.jpg',
+        ):
+            status, _, body = self.request('GET', path)
+            self.assertEqual(status, 404, path)
+            self.assertNotIn(b'TOPSECRET', body, path)
+            self.assertNotIn(b'"boards"', body, path)
+
     def test_index_escapes_idea_names(self):
         evil = '"><img src=x onerror=alert(1)>'
         self.make_idea(self.design, evil)
@@ -234,6 +263,19 @@ class Registry(RegistryBase):
             '/gamma/ideaA/',
             '/alpha/ideaA/assets/%2fetc%2fpasswd',
         ):
+            status, _, body = self.request('GET', path)
+            self.assertEqual(status, 404, path)
+            self.assertNotIn(b'TOPSECRET', body, path)
+
+    def test_registry_serves_nested_assets_inside_the_idea_only(self):
+        d = os.path.join(self.d_a, 'ideaA', 'assets', 'icons')
+        os.makedirs(d)
+        with open(os.path.join(d, 'bed.png'), 'wb') as f:
+            f.write(b'PNG')
+        self.assertEqual(self.request('GET', '/alpha/ideaA/assets/icons/bed.png')[0], 200)
+        for path in ('/alpha/ideaA/assets/icons/../../canvas.json',
+                     '/alpha/ideaA/assets/%2e%2e/canvas.json',
+                     '/alpha/ideaA/assets/icons/%2e%2e/%2e%2e/%2e%2e/%2e%2e/secret.txt'):
             status, _, body = self.request('GET', path)
             self.assertEqual(status, 404, path)
             self.assertNotIn(b'TOPSECRET', body, path)

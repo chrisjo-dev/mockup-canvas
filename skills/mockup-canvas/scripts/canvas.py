@@ -1040,6 +1040,20 @@ def _safe_path(base, *parts):
         return None
     return target
 
+def _static_sub_path(idea_dir, sub, rest):
+    """A file under <idea>/assets or <idea>/shared, at any depth.
+
+    Every segment must be a plain name (no '.', '..', or hidden names such as
+    .omc), and the resolved path must stay inside that one folder, so nested
+    assets work without exposing canvas.json or sibling folders.
+    """
+    if not rest or any(not seg or seg.startswith('.') or '\\' in seg for seg in rest):
+        return None
+    target = _safe_path(os.path.join(idea_dir, sub), *rest)
+    if not target or not os.path.isfile(target):
+        return None
+    return target
+
 def find_free_x(boards, w=DEFAULT_W, gap=40):
     if not boards:
         return 0, 0
@@ -1686,7 +1700,11 @@ class CanvasHandler(BaseHTTPRequestHandler):
 
     def _is_static(self, parts):
         i = self.STATIC_DIR_INDEX
-        return len(parts) == i + 2 and parts[i] in ('boards', 'assets', 'shared')
+        if len(parts) < i + 2:
+            return False
+        if parts[i] == 'boards':
+            return len(parts) == i + 2
+        return parts[i] in ('assets', 'shared')
 
     def _gate_get(self):
         """Auth for GET. Returns the path parts to serve, or None when a response was sent."""
@@ -1853,12 +1871,11 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._serve_static(p, fname, board=True)
             return
 
-        if parts[1] in ('assets', 'shared') and len(parts) == 3:
-            fname = parts[2]
-            p = self._safe(idea, parts[1], fname)
-            if not p:
+        if parts[1] in ('assets', 'shared') and len(parts) >= 3:
+            p = _static_sub_path(os.path.join(self.design_dir, idea), parts[1], parts[2:])
+            if not p or not _safe_path(self.design_dir, idea):
                 self._404(); return
-            self._serve_static(p, fname)
+            self._serve_static(p, parts[-1])
             return
 
         self._404()
@@ -2161,12 +2178,11 @@ class RegistryHandler(CanvasHandler):
             self._serve_static(p, fname, board=True)
             return
 
-        if rest[0] in ('assets', 'shared') and len(rest) == 2:
-            fname = rest[1]
-            p = _safe_path(design_dir, idea, rest[0], fname)
-            if not p:
+        if rest[0] in ('assets', 'shared') and len(rest) >= 2:
+            p = _static_sub_path(os.path.join(design_dir, idea), rest[0], rest[1:])
+            if not p or not _safe_path(design_dir, idea):
                 self._404(); return
-            self._serve_static(p, fname)
+            self._serve_static(p, rest[-1])
             return
 
         self._404()
