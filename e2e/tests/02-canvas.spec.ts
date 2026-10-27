@@ -16,8 +16,9 @@ test.describe('Open an idea and navigate', () => {
     await shot(page, testInfo, '02-fit');
     // 2. Zoom in over T01-Home above 40%
     await zoomInOn(page, 'T01-Home.html', 0.6);
-    await expect(board(page, 'T01-Home.html').locator('iframe')).toBeAttached();
-    const frame = page.frameLocator('.board[data-file="T01-Home.html"] iframe');
+    await expect(board(page, 'T01-Home.html').locator('iframe').last()).toBeAttached();
+    // During a swap two iframes can coexist; read the newest one
+    const frame = page.frameLocator('.board[data-file="T01-Home.html"] iframe').last();
     await expect(frame.getByText('Pine Ridge Loop').first()).toBeVisible({ timeout: 10_000 });
     await shot(page, testInfo, '02-zoomed-live');
     expect(consoleErrors).toEqual([]);

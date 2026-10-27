@@ -268,6 +268,9 @@ test.describe('Registry dashboard', () => {
     await page.keyboard.press('Escape');
     expect((await page.locator('a.brand').boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.getByRole('button', { name: 'Add project' }).first().tap();
-    for (const tab of await page.getByRole('tab').all()) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    // The sheet slides in; measure after the animation settles (sub-pixel heights during the transform)
+    for (const tab of await page.getByRole('tab').all()) {
+      await expect.poll(async () => Math.round((await tab.boundingBox())!.height)).toBeGreaterThanOrEqual(44);
+    }
   });
 });
