@@ -12,9 +12,9 @@
 
 AI アシスタント向けの要約は [llms.txt](llms.txt) にあります。
 
-![デモ: AI エージェントがモバイルアプリの画面を描くと、mockup-canvas のボードにすぐ表示される様子](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
+![ダークモードの mockup-canvas ダッシュボード: 3 つのプロジェクトのアイデアカード 7 枚に、ボードのサムネイル、状態バー、コメントと built と new のバッジが並び、左側にプロジェクトと状態フィルターの一覧がある](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
-![サンプルのアイデア TrailMate の全体図: キャンバス上の 6 枚の HTML アートボードがフロー矢印でつながり、2 枚に承認マークが付いている](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/_overview.png)
+![アイデアのキャンバス: スマートフォンのアートボード 3 枚がラベル付きのフロー矢印でつながり、承認マーク、紫の built バッジ、コメント数が付いている](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)
 
 ## 3 つのスキル
 
@@ -44,7 +44,7 @@ mockup-canvas が存在するのは、UI を文章で説明するとあいまい
 - キャンバスはアートボードを折りたためるグループにまとめます。例: `current`、`old drafts`。
 - キャンバスはボードが多くても滑らかに動きます。表示範囲の近くのボードだけが実際のページを保持し、縮小時（倍率おおむね 30〜40% 未満）はキャッシュした PNG サムネイルを表示し（サーバーで開いたとき）、一度表示したボードは再読み込み中も白い空のカードではなくサムネイルを表示し、画面の更新はアニメーションフレームごとに 1 回にまとめます。サムネイルはバックグラウンドで低い優先度で作ります。71 枚のアートボードがあるキャンバス（1440x900、Apple M4、headless Chrome）で測ると、初回表示でもサムネイルのキャッシュ後でも、パンとズームは約 59〜60 FPS、p95 のフレーム時間は約 20 ms で、50 ms を超えるフレームはありません。`python3 tests/perf_check.py <アイデアフォルダ>` で再測定できます。
 - キャンバスはライブリロードに対応しています。サーバーが 1 秒ごとにファイルの変更を確認するので、アートボードや `canvas.json` を編集すると、開いているキャンバスが 1 秒ほどで更新されます。
-- キャンバスサーバーは、登録済みのすべてのプロジェクトをダッシュボードに表示します。アイデアカードには最新ボードのサムネイル、状態の数、コメント、built のボードを表示し、決定待ちを絞り込むフィルター、検索とコマンドパレット（`/` または `Cmd K`）、プロジェクトの追加とデザインフォルダの検索、見つからないフォルダの警告、ライトとダークのテーマ、スマートフォン向けレイアウトがあります。
+- キャンバスサーバーは、登録済みのすべてのプロジェクトをダッシュボードに表示します。アイデアカードには最新ボードのサムネイル、状態の数、コメント、built のボードを表示し、決定待ちを絞り込むフィルター、検索とコマンドパレット（`/` または `Cmd K`）、プロジェクトの追加とデザインフォルダの検索、見つからないフォルダの警告、ライトとダークのテーマ、スマートフォン向けレイアウトがあります。詳しくは [ダッシュボード](#ダッシュボード) を参照してください。
 - キャンバスはスマートフォンでも確認できます。同じネットワーク内でリアルタイムに見る共有モードと、どこにでも置ける静的エクスポートがあります。
 
 **エージェントスキル**（`skills/<skill>/SKILL.md`）
@@ -58,6 +58,24 @@ mockup-canvas が存在するのは、UI を文章で説明するとあいまい
 
 - CLI は pip の依存がない約 3,300 行の Python 3 ファイル 1 つ（標準ライブラリのみ、Python 3.8 以上）で、コマンドは 16 個です: `serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
 - CLI は Chrome（または Chromium、Edge）を、ボードのレンダリングとアプリ画面の PNG キャプチャにだけ使います。
+
+## ダッシュボード
+
+`canvas serve` を起動すると、`http://localhost:4400/` に登録済みのすべてのプロジェクトをまとめたダッシュボードが開きます。キャンバスを 1 つずつ開く前に、いま何を見るべきかがわかります。
+
+- **アイデアカード**には、最新ボードのサムネイル、状態バー（承認は緑、未決定はグレー、却下は赤）、未解決のコメント数、実装済みのボード数、そしてそのアイデアを最後に開いてから変わったボードを数える `N new` バッジが表示されます。
+- **左側の一覧**には、プロジェクトと 4 つの状態フィルター（Needs decision、Has comments、Approved, not built、Built）があります。
+- **検索とコマンドパレット。** 検索ボックス、`/`、`Cmd+K`（`Ctrl+K`）で、すべてのプロジェクトのアイデアとボードを探し、プロジェクトの追加などの操作も実行できます。ボードの結果を開くと、そのボードに合わせたキャンバスが開きます。
+- **表示。** Large と Compact のカード、最近の編集順、名前順、ボード数順の並べ替え、そしてプロジェクトごとに状態フィルター付きの全ボードページがあります。
+- **プロジェクトの管理。** Add project でデザインフォルダを登録し、Find in folders でフォルダ内のデザインフォルダを探します。プロジェクトごとに名前を変えたり、一覧から外したりできます（ファイルは削除しません）。
+- **見つからないフォルダの警告。** 登録済みのプロジェクトのフォルダが移動または削除されると、警告と、もう一度探すためのボタンを表示します。
+- **ライトとダークのテーマ**（太陽と月のボタン、または `Shift+T`）と、プロジェクトのタブと状態メニューを備えたスマートフォン向けレイアウトに対応します。
+
+![ライトモードのダッシュボード: 同じプロジェクトとアイデア](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard-light.png)
+
+![ダッシュボードの上に開いたコマンドパレット: 検索語に合うアイデアとボードが状態とともに並び、フィルターの操作がある](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/palette.png)
+
+![幅 390 px のスマートフォンでのダッシュボード: プロジェクトのタブ、状態メニュー、縦に並ぶアイデアカード](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard-phone.png)
 
 ## クイックスタート: Claude Code プラグインまたは Codex スキルをインストール
 
@@ -99,6 +117,76 @@ python3 skills/mockup-canvas/scripts/canvas.py serve examples
 ```
 
 `http://127.0.0.1:4400/trailmate/` を開くと、[`examples/trailmate`](https://github.com/chrisjo-dev/mockup-canvas/blob/main/examples/trailmate/canvas.json) の 6 画面のサンプルが見られます。
+
+## サーバーを起動する
+
+モックアップを描くときは、エージェントがサーバーを起動して URL を伝えます。自分で起動するときは、スキルフォルダ（`<skill-dir>`）の `canvas.py` を実行します。
+
+| インストール方法 | `<skill-dir>` |
+| --- | --- |
+| Claude Code プラグイン | エージェントのコマンドでは `${CLAUDE_PLUGIN_ROOT}/skills/mockup-canvas`、自分のターミナルではプラグインのキャッシュで、通常は `~/.claude/plugins/cache/mockup-canvas/mockup-canvas/<version>/skills/mockup-canvas` |
+| 手動インストール（`install.sh`） | `~/.claude/skills/mockup-canvas`（または `~/.codex/skills/mockup-canvas`） |
+| このリポジトリをクローンした場合 | `skills/mockup-canvas` |
+
+ヒント: `~/.zshrc` または `~/.bashrc` に `canvas` シェル関数を定義しておくと、以下のコマンドが短くなります。
+
+```bash
+canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
+```
+
+### 登録済みのすべてのプロジェクト
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve
+```
+
+| URL | 表示されるもの |
+| --- | --- |
+| `http://localhost:4400/` | 登録済みのすべてのプロジェクトのダッシュボード |
+| `http://localhost:4400/<project>/<idea>/` | 1 つのアイデアのキャンバス |
+| `http://localhost:4400/<project>/<idea>/#<board>` | 1 枚のボードに合わせた同じキャンバス（例: `#T01-Home`） |
+
+サーバーは `127.0.0.1` でのみ待ち受けます。同じプロジェクトを表示するサーバーがすでにそのポートで動いていれば、`serve` はその URL を表示して終了します。別のキャンバスサーバーがポートを使っていれば、次の空きポートに移ってその URL を表示します。
+
+### デザインフォルダ 1 つ
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve path/to/design
+```
+
+このとき `http://localhost:4400/` にはそのフォルダのアイデアが表示され、キャンバスは `http://localhost:4400/<idea>/` にあります。
+
+### 別のポート
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve --port 4500
+```
+
+`--port` はどちらのモードでも使えます。
+
+### 同じ Wi-Fi のスマートフォンで見る
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve --share --minutes 30
+python3 <skill-dir>/scripts/canvas.py serve --share --project NAME
+python3 <skill-dir>/scripts/canvas.py serve path/to/design --share
+```
+
+`--share` は、コンピューターの LAN アドレスとランダムなトークンが付いた URL（`http://<lan ip>:4400/?t=...`）を表示します。これをスマートフォンで開きます。ページは閲覧専用で、トークンのないリクエストは拒否され、サーバーは `--minutes`（1 から 240、既定 30）が過ぎると自動で停止します。`--project NAME` はすべてではなく、登録済みのプロジェクト 1 つだけを共有します。通信は暗号化されない HTTP なので、信頼できるネットワークでだけ共有してください。[セキュリティモデル](#セキュリティモデル) も参照してください。
+
+### バックグラウンドで起動して停止する
+
+```bash
+nohup python3 <skill-dir>/scripts/canvas.py serve > /tmp/mockup-canvas.log 2>&1 &
+```
+
+ログファイルに URL とエラーが残ります。ターミナルの前面で起動したサーバーは `Ctrl+C` で停止します。バックグラウンドのサーバーは、そのポートで待ち受けているプロセスを停止します。
+
+```bash
+lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
+```
+
+このコマンドはそのポートのサーバーだけを停止します。`pkill -f canvas.py` はほかのセッションやエージェントが起動したサーバーまで停止するので使わないでください。
 
 ## mockup-canvas の仕組み
 
@@ -163,7 +251,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 
 | コマンド | 内容 | 例 |
 | --- | --- | --- |
-| `serve` | キャンバスサーバーを起動します。フォルダを指定しなければ登録済みの全プロジェクトを表示するレジストリモード、指定すればそのデザインフォルダだけを表示します。`--share` はトークン付きでローカルネットワークに公開します。レジストリモードの `--share --project NAME` はプロジェクトを 1 つだけ共有します。 | `canvas serve`<br>`canvas serve design --share --minutes 30` |
+| `serve` | キャンバスサーバーを起動します。フォルダを指定しなければ登録済みの全プロジェクトのダッシュボードを表示するレジストリモード、指定すればそのデザインフォルダだけを表示します。`--port N` でポートを選びます（既定 4400）。`--share` はトークン付きでローカルネットワークに公開し、`--minutes N` で停止までの時間を決めます。レジストリモードの `--share --project NAME` はプロジェクトを 1 つだけ共有します。[サーバーを起動する](#サーバーを起動する) を参照してください。 | `canvas serve`<br>`canvas serve design --share --minutes 30` |
 | `roots list` | 登録済みのデザインフォルダを一覧表示します。 | `canvas roots list` |
 | `roots add` | デザインフォルダを登録します。名前も指定できます。 | `canvas roots add ~/work/app/design --name app` |
 | `roots remove` | 名前を指定して登録を解除します。ファイルには触れません。 | `canvas roots remove app` |
@@ -200,6 +288,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | グループの見出しをクリック | グループを折りたたむ、展開する |
 | アートボードのタイトルにカーソルを合わせる | メモを表示 |
 | コメント数をクリック | ボードのコメントを開く、`Esc` で閉じる |
+| `.../<idea>/#<board>` を開く（例: `#T01-Home`） | そのボード 1 枚を画面に合わせる（ダッシュボードのボードの結果はこの URL に移動） |
 
 静的エクスポートではアートボードを移動できません。共有モードでは、サーバーを `--share-edit` 付きで起動したときだけ移動が保存されます。
 

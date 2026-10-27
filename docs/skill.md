@@ -106,13 +106,13 @@ canvas overview design/wallet
 canvas serve
 ```
 
-Registry mode serves every registered project from one server on port 4400, at `http://localhost:4400/<project>/<idea>/`. The agent gives you the printed address and leaves the server running. To register existing projects in one go:
+Registry mode serves every registered project from one server on port 4400: `http://localhost:4400/` is the dashboard of all projects and ideas, and `http://localhost:4400/<project>/<idea>/` is one idea's canvas. The agent gives you the printed address and leaves the server running. To register existing projects in one go:
 
 ```bash
 canvas roots scan ~/work ~/projects
 ```
 
-To serve a single design folder instead, `canvas serve design` gives `http://127.0.0.1:4400/<idea>/`. Projects can also be added or removed from the index page in the browser.
+To serve a single design folder instead, `canvas serve design` gives `http://127.0.0.1:4400/<idea>/`. Projects can also be added, renamed, or removed on the dashboard in the browser. See [Run the server](../README.md#run-the-server) for ports, phone sharing, and running it in the background.
 
 ### 8. Phone viewing
 

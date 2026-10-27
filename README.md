@@ -12,9 +12,9 @@
 
 AI assistants: a summary is available in [llms.txt](llms.txt).
 
-![Demo: an AI agent draws mobile app screens and they appear live on the mockup-canvas board](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
+![The mockup-canvas dashboard in dark mode: seven idea cards from three projects with board thumbnails, status meters, comment, built, and new badges, and a rail of projects and status filters](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
-![Overview of the sample TrailMate idea: six HTML artboards on the canvas, connected by flow arrows, two marked approved](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/_overview.png)
+![An idea canvas: three phone artboards linked by labeled flow arrows, with approved marks, a violet built badge, and a comment count](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)
 
 ## The three skills
 
@@ -44,7 +44,7 @@ mockup-canvas exists because text descriptions of UI are ambiguous: when you pla
 - The canvas groups artboards under collapsible headers, for example `current` and `old drafts`.
 - The canvas stays responsive on large boards: only boards near the view keep a live page, zoomed out (below about 30 to 40%) boards show cached PNG thumbnails (when served), a board seen once shows its thumbnail instead of a blank card while it loads again, and screen updates are batched once per animation frame. Thumbnails render in the background at low priority. Measured on a 71-artboard canvas (1440x900, Apple M4, Chrome headless): pan and zoom stay at about 59 to 60 FPS with a p95 frame time of about 20 ms and no frame over 50 ms, both on first open and with cached thumbnails. To reproduce, run `python3 tests/perf_check.py <idea folder>`.
 - The canvas reloads live: the server checks for file changes every second, so an edit to an artboard or `canvas.json` appears within about a second.
-- The canvas server opens on a dashboard of every registered project: idea cards with the newest board thumbnails, status counts, comments, and built boards; filters for what needs a decision; search and a command palette (`/` or `Cmd K`); adding projects or finding design folders; warnings for missing folders; light and dark themes; and phone layouts.
+- The canvas server opens on a dashboard of every registered project: idea cards with the newest board thumbnails, status counts, comments, and built boards; filters for what needs a decision; search and a command palette (`/` or `Cmd K`); adding projects or finding design folders; warnings for missing folders; light and dark themes; and phone layouts. See [The dashboard](#the-dashboard).
 - The canvas also works on a phone, either live on the same network (share mode) or as a static export you can host anywhere.
 
 **The agent skills** (`skills/<skill>/SKILL.md`)
@@ -58,6 +58,24 @@ mockup-canvas exists because text descriptions of UI are ambiguous: when you pla
 
 - The CLI is a single Python 3 file of about 3,300 lines with no pip dependencies (standard library only, Python 3.8+), and it has 16 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
 - The CLI uses Chrome (or Chromium or Edge) only to render boards and capture app pages as PNGs.
+
+## The dashboard
+
+`canvas serve` opens on a dashboard of every registered project at `http://localhost:4400/`. It answers "what needs my attention" before you open any canvas.
+
+- **Idea cards** show thumbnails of the newest boards, a status meter (approved in green, undecided in gray, rejected in red), the open comment count, how many boards are built, and an `N new` badge for boards changed since you last opened that idea.
+- **The rail** lists your projects and four status filters: Needs decision, Has comments, Approved, not built, and Built.
+- **Search and the command palette.** The search box, `/`, or `Cmd+K` (`Ctrl+K`) finds any idea or board across projects and runs actions such as adding a project. A board result opens its canvas fitted to that board.
+- **Views.** Large or Compact cards, sorting by recent edit, name, or board count, and an all-boards page for each project with a status filter.
+- **Projects.** Add project registers a design folder, Find in folders scans folders for design folders, and each project can be renamed or removed from the list (no files are deleted).
+- **Missing folder warnings** flag a registered project whose folder was moved or deleted, with a button to locate it again.
+- **Light and dark themes** (the sun or moon button, or `Shift+T`), and a phone layout with project tabs and a status menu.
+
+![The dashboard in light mode with the same projects and ideas](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard-light.png)
+
+![The command palette open over the dashboard: matching ideas and boards with their status, and a filter action](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/palette.png)
+
+![The dashboard on a 390 px wide phone: project tabs, a status menu, and stacked idea cards](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard-phone.png)
 
 ## Quick start: install the Claude Code plugin or Codex skill
 
@@ -99,6 +117,76 @@ python3 skills/mockup-canvas/scripts/canvas.py serve examples
 ```
 
 Open `http://127.0.0.1:4400/trailmate/` to see the six-screen sample in [`examples/trailmate`](https://github.com/chrisjo-dev/mockup-canvas/blob/main/examples/trailmate/canvas.json).
+
+## Run the server
+
+The agent starts the server for you when it draws mockups and gives you the address. To start it yourself, run `canvas.py` from the skill folder, `<skill-dir>`:
+
+| Install | `<skill-dir>` |
+| --- | --- |
+| Claude Code plugin | `${CLAUDE_PLUGIN_ROOT}/skills/mockup-canvas` in the agent's commands; in your own terminal, the plugin cache, usually `~/.claude/plugins/cache/mockup-canvas/mockup-canvas/<version>/skills/mockup-canvas` |
+| Manual install (`install.sh`) | `~/.claude/skills/mockup-canvas` (or `~/.codex/skills/mockup-canvas`) |
+| A clone of this repository | `skills/mockup-canvas` |
+
+Tip: define a `canvas` shell function in `~/.zshrc` or `~/.bashrc` so the commands below get shorter:
+
+```bash
+canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
+```
+
+### All registered projects
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve
+```
+
+| URL | What it shows |
+| --- | --- |
+| `http://localhost:4400/` | The dashboard of every registered project |
+| `http://localhost:4400/<project>/<idea>/` | One idea's canvas |
+| `http://localhost:4400/<project>/<idea>/#<board>` | The same canvas fitted to one board, for example `#T01-Home` |
+
+The server listens on `127.0.0.1` only. If a server for the same projects is already running on the port, `serve` prints its address and exits; if the port holds another canvas server, it moves to the next free port and prints it.
+
+### One design folder
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve path/to/design
+```
+
+`http://localhost:4400/` then lists that folder's ideas, and each canvas is at `http://localhost:4400/<idea>/`.
+
+### Another port
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve --port 4500
+```
+
+`--port` works in both modes.
+
+### View on a phone on the same Wi-Fi
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve --share --minutes 30
+python3 <skill-dir>/scripts/canvas.py serve --share --project NAME
+python3 <skill-dir>/scripts/canvas.py serve path/to/design --share
+```
+
+`--share` prints a URL with the computer's LAN address and a random token (`http://<lan ip>:4400/?t=...`). Open it on the phone. The page is read-only, requests without the token are refused, and the server stops by itself after `--minutes` (1 to 240, default 30). `--project NAME` shares one registered project instead of all of them. Traffic is plain HTTP, so share only on networks you trust. See [Security model](#security-model).
+
+### Run it in the background and stop it
+
+```bash
+nohup python3 <skill-dir>/scripts/canvas.py serve > /tmp/mockup-canvas.log 2>&1 &
+```
+
+The log file holds the address and any errors. To stop a server running in the foreground, press `Ctrl+C`. To stop a background server, stop the process listening on its port:
+
+```bash
+lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
+```
+
+This stops only the server on that port. Avoid `pkill -f canvas.py`, which also stops servers that other sessions or agents started.
 
 ## How mockup-canvas works
 
@@ -163,7 +251,7 @@ Run `canvas <command> -h` for the usage of any command.
 
 | Command | What it does | Example |
 | --- | --- | --- |
-| `serve` | Start the canvas server. No folder: registry mode for every registered project. With a folder: that design folder only. `--share` opens it to the local network with a token; in registry mode `--share --project NAME` shares one project. | `canvas serve`<br>`canvas serve design --share --minutes 30` |
+| `serve` | Start the canvas server. No folder: registry mode, with the dashboard of every registered project. With a folder: that design folder only. `--port N` picks the port (default 4400). `--share` opens it to the local network with a token, `--minutes N` sets when it stops; in registry mode `--share --project NAME` shares one project. See [Run the server](#run-the-server). | `canvas serve`<br>`canvas serve design --share --minutes 30` |
 | `roots list` | List registered design folders. | `canvas roots list` |
 | `roots add` | Register a design folder, optionally with a name. | `canvas roots add ~/work/app/design --name app` |
 | `roots remove` | Unregister a project by name. Files are not touched. | `canvas roots remove app` |
@@ -200,6 +288,7 @@ Run `canvas <command> -h` for the usage of any command.
 | Click a group header | Collapse or expand the group |
 | Hover an artboard title | Show its note |
 | Click a comment count | Open the board's comments; `Esc` closes them |
+| Open `.../<idea>/#<board>`, for example `#T01-Home` | Fit that one board in view (dashboard board results link here) |
 
 Moving artboards is not available in a static export. In share mode, moves are saved only when the server was started with `--share-edit`.
 

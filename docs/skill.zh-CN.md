@@ -106,13 +106,13 @@ canvas overview design/wallet
 canvas serve
 ```
 
-注册表模式用端口 4400 上的一个服务器展示所有已注册项目，地址为 `http://localhost:4400/<project>/<idea>/`。智能体把打印出的地址原样交给你，并让服务器保持运行。要一次性注册已有项目：
+注册表模式用端口 4400 上的一个服务器展示所有已注册项目：`http://localhost:4400/` 是汇总所有项目和创意的仪表板，`http://localhost:4400/<project>/<idea>/` 是单个创意的画布。智能体把打印出的地址原样交给你，并让服务器保持运行。要一次性注册已有项目：
 
 ```bash
 canvas roots scan ~/work ~/projects
 ```
 
-如果只想看一个设计文件夹，用 `canvas serve design`，地址为 `http://127.0.0.1:4400/<idea>/`。也可以在浏览器的索引页中添加或移除项目。
+如果只想看一个设计文件夹，用 `canvas serve design`，地址为 `http://127.0.0.1:4400/<idea>/`。也可以在浏览器的仪表板中添加、重命名或移除项目。端口、手机共享和后台运行见 [运行服务器](../README.zh-CN.md#运行服务器)。
 
 ### 8. 在手机上查看
 

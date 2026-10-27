@@ -12,9 +12,9 @@
 
 给 AI 助手：项目摘要见 [llms.txt](llms.txt)。
 
-![演示：AI 智能体绘制移动应用界面，界面实时出现在 mockup-canvas 画布上](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
+![深色模式下的 mockup-canvas 仪表板：来自三个项目的七张创意卡片，带有画板缩略图、状态条、评论、built 和 new 徽标，左侧是项目和状态筛选列表](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
-![示例创意 TrailMate 的全景图：画布上有六个 HTML 画板，由流程箭头相连，其中两个标记为已批准](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/_overview.png)
+![一个创意的画布：三个手机画板由带标签的流程箭头相连，带有批准标记、紫色 built 徽标和评论数](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)
 
 ## 三个技能
 
@@ -44,7 +44,7 @@ mockup-canvas 之所以存在，是因为用文字描述 UI 容易产生歧义�
 - 画布用可折叠的分组整理画板，例如 `current` 和 `old drafts`。
 - 画板很多时画布依然流畅：只有视图附近的画板保持实时页面，缩小时（缩放约低于 30% 到 40%）显示缓存的 PNG 缩略图（通过服务器打开时），看过一次的画板在重新加载时显示缩略图而不是空白卡片，界面更新按每个动画帧合并一次。缩略图在后台以低优先级渲染。在一个有 71 个画板的画布上（1440x900，Apple M4，headless Chrome）实测：无论首次打开还是缩略图已缓存，平移和缩放都保持在约 59 到 60 FPS，p95 帧时间约 20 ms，没有超过 50 ms 的帧。可用 `python3 tests/perf_check.py <创意文件夹>` 复现。
 - 画布支持实时刷新：服务器每秒检查一次文件变化，修改画板或 `canvas.json` 后，打开的画布大约一秒内更新。
-- 画布服务器以仪表板展示所有已注册的项目：创意卡片显示最新画板的缩略图、状态数、评论和已实现的画板；可以筛选待决定的内容，用搜索和命令面板（`/` 或 `Cmd K`）跳转，添加项目或查找设计文件夹，提醒缺失的文件夹，支持浅色和深色主题以及手机布局。
+- 画布服务器以仪表板展示所有已注册的项目：创意卡片显示最新画板的缩略图、状态数、评论和已实现的画板；可以筛选待决定的内容，用搜索和命令面板（`/` 或 `Cmd K`）跳转，添加项目或查找设计文件夹，提醒缺失的文件夹，支持浅色和深色主题以及手机布局。详见 [仪表板](#仪表板)。
 - 画布也能在手机上查看：同一网络内实时查看（共享模式），或导出为可托管在任何地方的静态包。
 
 **智能体技能**（`skills/<skill>/SKILL.md`）
@@ -58,6 +58,24 @@ mockup-canvas 之所以存在，是因为用文字描述 UI 容易产生歧义�
 
 - 命令行工具是单个约 3,300 行的 Python 3 文件，无需 pip 依赖（只用标准库，Python 3.8 及以上），共 16 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
 - 命令行工具只在渲染画板和把应用页面截取为 PNG 时使用 Chrome（或 Chromium、Edge）。
+
+## 仪表板
+
+运行 `canvas serve` 后，`http://localhost:4400/` 会打开一个汇总所有已注册项目的仪表板。不用逐个打开画布，就能看出现在该处理什么。
+
+- **创意卡片**显示最新画板的缩略图、状态条（已批准为绿色，待决定为灰色，已拒绝为红色）、未处理的评论数、已实现的画板数，以及 `N new` 徽标，表示上次打开该创意之后有变动的画板数量。
+- **左侧列表**列出项目和四个状态筛选：Needs decision、Has comments、Approved, not built、Built。
+- **搜索和命令面板。** 用搜索框、`/` 或 `Cmd+K`（`Ctrl+K`）在所有项目中查找创意和画板，也可以执行添加项目等操作。打开画板结果时，画布会对准该画板。
+- **视图。** Large 和 Compact 两种卡片，按最近编辑、名称或画板数排序，每个项目还有带状态筛选的全部画板页面。
+- **项目管理。** Add project 注册设计文件夹，Find in folders 在文件夹中查找设计文件夹。每个项目都可以重命名或从列表中移除（不会删除文件）。
+- **缺失文件夹提醒。** 已注册项目的文件夹被移动或删除时，会显示提醒和重新定位的按钮。
+- **浅色和深色主题**（太阳和月亮按钮，或 `Shift+T`），以及带项目标签页和状态菜单的手机布局。
+
+![浅色模式下的仪表板：相同的项目和创意](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard-light.png)
+
+![在仪表板上打开的命令面板：匹配的创意和画板连同状态一起列出，并有筛选操作](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/palette.png)
+
+![宽 390 px 的手机上的仪表板：项目标签页、状态菜单和纵向排列的创意卡片](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard-phone.png)
 
 ## 快速开始: 安装 Claude Code 插件或 Codex 技能
 
@@ -99,6 +117,76 @@ python3 skills/mockup-canvas/scripts/canvas.py serve examples
 ```
 
 打开 `http://127.0.0.1:4400/trailmate/`，即可看到 [`examples/trailmate`](https://github.com/chrisjo-dev/mockup-canvas/blob/main/examples/trailmate/canvas.json) 中包含六个界面的示例。
+
+## 运行服务器
+
+智能体绘制原型时会自动启动服务器并给你地址。如果要自己启动，运行技能文件夹（`<skill-dir>`）中的 `canvas.py`：
+
+| 安装方式 | `<skill-dir>` |
+| --- | --- |
+| Claude Code 插件 | 在智能体的命令中为 `${CLAUDE_PLUGIN_ROOT}/skills/mockup-canvas`；在你自己的终端中为插件缓存，通常是 `~/.claude/plugins/cache/mockup-canvas/mockup-canvas/<version>/skills/mockup-canvas` |
+| 手动安装（`install.sh`） | `~/.claude/skills/mockup-canvas`（或 `~/.codex/skills/mockup-canvas`） |
+| 克隆了本仓库 | `skills/mockup-canvas` |
+
+提示：在 `~/.zshrc` 或 `~/.bashrc` 中定义 `canvas` shell 函数，下面的命令会更短：
+
+```bash
+canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
+```
+
+### 所有已注册项目
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve
+```
+
+| 地址 | 显示内容 |
+| --- | --- |
+| `http://localhost:4400/` | 所有已注册项目的仪表板 |
+| `http://localhost:4400/<project>/<idea>/` | 单个创意的画布 |
+| `http://localhost:4400/<project>/<idea>/#<board>` | 对准某个画板的同一画布，例如 `#T01-Home` |
+
+服务器只监听 `127.0.0.1`。如果该端口上已经有展示相同项目的服务器在运行，`serve` 只打印它的地址并退出；如果端口被另一个画布服务器占用，它会换到下一个空闲端口并打印地址。
+
+### 单个设计文件夹
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve path/to/design
+```
+
+此时 `http://localhost:4400/` 列出该文件夹中的创意，画布位于 `http://localhost:4400/<idea>/`。
+
+### 换一个端口
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve --port 4500
+```
+
+两种模式都可以用 `--port`。
+
+### 在同一 Wi-Fi 下用手机查看
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve --share --minutes 30
+python3 <skill-dir>/scripts/canvas.py serve --share --project NAME
+python3 <skill-dir>/scripts/canvas.py serve path/to/design --share
+```
+
+`--share` 会打印带有电脑局域网地址和随机令牌的地址（`http://<lan ip>:4400/?t=...`），在手机上打开即可。页面只读，不带令牌的请求会被拒绝，服务器在 `--minutes`（1 到 240，默认 30）之后自动停止。`--project NAME` 只共享一个已注册项目，而不是全部。传输是未加密的 HTTP，请只在可信的网络中共享。另见 [安全模型](#安全模型)。
+
+### 在后台运行和停止
+
+```bash
+nohup python3 <skill-dir>/scripts/canvas.py serve > /tmp/mockup-canvas.log 2>&1 &
+```
+
+日志文件中会记录地址和错误。在前台运行的服务器按 `Ctrl+C` 停止。后台服务器则停止正在监听该端口的进程：
+
+```bash
+lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
+```
+
+这只会停止该端口上的服务器。不要用 `pkill -f canvas.py`，它会把其他会话或智能体启动的服务器也一起停掉。
 
 ## mockup-canvas 如何工作
 
@@ -163,7 +251,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 
 | 命令 | 作用 | 示例 |
 | --- | --- | --- |
-| `serve` | 启动画布服务器。不指定文件夹时为注册表模式，展示所有已注册项目；指定文件夹时只展示该设计文件夹。`--share` 带令牌向局域网开放；注册表模式下 `--share --project NAME` 只共享一个项目。 | `canvas serve`<br>`canvas serve design --share --minutes 30` |
+| `serve` | 启动画布服务器。不指定文件夹时为注册表模式，展示所有已注册项目的仪表板；指定文件夹时只展示该设计文件夹。`--port N` 选择端口（默认 4400）。`--share` 带令牌向局域网开放，`--minutes N` 设定何时停止；注册表模式下 `--share --project NAME` 只共享一个项目。见 [运行服务器](#运行服务器)。 | `canvas serve`<br>`canvas serve design --share --minutes 30` |
 | `roots list` | 列出已注册的设计文件夹。 | `canvas roots list` |
 | `roots add` | 注册一个设计文件夹，可指定名称。 | `canvas roots add ~/work/app/design --name app` |
 | `roots remove` | 按名称取消注册，不会改动文件。 | `canvas roots remove app` |
@@ -200,6 +288,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | 单击分组标题 | 折叠或展开分组 |
 | 鼠标悬停在画板标题上 | 显示备注 |
 | 单击评论数 | 打开该画板的评论，按 `Esc` 关闭 |
+| 打开 `.../<idea>/#<board>`，例如 `#T01-Home` | 让该画板适配视图（仪表板中的画板结果会链接到这里） |
 
 静态导出中无法移动画板。共享模式下，只有用 `--share-edit` 启动服务器时移动才会被保存。
 

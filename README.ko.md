@@ -12,9 +12,9 @@
 
 AI 어시스턴트용 요약은 [llms.txt](llms.txt)에 있습니다.
 
-![데모: AI 에이전트가 모바일 앱 화면을 그리면 mockup-canvas 보드에 바로 나타나는 모습](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/demo.gif)
+![다크 모드의 mockup-canvas 대시보드: 프로젝트 3개의 아이디어 카드 7개에 보드 썸네일, 상태 막대, 코멘트와 built와 new 배지가 있고, 왼쪽에 프로젝트와 상태 필터 목록이 있음](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
-![예제 아이디어 TrailMate 전체 보기: 캔버스 위 HTML 아트보드 6개가 흐름 화살표로 이어져 있고 2개는 승인 표시가 붙어 있음](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/_overview.png)
+![아이디어 캔버스: 휴대폰 아트보드 3개가 이름 붙은 흐름 화살표로 이어져 있고, 승인 표시, 보라색 built 배지, 코멘트 수가 붙어 있음](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)
 
 ## 세 가지 스킬
 
@@ -44,7 +44,7 @@ mockup-canvas를 만든 이유는 UI를 글로 설명하면 모호하기 때문�
 - 캔버스는 아트보드를 접고 펼 수 있는 그룹으로 묶습니다. 예: `current`, `old drafts`.
 - 캔버스는 보드가 많아도 부드럽게 움직입니다. 화면 근처의 보드만 실제 페이지를 띄우고, 축소했을 때(배율 약 30~40% 미만)는 캐시된 PNG 썸네일을 보여 주고(서버로 열었을 때), 한 번 본 보드는 다시 불러오는 동안 빈 흰 카드 대신 썸네일을 보여 주며, 화면 갱신은 애니메이션 프레임마다 한 번으로 묶습니다. 썸네일은 낮은 우선순위로 뒤에서 만듭니다. 아트보드 71개짜리 캔버스(1440x900, Apple M4, headless Chrome)에서 측정하면 처음 열 때와 썸네일이 캐시된 뒤 모두 이동과 확대/축소가 약 59~60 FPS, p95 프레임 시간 약 20 ms를 유지하고 50 ms를 넘는 프레임은 없습니다. `python3 tests/perf_check.py <아이디어 폴더>`로 다시 측정할 수 있습니다.
 - 캔버스는 실시간으로 갱신됩니다. 서버가 1초마다 파일 변경을 확인하므로, 아트보드나 `canvas.json`을 고치면 열려 있는 캔버스가 1초 안팎으로 바뀝니다.
-- 캔버스 서버는 등록된 모든 프로젝트를 대시보드로 보여 줍니다. 아이디어 카드에 최근 보드 썸네일, 상태 수, 코멘트, built 보드를 보여 주고, 결정이 필요한 것만 거르는 필터, 검색과 명령 팔레트(`/` 또는 `Cmd K`), 프로젝트 추가와 디자인 폴더 찾기, 사라진 폴더 경고, 라이트와 다크 테마, 휴대폰 레이아웃을 제공합니다.
+- 캔버스 서버는 등록된 모든 프로젝트를 대시보드로 보여 줍니다. 아이디어 카드에 최근 보드 썸네일, 상태 수, 코멘트, built 보드를 보여 주고, 결정이 필요한 것만 거르는 필터, 검색과 명령 팔레트(`/` 또는 `Cmd K`), 프로젝트 추가와 디자인 폴더 찾기, 사라진 폴더 경고, 라이트와 다크 테마, 휴대폰 레이아웃을 제공합니다. [대시보드](#대시보드)를 보세요.
 - 캔버스는 휴대폰에서도 볼 수 있습니다. 같은 네트워크에서 실시간으로 보는 공유 모드와, 어디든 올릴 수 있는 정적 내보내기를 지원합니다.
 
 **에이전트 스킬** (`skills/<skill>/SKILL.md`)
@@ -58,6 +58,24 @@ mockup-canvas를 만든 이유는 UI를 글로 설명하면 모호하기 때문�
 
 - CLI는 pip 의존성 없는 약 3,300줄짜리 Python 3 파일 하나(표준 라이브러리만, Python 3.8 이상)이며 명령은 16개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
 - CLI는 보드를 렌더링하거나 앱 화면을 PNG로 캡처할 때만 Chrome(또는 Chromium, Edge)을 씁니다.
+
+## 대시보드
+
+`canvas serve`를 띄우면 `http://localhost:4400/`에 등록된 모든 프로젝트를 모은 대시보드가 열립니다. 캔버스를 하나하나 열어 보기 전에 지금 무엇을 봐야 하는지 알려 줍니다.
+
+- **아이디어 카드**에는 최근 보드 썸네일, 상태 막대(승인은 초록, 미결정은 회색, 반려는 빨강), 열린 코멘트 수, 구현된 보드 수, 그리고 그 아이디어를 마지막으로 연 뒤 바뀐 보드를 세는 `N new` 배지가 붙습니다.
+- **왼쪽 목록**에는 프로젝트와 상태 필터 4개(Needs decision, Has comments, Approved, not built, Built)가 있습니다.
+- **검색과 명령 팔레트.** 검색 상자, `/`, `Cmd+K`(`Ctrl+K`)로 모든 프로젝트의 아이디어와 보드를 찾고, 프로젝트 추가 같은 동작도 실행합니다. 보드 결과를 열면 그 보드에 맞춰진 캔버스가 열립니다.
+- **보기.** Large와 Compact 카드, 최근 수정순, 이름순, 보드 수 정렬, 그리고 프로젝트마다 상태 필터가 있는 전체 보드 페이지가 있습니다.
+- **프로젝트 관리.** Add project로 디자인 폴더를 등록하고, Find in folders로 폴더 안의 디자인 폴더를 찾습니다. 프로젝트마다 이름을 바꾸거나 목록에서 뺄 수 있습니다(파일은 지우지 않습니다).
+- **사라진 폴더 경고.** 등록된 프로젝트의 폴더가 옮겨지거나 지워지면 경고와 함께 다시 찾는 버튼을 보여 줍니다.
+- **라이트와 다크 테마**(해와 달 버튼 또는 `Shift+T`), 그리고 프로젝트 탭과 상태 메뉴가 있는 휴대폰 레이아웃을 지원합니다.
+
+![라이트 모드의 대시보드: 같은 프로젝트와 아이디어](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard-light.png)
+
+![대시보드 위에 열린 명령 팔레트: 검색어에 맞는 아이디어와 보드가 상태와 함께 나오고, 필터 동작이 있음](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/palette.png)
+
+![폭 390 px 휴대폰의 대시보드: 프로젝트 탭, 상태 메뉴, 세로로 쌓인 아이디어 카드](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard-phone.png)
 
 ## 빠른 시작: Claude Code 플러그인 또는 Codex 스킬 설치
 
@@ -99,6 +117,76 @@ python3 skills/mockup-canvas/scripts/canvas.py serve examples
 ```
 
 `http://127.0.0.1:4400/trailmate/`를 열면 [`examples/trailmate`](https://github.com/chrisjo-dev/mockup-canvas/blob/main/examples/trailmate/canvas.json)의 화면 6개짜리 예제를 볼 수 있습니다.
+
+## 서버 실행하기
+
+목업을 그릴 때는 에이전트가 서버를 띄우고 주소를 알려 줍니다. 직접 띄우려면 스킬 폴더(`<skill-dir>`)의 `canvas.py`를 실행합니다.
+
+| 설치 방식 | `<skill-dir>` |
+| --- | --- |
+| Claude Code 플러그인 | 에이전트 명령에서는 `${CLAUDE_PLUGIN_ROOT}/skills/mockup-canvas`, 내 터미널에서는 플러그인 캐시로 보통 `~/.claude/plugins/cache/mockup-canvas/mockup-canvas/<version>/skills/mockup-canvas` |
+| 수동 설치 (`install.sh`) | `~/.claude/skills/mockup-canvas` (또는 `~/.codex/skills/mockup-canvas`) |
+| 이 저장소를 클론한 경우 | `skills/mockup-canvas` |
+
+팁: `~/.zshrc`나 `~/.bashrc`에 `canvas` 셸 함수를 정의해 두면 아래 명령이 짧아집니다.
+
+```bash
+canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
+```
+
+### 등록된 모든 프로젝트
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve
+```
+
+| 주소 | 보이는 것 |
+| --- | --- |
+| `http://localhost:4400/` | 등록된 모든 프로젝트의 대시보드 |
+| `http://localhost:4400/<project>/<idea>/` | 아이디어 하나의 캔버스 |
+| `http://localhost:4400/<project>/<idea>/#<board>` | 보드 하나에 맞춘 같은 캔버스, 예: `#T01-Home` |
+
+서버는 `127.0.0.1`에서만 받습니다. 같은 프로젝트를 보여 주는 서버가 이미 그 포트에 떠 있으면 `serve`는 그 주소만 출력하고 끝납니다. 다른 캔버스 서버가 포트를 쓰고 있으면 다음 빈 포트로 옮겨 그 주소를 출력합니다.
+
+### 디자인 폴더 하나
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve path/to/design
+```
+
+이때 `http://localhost:4400/`에는 그 폴더의 아이디어가 나오고, 캔버스는 `http://localhost:4400/<idea>/`에 있습니다.
+
+### 다른 포트
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve --port 4500
+```
+
+`--port`는 두 모드 모두에서 씁니다.
+
+### 같은 Wi-Fi의 휴대폰에서 보기
+
+```bash
+python3 <skill-dir>/scripts/canvas.py serve --share --minutes 30
+python3 <skill-dir>/scripts/canvas.py serve --share --project NAME
+python3 <skill-dir>/scripts/canvas.py serve path/to/design --share
+```
+
+`--share`는 컴퓨터의 LAN 주소와 무작위 토큰이 붙은 주소(`http://<lan ip>:4400/?t=...`)를 출력합니다. 이 주소를 휴대폰에서 엽니다. 페이지는 읽기 전용이고, 토큰 없는 요청은 거절되며, 서버는 `--minutes`(1에서 240, 기본 30)가 지나면 스스로 멈춥니다. `--project NAME`은 전체 대신 등록된 프로젝트 하나만 공유합니다. 통신은 암호화되지 않은 HTTP이므로 믿을 수 있는 네트워크에서만 공유하세요. [보안 모델](#보안-모델)을 참고하세요.
+
+### 백그라운드로 띄우고 멈추기
+
+```bash
+nohup python3 <skill-dir>/scripts/canvas.py serve > /tmp/mockup-canvas.log 2>&1 &
+```
+
+로그 파일에 주소와 오류가 남습니다. 터미널 앞에서 띄운 서버는 `Ctrl+C`로 멈춥니다. 백그라운드 서버는 그 포트에서 대기 중인 프로세스를 멈춥니다.
+
+```bash
+lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
+```
+
+이 명령은 그 포트의 서버만 멈춥니다. `pkill -f canvas.py`는 다른 세션이나 에이전트가 띄운 서버까지 멈추므로 쓰지 마세요.
 
 ## mockup-canvas 동작 방식
 
@@ -163,7 +251,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 
 | 명령 | 하는 일 | 예시 |
 | --- | --- | --- |
-| `serve` | 캔버스 서버를 띄웁니다. 폴더를 주지 않으면 등록된 모든 프로젝트를 보여 주는 레지스트리 모드, 폴더를 주면 그 디자인 폴더만 보여 줍니다. `--share`는 토큰을 붙여 로컬 네트워크에 엽니다. 레지스트리 모드에서 `--share --project NAME`은 프로젝트 하나만 공유합니다. | `canvas serve`<br>`canvas serve design --share --minutes 30` |
+| `serve` | 캔버스 서버를 띄웁니다. 폴더를 주지 않으면 등록된 모든 프로젝트의 대시보드를 보여 주는 레지스트리 모드, 폴더를 주면 그 디자인 폴더만 보여 줍니다. `--port N`으로 포트를 고릅니다(기본 4400). `--share`는 토큰을 붙여 로컬 네트워크에 열고, `--minutes N`은 멈출 시간을 정합니다. 레지스트리 모드에서 `--share --project NAME`은 프로젝트 하나만 공유합니다. [서버 실행하기](#서버-실행하기)를 보세요. | `canvas serve`<br>`canvas serve design --share --minutes 30` |
 | `roots list` | 등록된 디자인 폴더 목록을 봅니다. | `canvas roots list` |
 | `roots add` | 디자인 폴더를 등록합니다. 이름을 지정할 수 있습니다. | `canvas roots add ~/work/app/design --name app` |
 | `roots remove` | 이름으로 등록을 해제합니다. 파일은 건드리지 않습니다. | `canvas roots remove app` |
@@ -200,6 +288,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | 그룹 머리글 클릭 | 그룹 접기, 펴기 |
 | 아트보드 제목에 마우스 올리기 | 메모 보기 |
 | 코멘트 수 클릭 | 보드 코멘트 열기, `Esc`로 닫기 |
+| `.../<idea>/#<board>` 열기, 예: `#T01-Home` | 그 보드 하나를 화면에 맞추기 (대시보드의 보드 결과가 이 주소로 연결됨) |
 
 정적 내보내기에서는 아트보드를 옮길 수 없습니다. 공유 모드에서는 서버를 `--share-edit`로 띄웠을 때만 이동이 저장됩니다.
 
