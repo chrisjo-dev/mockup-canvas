@@ -221,6 +221,7 @@ input { font: inherit; color: inherit; }
 .ri .sq { width: 8px; height: 8px; border-radius: 2px; background: var(--line-strong); flex: none; }
 .ri .d { width: 8px; height: 8px; }
 .ri.bad > .i { color: var(--st-broken); }
+.ri > .i.col { color: var(--text-2); }
 .ri.bad .n { color: var(--st-broken); }
 .ri.off { color: var(--text-3); }
 .ri.off .d { background: var(--line-strong); }
@@ -240,6 +241,8 @@ main { position: relative; padding: var(--sp-6) var(--sp-8) var(--sp-10); min-wi
 .mh h1 .pill { font-size: var(--fs-12); font-weight: var(--fw-medium); letter-spacing: 0; }
 .mh p { color: var(--text-2); margin-top: 2px; }
 .mh p.mono { margin-top: 6px; color: var(--text-2); }
+.mh .incl { margin-top: 6px; color: var(--text-2); font-size: var(--fs-12); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mh .incl .chip { height: 22px; padding: 0 8px; background: var(--surface-2); color: var(--text); }
 .mh .tools { margin-left: auto; display: flex; gap: var(--sp-2); align-items: center; position: relative; }
 .sortbtn.open { background: var(--surface-2); color: var(--text); }
 .crumb { display: flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-12); color: var(--text); margin: -8px 0 var(--sp-2); }
@@ -271,6 +274,18 @@ main { position: relative; padding: var(--sp-6) var(--sp-8) var(--sp-10); min-wi
 .menu .mi .chk { color: var(--accent); }
 .menu .mi .sp4 { width: 14px; flex: none; }
 .menu .mi.danger { color: var(--st-rejected); }
+.menu .mi .sub-arrow { margin-left: auto; color: var(--text-3); }
+.menu .mi.hd { color: var(--text-2); font-weight: var(--fw-medium); }
+.menu .sep { flex: none; height: 1px; background: var(--line); margin: 4px 2px; }
+.menu .in { display: flex; align-items: center; gap: var(--sp-2); min-height: 30px; padding: 0 var(--sp-2); color: var(--text-2); }
+.menu .in input {
+  flex: 1; min-width: 0; height: 24px; padding: 0 6px; border: 1px solid var(--focus); border-radius: var(--r-xs); background: var(--bg);
+  color: var(--text); font-size: var(--fs-12); outline: none; box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.menu .in input.err { border-color: var(--st-rejected); box-shadow: 0 0 0 2px var(--st-rejected-soft); }
+.menu .in-msg { padding: 0 var(--sp-2) 4px 30px; color: var(--st-rejected); font-size: var(--fs-11); line-height: 14px; white-space: normal; }
+.menu.cols { width: 240px; }
+.gc .menu.cols { width: 200px; }
 
 /* Idea card */
 .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-5); }
@@ -301,7 +316,8 @@ main { position: relative; padding: var(--sp-6) var(--sp-8) var(--sp-10); min-wi
 .ov { position: absolute; inset: auto 0 0 0; padding: var(--sp-3); display: flex; gap: var(--sp-2); justify-content: center; align-items: center; z-index: 2; opacity: 0; pointer-events: none; transition: opacity var(--dur-1) var(--ease-out); }
 .ovm { background: var(--surface-2); border: 1px solid var(--line-strong); color: var(--text-2); }
 .ovm.on { background: var(--surface-3); color: var(--text); }
-.gc .menu { right: var(--sp-3); bottom: 50px; }
+.gc .menu { right: var(--sp-3); bottom: 50px; max-height: calc(100% - 16px); overflow-y: auto; }
+.gc .menu.top, .gc .menu.cols { top: 8px; bottom: auto; z-index: 3; }
 @media (hover: hover) {
   .gc:hover { box-shadow: var(--el-1); border-color: var(--line-strong); }
   .gc:hover .slot img, .gc:hover .slot.wait { opacity: .4; }
@@ -519,6 +535,7 @@ body.demo-mode main { padding: 0; }
   .nf .menu { top: 46px; }
   .mh { margin-top: var(--sp-2); }
   .mh.allhead { display: none; }
+  .mh.colhead .tools { display: none; }   /* sort sits in the filter bar */
   .size-toggle { display: none; }
   .grid, .grid.sm { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
   .grid.compact { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -618,6 +635,7 @@ body.demo-mode main { padding: 0; }
   <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 4.5V7h-2.5"/><path d="M12.6 7A5 5 0 1 0 13 9.5"/></symbol>
   <symbol id="i-chevron-down" viewBox="0 0 16 16"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></symbol>
   <symbol id="i-chevron-right" viewBox="0 0 16 16"><path d="m6.5 4.5 3.5 3.5-3.5 3.5"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 16 16"><path d="m9.5 4.5-3.5 3.5 3.5 3.5"/></symbol>
   <symbol id="i-sort" viewBox="0 0 16 16"><path d="M5 3v10M2.5 10.5 5 13l2.5-2.5M11 13V3M8.5 5.5 11 3l2.5 2.5"/></symbol>
   <symbol id="i-filter" viewBox="0 0 16 16"><path d="M2.5 3.5h11L9.5 8.5v4l-3 1.5V8.5z"/></symbol>
   <symbol id="i-monitor" viewBox="0 0 16 16"><rect x="2" y="2.8" width="12" height="8.4" rx="1.4"/><path d="M6 13.8h4M8 11.2v2.6"/></symbol>
@@ -736,7 +754,7 @@ body.demo-mode main { padding: 0; }
   const BSTATUS = [['any', 'Any status'], ['draft', 'Draft'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['comment', 'Comments'], ['built', 'Built']];
   const bStatusOk = { any: () => true, draft: (b) => b.s === 'draft', approved: (b) => b.s === 'approved',
     rejected: (b) => b.s === 'rejected', comment: (b) => b.c > 0, built: (b) => !!b.b };
-  let DATA = BOOT, PROJ = [], IDEAS = [];
+  let DATA = BOOT, PROJ = [], IDEAS = [], COLS = [], COL_OF = {};
   const isWeb = (b) => b.w > b.h * 1.2;
   function splitTitle(t) {
     const m = /^((?:[A-Za-z]{1,3}-)?[A-Za-z]{0,3}\d+[A-Za-z]?)[-_ ]+(.+)$/.exec(t);
@@ -756,6 +774,10 @@ body.demo-mode main { padding: 0; }
     for (const x of d.ideas || []) latest[x.project] = Math.max(latest[x.project] || 0, x.mtime);
     PROJ = (d.projects || []).filter((p) => !p.missing).sort((a, b) => (latest[b.name] || 0) - (latest[a.name] || 0))
       .concat((d.projects || []).filter((p) => p.missing));
+    // Collections: a key is "project" (the whole project) or "project/idea"; the idea key wins
+    COL_OF = {};
+    const raw = d.collections && typeof d.collections === 'object' ? d.collections : {};
+    for (const n of Object.keys(raw)) if (Array.isArray(raw[n])) for (const k of raw[n]) if (typeof k === 'string' && !(k in COL_OF)) COL_OF[k] = n;
     IDEAS = (d.ideas || []).map((x) => {
       let a = 0, w = 0, r = 0, c = 0, bu = 0, apNB = false;
       for (const b of x.boards) {
@@ -768,10 +790,21 @@ body.demo-mode main { padding: 0; }
       return Object.assign(x, {
         a, w, r, c, bu, apNB, vk,
         key: d.mode === 'single' ? x.name : x.project + '/' + x.name,
+        col: COL_OF[x.project + '/' + x.name] || COL_OF[x.project] || null,
+        colWhole: !COL_OF[x.project + '/' + x.name] && !!COL_OF[x.project],
         sorted: x.boards.slice().sort((p, q) => q.m - p.m),
         newN: last ? x.boards.filter((b) => b.m * 1000 > last).length : 0,
       });
     });
+    // Shown when it holds an idea or a whole registered project; keys of projects no longer in the list are ignored
+    const live = new Set(PROJ.filter((p) => !p.missing).map((p) => p.name));
+    COLS = Object.keys(raw).map((name) => ({ name, n: IDEAS.filter((x) => x.col === name).length,
+      wholes: Object.keys(COL_OF).filter((k) => COL_OF[k] === name && live.has(k)) }))
+      .filter((c) => c.n || c.wholes.length).sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const colItems = (c) => IDEAS.filter((x) => x.col === c.name);
+  function andList(xs) {
+    return xs.length < 3 ? xs.join(' and ') : xs.slice(0, -1).join(', ') + ', and ' + xs[xs.length - 1];
   }
   const isEmpty = () => HOOK.state === 'empty' || !PROJ.length;
   function sortIdeas(xs) {
@@ -791,9 +824,10 @@ body.demo-mode main { padding: 0; }
     palette: Q.get('palette'), add: Q.get('add'), menu: Q.get('menu'), hover: Q.get('hover'), focus: Q.get('focus'),
     state: Q.get('state'), sortmenu: Q.get('sortmenu') === '1', demo: Q.get('demo'), visited: Q.get('visited'),
   };
-  const ST = { project: 'all', filter: null, q: '', view: 'large', sort: 'recent', page: 'ideas', bIdea: 'all', bStatus: 'any', bLimit: 48, fLimit: 16 };
+  const ST = { project: 'all', col: null, filter: null, q: '', view: 'large', sort: 'recent', page: 'ideas', bIdea: 'all', bStatus: 'any', bLimit: 48, fLimit: 16 };
   function readUrl(p) {
     ST.project = p.get('project') || 'all';
+    ST.col = ST.project === 'all' ? p.get('col') || null : null;
     const f = FILTERS.find((f) => f.url === p.get('filter'));
     ST.filter = f ? f.k : null;
     ST.q = p.get('q') || '';
@@ -808,6 +842,7 @@ body.demo-mode main { padding: 0; }
   function writeUrl(push) {
     const p = new URLSearchParams();
     if (ST.project !== 'all') p.set('project', ST.project);
+    else if (ST.col) p.set('col', ST.col);
     if (ST.page === 'boards') {
       p.set('page', 'boards');
       if (ST.bIdea !== 'all') p.set('idea', ST.bIdea);
@@ -1067,10 +1102,12 @@ body.demo-mode main { padding: 0; }
     ].concat(M ? M.cardMenuItems(x) : []);
     el.classList.add('hover');
     if (btn) { btn.classList.add('on'); btn.setAttribute('aria-expanded', 'true'); }
-    showMenu(el.querySelector('.gw'), buildMenu(items, 'Idea actions'), () => {
+    const m = buildMenu(items, 'Idea actions');
+    showMenu(el.querySelector('.gw'), m, () => {
       el.classList.remove('hover');
       if (btn) { btn.classList.remove('on'); btn.setAttribute('aria-expanded', 'false'); }
     });
+    if (m.offsetTop < 8) m.classList.add('top');   // taller than the space above the card's buttons
   }
 
   // ── board tile ──
@@ -1095,28 +1132,53 @@ body.demo-mode main { padding: 0; }
 
   // ── menus ──
   let openMenu = null;
-  function buildMenu(items, label, role) {
-    const m = h('div', { class: 'menu', role: role || 'menu', 'aria-label': label });
+  // items: {label, run, icon|dot|check, kbd, n, danger, radio (menuitemradio), keep (run without closing),
+  // more (opens a list in place), cls, cur}, or {sep: true}, or {el: a ready-made row}
+  function menuRows(items, role) {
+    const rows = [];
+    const first = Math.max(0, items.findIndex((it) => it.cur));
     items.forEach((it, i) => {
-      const b = h('button', { class: 'mi' + (i === 0 ? ' cur' : ''), type: 'button', role: role === 'listbox' ? 'option' : 'menuitem',
-        'aria-selected': role === 'listbox' ? String(!!it.on) : null },
+      if (it.sep) { rows.push(h('div', { class: 'sep', role: 'separator' })); return; }
+      if (it.el) { rows.push(it.el); return; }
+      const b = h('button', { class: 'mi' + (i === first ? ' cur' : '') + (it.cls ? ' ' + it.cls : '') + (it.more ? ' has-more' : ''), type: 'button',
+        role: role === 'listbox' ? 'option' : it.radio ? 'menuitemradio' : 'menuitem',
+        'aria-selected': role === 'listbox' ? String(!!it.on) : null, 'aria-checked': it.radio ? String(!!it.check) : null,
+        'aria-haspopup': it.more ? 'menu' : null },
         it.check !== undefined ? (it.check ? icon('check', 'sm chk') : h('i', { class: 'sp4' })) : (it.icon ? icon(it.icon, 'sm') : (it.dot ? h('i', { class: 'd ' + it.dot }) : null)),
-        it.label, it.kbd ? h('span', { class: 'kbd', text: it.kbd }) : null, it.n != null ? h('span', { class: 'n', text: String(it.n) }) : null);
+        it.label, it.kbd ? h('span', { class: 'kbd', text: it.kbd }) : null, it.n != null ? h('span', { class: 'n', text: String(it.n) }) : null,
+        it.more ? icon('chevron-right', 'sm sub-arrow') : null);
       if (it.danger) b.classList.add('danger');
-      b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); closeMenu(); it.run(); });
-      m.append(b);
+      b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (!it.keep) closeMenu(); it.run(); });
+      rows.push(b);
     });
+    return rows;
+  }
+  function buildMenu(items, label, role) {
+    const m = h('div', { class: 'menu', role: role || 'menu', 'aria-label': label }, menuRows(items, role));
     m.addEventListener('keydown', (e) => {
-      const bs = [...m.querySelectorAll('.mi')];
-      const i = bs.indexOf(document.activeElement);
+      const bs = [...m.querySelectorAll('.mi, .in input')];
+      const a = document.activeElement, i = bs.indexOf(a), typing = a && a.tagName === 'INPUT';
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         const n = bs[(i + (e.key === 'ArrowDown' ? 1 : -1) + bs.length) % bs.length];
         bs.forEach((x) => x.classList.toggle('cur', x === n));
         n.focus();
-      } else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); closeMenu(true); }
+      } else if (e.key === 'ArrowLeft' && m._back && !typing) { e.preventDefault(); m._back(); }
+      else if (e.key === 'ArrowRight' && a && a.classList.contains('has-more')) { e.preventDefault(); a.click(); }
+      else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); closeMenu(true); }
     });
     return m;
+  }
+  // Replaces the open menu's rows in place (a card hides overflow, so lists never open beside it)
+  function swapMenu(m, items, label, o) {
+    o = o || {};
+    m.replaceChildren(...menuRows(items));
+    m.setAttribute('aria-label', label);
+    m.classList.toggle('cols', !!o.cols);
+    m._back = o.back || null;
+    m.scrollTop = 0;
+    const f = o.focus || m.querySelector('.mi.cur') || m.querySelector('.mi');
+    if (f) f.focus({ preventScroll: true });
   }
   function showMenu(parent, menu, onClose, noFocus) {
     closeMenu();
@@ -1244,13 +1306,22 @@ body.demo-mode main { padding: 0; }
     rail.textContent = '';
     const loading = HOOK.state === 'loading', empty = isEmpty();
     const projUl = h('ul');
-    projUl.append(railItem({ on: ST.project === 'all', lead: icon('layers'), label: 'All ideas', n: empty ? 0 : (loading ? 'sk' : IDEAS.length),
-      onclick: () => go({ project: 'all', page: 'ideas' }, true) }));
+    projUl.append(railItem({ on: ST.project === 'all' && !ST.col, lead: icon('layers'), label: 'All ideas', n: empty ? 0 : (loading ? 'sk' : IDEAS.length),
+      onclick: () => go({ project: 'all', col: null, page: 'ideas' }, true) }));
     if (!empty) for (const p of PROJ) {
       projUl.append(railItem({ on: ST.project === p.name, cls: p.missing ? 'bad' : '',
         lead: p.missing ? icon('alert', 'sm') : h('span', { class: 'sq' }), label: p.name,
         n: p.missing ? 'Missing' : (loading ? 'sk' : p.ideas),
-        onclick: () => go({ project: p.name, page: 'ideas', filter: null, q: '' }, true) }));
+        onclick: () => go({ project: p.name, col: null, page: 'ideas', filter: null, q: '' }, true) }));
+    }
+    let colBox = null;
+    if (!empty && COLS.length) {
+      const colUl = h('ul');
+      for (const c of COLS) {
+        colUl.append(railItem({ on: ST.project === 'all' && ST.col === c.name, lead: icon('folder', 'sm col'), label: c.name, n: loading ? 'sk' : c.n,
+          onclick: () => go({ project: 'all', col: c.name, page: 'ideas', filter: null, q: '' }, true) }));
+      }
+      colBox = h('div', null, h('h4', { text: 'Collections' }), colUl);
     }
     const stUl = h('ul');
     for (const f of FILTERS) {
@@ -1261,7 +1332,7 @@ body.demo-mode main { padding: 0; }
     const live = DATA.share ? 'Shared' + (DATA.readOnly ? ', read only' : '')
       : empty ? 'No projects yet' : loading ? 'Loading'
       : 'Watching ' + plural(PROJ.filter((p) => !p.missing).length, 'folder');
-    rail.append(h('div', null, h('h4', { text: 'Projects' }), projUl),
+    rail.append(h('div', null, h('h4', { text: 'Projects' }), projUl), colBox,
       h('div', null, h('h4', { text: 'Status' }), stUl),
       h('div', { class: 'foot' }, M ? M.railFoot() : null,
         h('div', { class: 'srv mono' }, h('span', { class: 'live' + (empty ? ' idle' : '') }), live)));
@@ -1294,7 +1365,7 @@ body.demo-mode main { padding: 0; }
   function mainHead(o) {
     return h('div', { class: 'mh' + (o.cls ? ' ' + o.cls : '') },
       h('div', { style: 'min-width:0' }, h('h1', null, h('span', { text: o.title }), o.pill || null),
-        o.sub != null ? h('p', { class: o.mono ? 'mono' : null, text: o.sub }) : null),
+        o.sub != null ? h('p', { class: o.mono ? 'mono' : null, text: o.sub }) : (o.subEl || null)),
       o.tools ? h('div', { class: 'tools' }, o.tools) : null);
   }
   function statusMenu(b) {
@@ -1308,15 +1379,21 @@ body.demo-mode main { padding: 0; }
     const tabs = h('div', { class: 'tabs' });
     const tab = (on, label, n, onclick, bad) => h('button', { class: 'chip' + (on ? ' on' : '') + (bad ? ' bad' : ''), type: 'button',
       'aria-pressed': String(on), onclick }, bad ? icon('alert') : null, label, n != null ? h('span', { class: 'n', text: String(n) }) : null);
-    tabs.append(tab(ST.project === 'all', both('All ideas', 'All'), IDEAS.length, () => go({ project: 'all', page: 'ideas' }, true)));
+    tabs.append(tab(ST.project === 'all' && !ST.col, both('All ideas', 'All'), IDEAS.length, () => go({ project: 'all', col: null, page: 'ideas' }, true)));
     for (const p of PROJ) {
       tabs.append(tab(ST.project === p.name, p.name, p.missing ? null : p.ideas,
-        () => go({ project: p.name, page: 'ideas', filter: null, q: '' }, true), p.missing));
+        () => go({ project: p.name, col: null, page: 'ideas', filter: null, q: '' }, true), p.missing));
+    }
+    for (const c of COLS) {
+      const t = tab(ST.project === 'all' && ST.col === c.name, c.name, c.n, () => go({ project: 'all', col: c.name, page: 'ideas', filter: null, q: '' }, true));
+      t.prepend(icon('folder', 'sm'));
+      tabs.append(t);
     }
     const out = [h('div', { class: 'nb' }, tabs)];
     if (opts.filters) {
       const f = FILTERS.find((f) => f.k === ST.filter);
-      const pool = proj ? IDEAS.filter((x) => x.project === proj.name) : IDEAS;
+      const col = !proj && ST.col ? COLS.find((c) => c.name === ST.col) : null;
+      const pool = proj ? IDEAS.filter((x) => x.project === proj.name) : col ? colItems(col) : IDEAS;
       const sb = h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'listbox' }, icon('filter', 'sm'),
         'Status: ' + (f ? f.label : 'any'), icon('chevron-down', 'sm'));
       sb.addEventListener('click', () => statusMenu(sb));
@@ -1339,10 +1416,18 @@ body.demo-mode main { padding: 0; }
     else {
       let proj = ST.project !== 'all' ? PROJ.find((p) => p.name === ST.project) : null;
       if (!proj) ST.project = 'all';
+      const col = !proj && ST.col ? COLS.find((c) => c.name === ST.col) : null;
+      if (ST.col && !col) { ST.col = null; writeUrl(false); }   // its last idea was taken out
       if (proj && proj.missing) { add(main, narrowBar(proj, {})); renderMissing(proj); }
       else if (proj && ST.page === 'boards') { add(main, narrowBar(proj, {})); renderAllBoards(proj); }
-      else if (ST.filter || ST.q) { add(main, narrowBar(proj, { filters: true })); renderFiltered(proj); }
+      else if (ST.filter || ST.q) { add(main, narrowBar(proj, { filters: true })); renderFiltered(proj, col); }
       else if (proj) { add(main, narrowBar(proj, { filters: true })); renderProject(proj); }
+      else if (col) {
+        add(main, narrowBar(null, { filters: true }));
+        renderCollection(col);
+        const on = main.querySelector('.tabs .chip.on');   // collection tabs come after every project
+        if (on) on.parentNode.scrollLeft = Math.max(0, on.offsetLeft - on.parentNode.offsetLeft - 16);
+      }
       else { add(main, narrowBar(null, { filters: true, warn: true })); renderGallery(); }
     }
     if (keep) main.scrollTop = top;
@@ -1364,10 +1449,25 @@ body.demo-mode main { padding: 0; }
     }
     main.append(grid);
   }
-  function renderFiltered(proj) {
+  function renderCollection(c) {
+    const xs = sortIdeas(colItems(c));
+    const projs = [...new Set(xs.map((x) => x.project))];
+    const picked = projs.filter((p) => !c.wholes.includes(p)).sort((a, b) => a.localeCompare(b));
+    const chips = c.wholes.map((p) => h('span', { class: 'chip', text: p }));
+    const incl = h('p', { class: 'incl' }, c.wholes.length
+      ? ['Includes all of', chips, picked.length ? 'and ideas picked from ' + andList(picked) : null]
+      : 'Ideas picked from ' + andList(picked));
+    main.append(mainHead({ cls: 'colhead', title: c.name, pill: h('span', { class: 'pill', text: plural(xs.length, 'idea') + ' from ' + plural(projs.length, 'project') }),
+      subEl: incl, tools: [sortButton(), sizeToggle()] }));
+    if (!xs.length) { main.append(h('p', { class: 'note-empty', text: 'No ideas here yet. New ideas in ' + andList(c.wholes) + ' show up here.' })); return; }
+    const grid = h('div', { class: 'grid' + (ST.view === 'compact' ? ' compact' : '') });
+    for (const x of xs) grid.append(card(x, { hover: HOOK.menu === x.name || HOOK.hover === x.name, focus: HOOK.focus === x.name }));
+    main.append(grid);
+  }
+  function renderFiltered(proj, col) {
     const f = FILTERS.find((f) => f.k === ST.filter);
     const q = ST.q.trim().toLowerCase();
-    const pool = proj ? IDEAS.filter((x) => x.project === proj.name) : IDEAS;
+    const pool = proj ? IDEAS.filter((x) => x.project === proj.name) : col ? colItems(col) : IDEAS;
     const ideas = [], boards = [];
     for (const x of pool) {
       const mb = x.boards.filter((b) => (!f || f.board(b)) && bMatch(b, q));
@@ -1380,9 +1480,10 @@ body.demo-mode main { padding: 0; }
     const chips = h('div', { class: 'active' }, h('span', { class: 'lbl', text: 'Filters' }));
     const chip = (kids, onclick, label) => h('button', { class: 'chip on', type: 'button', 'aria-label': 'Remove filter ' + label, onclick }, kids, icon('x', 'sm'));
     if (proj) chips.append(chip([h('span', { class: 'sq' }), proj.name], () => go({ project: 'all' }), proj.name));
+    if (col) chips.append(chip([icon('folder', 'sm'), col.name], () => go({ col: null }), col.name));
     if (f) chips.append(chip([h('i', { class: 'd ' + f.k }), f.label], () => go({ filter: null }), f.label));
     if (ST.q) chips.append(chip('"' + ST.q + '"', () => go({ q: '' }), ST.q));
-    chips.append(h('button', { class: 'btn sm ghost', type: 'button', onclick: () => go({ filter: null, q: '', project: proj ? proj.name : 'all' }) }, 'Clear all'));
+    chips.append(h('button', { class: 'btn sm ghost', type: 'button', onclick: () => go({ filter: null, q: '', project: proj ? proj.name : 'all', col: col ? col.name : null }) }, 'Clear all'));
     main.append(chips);
     if (!ideas.length && !boards.length) {
       main.append(h('p', { class: 'note-empty', text: 'Nothing matches. Remove a filter or search for something else.' }));
@@ -1750,7 +1851,8 @@ body.demo-mode main { padding: 0; }
   function render(keep) { renderTop(); renderRail(); renderMain(keep); }
 
   window.MC = { h, icon, plural, both, shq, toast, copy, openTab, go, refresh, render, openLayer, closeLayer,
-    buildMenu, showMenu, closeMenu, get data() { return DATA; }, get state() { return ST; } };
+    buildMenu, showMenu, closeMenu, swapMenu, get menu() { return openMenu ? openMenu.menu : null; },
+    get data() { return DATA; }, get state() { return ST; }, get collections() { return COLS; }, collectionOf: (key) => COL_OF[key] || null };
 
   function start() {
     M = window.MC_MANAGE || null;

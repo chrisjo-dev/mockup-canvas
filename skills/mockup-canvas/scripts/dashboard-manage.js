@@ -44,6 +44,57 @@
     MC.go({ project: d.name }, false);
   }
 
+  // ── Collections: the open menu turns into a list of collections (Back returns) ──
+  // target: {key: "project" or "project/idea", name, current: its collection or null, removable}
+  function collectionList(menu, target, title, back) {
+    const cols = MC.collections;
+    const items = [{ icon: 'chevron-left', label: title, cls: 'hd', keep: true, run: back }, { sep: true }];
+    for (const c of cols) {
+      items.push({ label: c.name, radio: true, check: c.name === target.current, n: c.n, cur: c.name === target.current,
+        run: () => { if (c.name !== target.current) setCollection(target, c.name); } });
+    }
+    if (cols.length) items.push({ sep: true });
+    items.push({ icon: 'plus', label: 'New collection', keep: true, cur: !target.current,
+      run: () => newCollectionRow(menu, target, title, back, items) });
+    if (target.removable) {
+      items.push({ icon: 'x', label: target.key.includes('/') ? 'Remove from collection' : 'Remove ' + target.name + ' from collection',
+        run: () => setCollection(target, '') });
+    }
+    MC.swapMenu(menu, items, title, { cols: true, back });
+  }
+  function newCollectionRow(menu, target, title, back, items) {
+    const max = 40;
+    const input = h('input', { type: 'text', maxlength: String(max), placeholder: 'Collection name', autocomplete: 'off',
+      spellcheck: 'false', 'aria-label': 'New collection name' });
+    const msg = h('p', { class: 'in-msg', role: 'alert', hidden: true });
+    const row = h('div', { class: 'in' }, icon('plus', 'sm'), input);
+    const at = items.findIndex((it) => it.label === 'New collection');
+    const next = items.slice(0, at).concat([{ el: row }, { el: msg }], items.slice(at + 1));
+    MC.swapMenu(menu, next, title, { cols: true, back, focus: input });
+    const cancel = () => collectionList(menu, target, title, back);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        const name = input.value.trim();
+        const bad = !name ? 'Type a name' : name.length > max ? 'Use at most ' + max + ' characters' : /[\u0000-\u001f\u007f]/.test(name) ? 'Remove the control characters' : '';
+        input.classList.toggle('err', !!bad);
+        input.setAttribute('aria-invalid', String(!!bad));
+        msg.hidden = !bad;
+        msg.textContent = bad;
+        if (!bad) setCollection(target, name);
+      }
+    });
+  }
+  async function setCollection(target, name) {
+    MC.closeMenu();
+    const d = await post('/api/roots/collection', { key: target.key, collection: name });
+    if (!d.ok) { MC.toast(d.error || 'Could not change the collection'); return; }
+    MC.toast(name ? (target.current ? 'Moved ' : 'Added ') + target.name + ' to ' + name : 'Removed ' + target.name + ' from ' + target.current);
+    await MC.refresh(true);
+  }
+  const collections = () => MC.data.mode !== 'single';   // one design folder has no registry to keep them in
+
   // ── Add project dialog: Folder path and Find in folders ──
   function openAdd(o) {
     o = o || {};
@@ -243,21 +294,47 @@
         icon('folder', 'sm'), 'Reveal');
     },
     cardMenuItems(x) {
-      return [
+      const items = [
         { icon: 'folder', label: 'Copy path', run: () => MC.copy(ideaPath(x), 'Path copied') },
         { icon: 'folder-search', label: 'Reveal in Finder', run: () => reveal(x.project, x.name) },
       ];
+      if (collections()) {
+        items.push({ icon: 'layers', label: 'Move to collection', keep: true, more: true, run: () => {
+          const menu = MC.menu, saved = [...menu.childNodes], label = menu.getAttribute('aria-label');
+          // An idea that is in only because its whole project is cannot be taken out on its own
+          const target = { key: x.project + '/' + x.name, name: x.name, current: x.colWhole ? null : x.col, removable: !!x.col && !x.colWhole };
+          const back = () => {
+            menu.replaceChildren(...saved); menu.setAttribute('aria-label', label); menu.classList.remove('cols'); menu._back = null;
+            const f = menu.querySelector('.has-more'); if (f) f.focus({ preventScroll: true });
+          };
+          collectionList(menu, target, 'Move to collection', back);
+        } });
+      }
+      return items;
     },
     projectTools(p, rescan) {
       const more = h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Project menu', 'aria-haspopup': 'menu' }, icon('dots'));
       more.addEventListener('click', () => {
-        const m = MC.buildMenu([
+        const items = [
           { icon: 'edit', label: 'Rename', run: () => renameProject(p.name) },
           { icon: 'x', label: 'Remove from list', danger: true, run: () => removeProject(p.name) },
-        ], 'Project actions');
+        ];
+        if (collections()) {
+          items.splice(1, 0, { icon: 'layers', label: 'Add to collection', keep: true, more: true, run: () => {
+            const saved = [...m.childNodes];
+            const cur = MC.collectionOf(p.name);
+            const back = () => {
+              m.replaceChildren(...saved); m.setAttribute('aria-label', 'Project actions'); m.classList.remove('cols'); m._back = null;
+              const f = m.querySelector('.has-more'); if (f) f.focus({ preventScroll: true });
+            };
+            collectionList(m, { key: p.name, name: p.name, current: cur, removable: !!cur }, 'Add ' + p.name + ' to collection', back);
+          } });
+        }
+        const m = MC.buildMenu(items, 'Project actions');
         m.style.top = (more.offsetTop + more.offsetHeight + 6) + 'px';
         m.style.right = '0';
-        MC.showMenu(more.parentNode, m);
+        more.setAttribute('aria-expanded', 'true');
+        MC.showMenu(more.parentNode, m, () => more.setAttribute('aria-expanded', 'false'));
       });
       return [h('button', { class: 'btn sm', type: 'button', onclick: () => reveal(p.name, '') }, icon('folder', 'sm'), 'Reveal in Finder'), rescan, more];
     },

@@ -57,6 +57,12 @@ Playwright MCP tools are not available in this session):
 2. The card menu's Copy URL copies `/alpha/trailmate/` (Chromium); the project view shows 6 recent boards and All 6 boards filters by status.
 3. On a phone (`@mobile`) the rail is hidden, tabs and the search button are at least 44 px, and the palette is a sheet 44 px from the top.
 
+#### 1.6 Collections across projects
+1. With no collection the rail has no Collections heading. The card menu's Move to collection, New collection, a name, and Enter make "Lily"; the rail shows it with 1. Escape in the name field goes back to the list.
+2. Moving `beta/second` into Lily from its card menu, then clicking Lily: the URL has `col=Lily`, the heading says "2 ideas from 2 projects" and "Ideas picked from alpha and beta"; a reload keeps it, and Needs decision adds a Lily chip.
+3. The project menu's Add to collection (keyboard: Arrow Left goes back) puts all of `beta` in Lily: "Includes all of beta". roots.json keeps `roots` and holds `collections`.
+4. Taking every key out removes Lily, the `col` in the URL, and the Collections heading.
+
 ### 2. Open an idea and navigate
 
 **Seed:** `seed.spec.ts`
