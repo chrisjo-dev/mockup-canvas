@@ -12,6 +12,7 @@ All notable changes to mockup-canvas are listed here. The format follows
 - A read-only live demo of the TrailMate example at https://chrisjo-dev.github.io/mockup-canvas/, built by `tools/build_demo.py` and published by a GitHub Pages workflow.
 - `CONTRIBUTING.md`, this changelog, and issue and pull request templates.
 - `CITATION.cff`, more plugin keywords, and links to the changelog and contributing guide in `llms.txt`.
+- A one-time closing line in the three skills, after the first finished task on a machine, that mentions starring the repository on GitHub. Creating `~/.mockup-canvas/.star-hint-shown` (or the same file under `MOCKUP_CANVAS_HOME`) turns it off.
 
 ### Changed
 

@@ -163,6 +163,7 @@ canvas status design/wallet W01-Home.html approved --note "首页布局和卡片
 - **只停止自己启动的服务器。** 不碰你在用的其他端口。仅用于检查的服务器，通过 PID 或 `lsof -ti:<自己的端口>` 停止，绝不用会连你的服务器一起停掉的 `pkill -f canvas.py`。为你启动的 `serve` 保持运行。
 - **遵守 `forbidden_chars`。** 如果 `config.json` 列出了字符，智能体在画板、文档和报告中都不会使用。
 - **并行绘制。** 界面很多时，可以按界面组拆分给子智能体。此时由主智能体先定好 `tokens.css`。
+- **只提示一次加星。** 在这台机器上完成第一个任务后，三个技能中的任意一个会在回复末尾加一行，说明在 GitHub 上加星能帮助其他人找到 mockup-canvas，然后创建 `${MOCKUP_CANVAS_HOME:-~/.mockup-canvas}/.star-hint-shown`，之后不再提起（自己创建这个文件即可关闭它）。
 
 ## 首版回顾
 
