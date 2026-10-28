@@ -1,6 +1,9 @@
 """Regression tests for the pre-publication security review (H1, H2, M1-M3, L1-L6, install.sh)."""
+import base64
+import hashlib
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -625,6 +628,66 @@ class ChromeLaunchArgs(TempHomeCase):
 
     def test_overview_args(self):
         self.check(self.run_cmd(canvas.cmd_overview, self.idea))
+
+
+# ── Viewer CSP (issue #12) ──────────────────────────────────────────────────
+
+class ViewerCsp(ServerCase):
+    """The viewer page gets a hash-based CSP that covers every inline script as served, including
+    the ones the server injects (read-only flag, share-mode asset prefix)."""
+    TOKEN = 'tok_viewer_csp'
+
+    def setUp(self):
+        super().setUp()
+        self.design = os.path.join(self.home, 'p', 'design')
+        self.make_idea(self.design, 'demo')
+        self.write_json(os.path.join(self.data_dir, 'roots.json'),
+                        {'roots': [{'name': 'alpha', 'path': self.design}]})
+
+    def check(self, path, token='', n_scripts=1):
+        headers = {'Cookie': 'canvas_token=' + token} if token else None
+        status, hdrs, body = self.request('GET', path, headers=headers)
+        self.assertEqual(status, 200)
+        csp = hdrs['Content-Security-Policy']
+        directives = dict(d.strip().split(' ', 1) for d in csp.split(';'))
+        self.assertEqual(directives['default-src'], "'none'")
+        self.assertEqual(directives['connect-src'], "'self'")
+        self.assertEqual(directives['frame-src'], "'self'")
+        self.assertEqual(directives['frame-ancestors'], "'none'")
+        self.assertNotIn('unsafe', directives['script-src'])
+        self.assertNotIn('unsafe-eval', csp)
+        scripts = re.findall(r'<script>(.*?)</script>', body.decode(), re.S)
+        self.assertEqual(len(scripts), n_scripts)
+        for sc in scripts:
+            digest = base64.b64encode(hashlib.sha256(sc.encode()).digest()).decode()
+            self.assertIn(f"'sha256-{digest}'", directives['script-src'])
+        self.assertEqual(directives['script-src'].count("'sha256-"), len(scripts))
+        # no other script element can run: every <script> tag is a plain inline one
+        self.assertEqual(len(re.findall(r'<script\b', body.decode())), len(scripts))
+        hd = self.request('HEAD', path, headers=headers)
+        self.assertEqual(hd[1].get('Content-Security-Policy'), csp)
+        return body
+
+    def test_local_mode(self):
+        self.start_server(canvas.CanvasHandler, design_dir=self.design,
+                          share_token='', share_edit=True, read_only=False)
+        self.check('/demo/')
+
+    def test_local_read_only_share_hashes_the_injected_scripts(self):
+        self.start_server(canvas.CanvasHandler, design_dir=self.design,
+                          share_token=self.TOKEN, share_edit=False, read_only=False)
+        body = self.check('/demo/', self.TOKEN, n_scripts=3)
+        self.assertIn(b'CANVAS_READ_ONLY=true', body)
+        self.assertIn(b'CANVAS_ASSET_PREFIX="/_k/', body)
+
+    def test_registry_mode(self):
+        self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
+        self.check('/alpha/demo/')
+
+    def test_registry_editable_share(self):
+        self.start_server(canvas.RegistryHandler, share_token=self.TOKEN, share_edit=True, read_only=False)
+        body = self.check('/alpha/demo/', self.TOKEN, n_scripts=2)
+        self.assertNotIn(b'CANVAS_READ_ONLY=true', body)
 
 
 # ── install.sh --dry-run ───────────────────────────────────────────────────

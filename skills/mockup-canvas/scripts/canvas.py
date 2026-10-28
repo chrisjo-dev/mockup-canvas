@@ -1696,6 +1696,12 @@ _IDEA_CACHE = {}   # canvas.json path -> ((mtime_ns, size), [board summaries])
 _PAGE_CACHE = {}   # manage flag -> (file mtimes, html, CSP script hashes)
 
 
+def _script_hashes(html):
+    """"'sha256-...'" CSP sources for every inline <script> in html, as the browser hashes them."""
+    return ' '.join("'sha256-%s'" % base64.b64encode(hashlib.sha256(m.encode()).digest()).decode()
+                    for m in re.findall(r'<script>(.*?)</script>', html, re.S))
+
+
 def _dashboard_page(manage):
     """-> (html with the management script or not, "'sha256-...'" hashes of its scripts), or None.
     The scripts are static, so their hashes are computed once per file version, not per request."""
@@ -1714,8 +1720,7 @@ def _dashboard_page(manage):
     except OSError:
         return None
     html = html.replace('<!--MANAGE-->', f'<script>\n{js}</script>' if manage else '', 1)
-    hashes = ' '.join("'sha256-%s'" % base64.b64encode(hashlib.sha256(m.encode()).digest()).decode()
-                      for m in re.findall(r'<script>(.*?)</script>', html, re.S))
+    hashes = _script_hashes(html)
     _PAGE_CACHE[manage] = (stamp, html, hashes)
     return html, hashes
 
@@ -2332,6 +2337,13 @@ class CanvasHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Cache-Control', 'no-store')
+        # Hashed after the injections above, which differ by session. Styles stay inline (the
+        # <style> block, style attributes); data: is the favicon; boards are same-origin iframes.
+        self.send_header('Content-Security-Policy',
+                         f"default-src 'none'; script-src {_script_hashes(data.decode())}; "
+                         "style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+                         "frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; "
+                         "frame-ancestors 'none'")
         self._add_root_header()
         self.end_headers()
         self.wfile.write(data)
