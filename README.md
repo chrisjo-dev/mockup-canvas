@@ -333,7 +333,8 @@ mockup-canvas is a local tool and is built to stay that way. Full details are in
 - **Path containment.** Only files inside a registered design folder are served. `../`, encoded traversal, absolute paths, and symlinks pointing outside are rejected.
 - **Small write surface.** The only write on an idea changes `x` and `y` of an existing board in `canvas.json`, atomically, with a 64 KiB body limit.
 - **CSRF checks.** Layout saves and registry changes require a same-origin `Origin` or `Referer` header and the exact media type `application/json`.
-- **Sandboxed artboards.** Boards (and HTML or SVG under `assets/` and `shared/`) are served with `Content-Security-Policy: sandbox` and shown in sandboxed iframes, so a board script cannot call the canvas API.
+- **Sandboxed artboards.** Every file under `boards/`, `assets/`, and `shared/` is served with `Content-Security-Policy: sandbox`, and boards are shown in sandboxed iframes, so a board script cannot call the canvas API. Local fonts get CORS only for sandboxed boards. In share mode a board's asset link opens only its own idea.
+- **Guarded renders.** Board renders and thumbnails cannot read local files outside the idea or reach localhost or private network addresses. Every connection, WebSockets included, goes through a guard proxy that resolves each name once and connects to the address it checked, so DNS rebinding cannot slip past. Headless Chrome is driven over a pipe, without a DevTools port, and exits when the canvas process ends.
 - **Timeouts.** Each connection times out after 15 seconds (live-reload streams excepted) and at most 64 connections are served at once.
 - **No outbound requests.** The tool itself contacts nothing on the internet. Artboards may load Google Fonts, the only external resource the skill allows. `snap` and `compare --url` open only the http or https address you give them and warn when it is not on localhost.
 
@@ -387,7 +388,7 @@ Yes. Write the HTML files yourself and use the CLI: `canvas new`, `canvas add`, 
 
 ## Contributing
 
-Issues and pull requests are welcome. Run the test suite (218 tests) before you open a pull request:
+Issues and pull requests are welcome. Run the test suite (227 tests) before you open a pull request:
 
 ```bash
 cd tests && python3 -m unittest discover .

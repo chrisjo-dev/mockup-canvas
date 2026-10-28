@@ -333,7 +333,8 @@ mockup-canvas 是本地工具，设计上也只在本地运行。完整说明见
 - **路径限制。** 只提供已注册设计文件夹内的文件。`../`、编码后的路径穿越、绝对路径以及指向外部的符号链接都会被拒绝。
 - **极小的写入面。** 对创意的唯一写操作是修改 `canvas.json` 中已有画板的 `x` 和 `y`，原子写入，请求体上限 64 KiB。
 - **CSRF 检查。** 保存布局以及添加或移除项目，需要同源的 `Origin` 或 `Referer` 请求头，且 Content-Type 必须正好是 `application/json`。
-- **画板隔离。** 画板（以及 `assets/`、`shared/` 下的 HTML、SVG）带 `Content-Security-Policy: sandbox` 提供，并显示在沙盒 iframe 中，画板脚本无法调用画布 API。
+- **画板隔离。** `boards/`、`assets/`、`shared/` 下的所有文件都带 `Content-Security-Policy: sandbox` 提供，画板显示在沙盒 iframe 中，画板脚本无法调用画布 API。本地字体的 CORS 只对沙盒画板开放。共享模式下，画板的资源链接只能打开它所属的创意。
+- **渲染防护。** 画板渲染和缩略图无法读取创意之外的本地文件，也无法访问 localhost 或私有网络地址。所有连接（包括 WebSocket）都经过防护代理，代理对每个名称只解析一次，并只连接检查过的地址，因此无法借 DNS 重绑定绕过。headless Chrome 通过管道控制，不开 DevTools 端口，画布进程结束时随之退出。
 - **超时。** 每个连接 15 秒超时（实时刷新流除外），同时最多处理 64 个连接。
 - **不发起外部请求。** 工具本身不访问互联网。画板可以加载 Google Fonts，这是技能唯一允许的外部资源。`snap` 和 `compare --url` 只打开你给出的 http 或 https 地址，不在 localhost 上时会发出警告。
 
@@ -387,7 +388,7 @@ mockup-canvas 不是托管式的设计工具或应用生成器。它围绕你自
 
 ## 参与贡献
 
-欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 218 个）：
+欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 227 个）：
 
 ```bash
 cd tests && python3 -m unittest discover .
