@@ -1,6 +1,6 @@
 # Contributing to mockup-canvas
 
-Thanks for helping. Issues and pull requests are welcome. Please write issues, pull requests, and commit messages in English so every contributor can follow them; the READMEs and skill guides also have Korean, Simplified Chinese, and Japanese versions.
+Thanks for helping. Issues and pull requests are welcome. Please write issues, pull requests, and commit messages in English so every contributor can follow them. The READMEs and skill guides also come in Korean, Simplified Chinese, and Japanese.
 
 ## Setup
 
@@ -16,7 +16,7 @@ If Chrome is not found automatically, set `MOCKUP_CANVAS_CHROME=/path/to/chrome`
 
 To try your working copy as a skill, run `./install.sh --dry-run` first to see what it would link, then `./install.sh`.
 
-Keep your own data out of experiments: set `MOCKUP_CANVAS_HOME` to a temporary folder so `~/.mockup-canvas` (your registered projects) is not read or changed.
+To keep your own data out of experiments, point `MOCKUP_CANVAS_HOME` at a temporary folder. Then `~/.mockup-canvas` (your registered projects) is not read or changed.
 
 ```bash
 export MOCKUP_CANVAS_HOME="$(mktemp -d)"
@@ -30,9 +30,9 @@ Run the unit tests before you open a pull request:
 cd tests && python3 -m unittest discover .
 ```
 
-Every test uses its own temporary `HOME` and `MOCKUP_CANVAS_HOME`. Render tests are skipped when Chrome is not found; CI runs them on Linux and macOS. The same suite runs on every push and pull request (see `.github/workflows/test.yml`).
+Every test uses its own temporary `HOME` and `MOCKUP_CANVAS_HOME`. Render tests are skipped when Chrome is not found. CI runs the whole suite, render tests included, on Linux and macOS for every push and pull request (see `.github/workflows/test.yml`).
 
-The optional end-to-end suite uses Playwright and lives in `e2e/`. It is dev tooling only, not a runtime dependency. See [e2e/README.md](e2e/README.md) for details.
+The optional end-to-end suite in `e2e/` uses Playwright. It is dev tooling only, not a runtime dependency. Details are in [e2e/README.md](e2e/README.md).
 
 ```bash
 cd e2e
@@ -41,14 +41,14 @@ npx playwright install chromium webkit firefox
 npx playwright test
 ```
 
-For changes to the canvas viewer, check performance as well. `tests/perf_check.py` serves an idea in a temporary folder and measures frame times, long tasks, and time to the fit view in headless Chrome. It is not part of the unit suite.
+If you change the canvas viewer, check performance too. `tests/perf_check.py` serves an idea from a temporary folder and measures frame times, long tasks, and time to the fit view in headless Chrome. It is not part of the unit suite.
 
 ```bash
 python3 tests/perf_check.py examples/trailmate
 python3 tests/perf_check.py <idea dir> --cold --json perf.json
 ```
 
-Its targets are 55 FPS or more, p95 frame time of 25 ms or less, no frame over 50 ms, no long task over 100 ms, and the fit view within 1.5 s. Include the numbers before and after your change in the pull request (`--canvas <other canvas.py>` compares against another copy).
+The targets are 55 FPS or more, a p95 frame time of 25 ms or less, no frame over 50 ms, no long task over 100 ms, and the fit view within 1.5 s. Put the numbers from before and after your change in the pull request. `--canvas <other canvas.py>` compares against another copy.
 
 ## Design rules
 
@@ -56,7 +56,7 @@ Its targets are 55 FPS or more, p95 frame time of 25 ms or less, no frame over 5
 - **Chrome only for pixels.** Chrome (or Chromium or Edge) is used only to render boards and capture app pages as PNGs.
 - **Local by default.** The server binds to `127.0.0.1`, the tool makes no outbound requests, and share mode stays opt-in. Read [SECURITY.md](SECURITY.md) before changing the server, and report vulnerabilities privately through GitHub Security Advisories, not public issues.
 - **Never delete user work.** Old boards move to an `old drafts` group; nothing in an idea folder is removed.
-- **Keep the translations in step.** A change to `README.md` or `docs/skill.md` should say the same thing in the Korean, Simplified Chinese, and Japanese versions. If you cannot translate, say so in the pull request and a maintainer will help.
+- **Keep the translations in step.** When you change `README.md` or `docs/skill.md`, make the Korean, Simplified Chinese, and Japanese versions say the same thing. If you can't translate, say so in the pull request and a maintainer will help.
 
 ## Proposing UI changes
 
@@ -68,7 +68,7 @@ Changes to the canvas, the dashboard, or the share view start on the canvas, not
 
 ## Commit style
 
-Follow the style of the existing history: a conventional prefix, an optional scope, and a short lowercase summary that says what changed for the user.
+Follow the existing history. Use a conventional prefix, an optional scope, and a short lowercase summary of what changed for the user.
 
 ```text
 feat(dashboard): collections in the rail, a collection page, and menus to move ideas and projects
@@ -96,4 +96,4 @@ Maintainers release from `main`:
 2. Bump the version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `CITATION.cff`, and commit (`release: vX.Y.Z`).
 3. Tag that commit and push the tag: `git tag vX.Y.Z <sha> && git push origin vX.Y.Z`.
 
-The `release` workflow (`.github/workflows/release.yml`) then creates the GitHub release with that CHANGELOG section as notes (taken by `tools/changelog_section.py`). It fails if the CHANGELOG has no section for the tag, and skips a release that already exists.
+The `release` workflow (`.github/workflows/release.yml`) then creates the GitHub release. Its notes are that CHANGELOG section, pulled out by `tools/changelog_section.py`. The workflow fails if the CHANGELOG has no section for the tag, and skips a release that already exists.

@@ -1,6 +1,6 @@
 # mockup-canvas
 
-**Plan, review, and build your screens with an AI agent: three Claude Code and Codex skills that draw HTML mockups on a local Figma-like canvas, review them, and turn the approved screens into real app code that is visually compared to the mockups.**
+Three Claude Code and Codex skills for planning screens with an AI agent. The agent draws HTML mockups on a local, Figma-like canvas and reviews them. Then it builds the screens you approved in your app and compares them with the mockups.
 
 [English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
@@ -9,11 +9,15 @@
 [![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex-6b4fbb.svg)](#quick-start-install-the-claude-code-plugin-or-codex-skill)
 [![No pip dependencies: Python stdlib, Chrome for PNG rendering](https://img.shields.io/badge/no%20pip%20deps-Python%20stdlib%20%2B%20Chrome-brightgreen.svg)](#faq)
 
-**What is mockup-canvas?** mockup-canvas is a free, open-source (MIT) set of three agent skills for Claude Code and OpenAI Codex, by chrisjo-dev, that lets developers and product builders see and approve UI screens before an AI agent writes app code. With **mockup-canvas**, the agent draws each screen as a plain HTML file and lays the screens out on a local, Figma-like canvas where you pan, zoom, link them with flow arrows, and approve or reject them. With **mockup-review**, an agent reviews those screens and leaves findings as comments on the exact artboards. With **mockup-to-code**, the agent builds the approved screens in your app and compares each running route with its mockup pixel by pixel until only intentional differences remain. Unlike hosted design tools and app generators, every mockup stays in your repository as a file you own, the canvas runs on `127.0.0.1` without an account, and approvals, comments, and build records are kept in `canvas.json`. It needs only Python 3.8 or later (standard library, no pip packages) and uses Google Chrome, Chromium, or Edge only to render and capture PNGs.
+mockup-canvas is three free, open-source (MIT) skills for Claude Code and OpenAI Codex. With them an AI agent draws your screens as HTML mockups on a local canvas, reviews them, and builds the ones you approve, then compares the built screens with the mockups. You see and approve each screen before the agent writes any app code.
 
-AI assistants: a summary is available in [llms.txt](llms.txt).
+`mockup-canvas` draws each screen as a plain HTML file and lays the screens out on a Figma-like canvas. You pan and zoom, link screens with flow arrows, and approve or reject them. `mockup-review` reviews those screens and leaves its findings as comments on the artboards they are about. `mockup-to-code` builds the approved screens in your app and compares each running route with its mockup, pixel by pixel, until the only differences left are intended ones.
 
-**Live demo:** [chrisjo-dev.github.io/mockup-canvas](https://chrisjo-dev.github.io/mockup-canvas/) shows the six-screen TrailMate example on the canvas. It is read-only: you can pan and zoom, but not move boards or change status.
+The mockups are files in your own repository, not in a hosted tool. The canvas runs on `127.0.0.1` with no account, and approvals, comments, and build records are saved in `canvas.json`. You need Python 3.8 or later (standard library only, no pip packages). Google Chrome, Chromium, or Edge is used only to render and capture PNGs.
+
+There is a plain-text summary for AI assistants in [llms.txt](llms.txt).
+
+**Live demo:** [chrisjo-dev.github.io/mockup-canvas](https://chrisjo-dev.github.io/mockup-canvas/) shows the six-screen TrailMate example on the canvas. It is read-only. You can pan and zoom, but you can't move boards or change their status.
 
 ![The mockup-canvas dashboard in dark mode: seven idea cards from three projects with board thumbnails, status meters, comment, built, and new badges, and a rail of projects and status filters](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
@@ -31,26 +35,28 @@ AI assistants: a summary is available in [llms.txt](llms.txt).
 | `mockup-review` | Screens are drawn and you want a second opinion | Checks every board and the flow against the spec and a checklist, leaves `[must]`, `[should]`, and `[could]` comments on the boards, writes `review.md`, and recommends approve, revise, or reject. It never edits boards or sets status. | `Review the mockups in design/habits and tell me what is missing.` |
 | `mockup-to-code` | You have approved boards | Builds the approved boards in your app's own framework, compares each running route with its board using `canvas compare`, and records the route and files with `canvas impl`. | `Build the approved habit tracker screens in our app.` |
 
-Approval is always yours: only boards you approve (recorded with `canvas status ... approved`) are built. All three skills run the same `canvas.py` CLI.
+You do the approving. Only boards you approve (recorded with `canvas status ... approved`) get built. All three skills run the same `canvas.py` CLI.
 
 ## Why draw mockups with an AI agent first
 
-mockup-canvas exists because text descriptions of UI are ambiguous: when you plan a product with an AI agent, you need to see the screens before you agree on them. It was built while planning and building services with AI, as a planning tool that makes what is needed visible first so the work can proceed from there. A sentence like "a home feed with a hero strip and a card list" means one thing to you and another to the agent until you both see it. mockup-canvas puts that step first: the agent draws each screen as a small HTML file, the canvas shows them side by side, and you decide from what you see. You approve one screen, reject another, ask for a variant, and the board updates while the agent works. App code comes only after the screens are approved, and then the approved mockups stay the visual spec: the built screens are compared with them, so what you approved is what gets built. Every mockup stays in your repository as a standalone HTML file that opens in any browser without an account.
+A UI described in words is ambiguous. "A home feed with a hero strip and a card list" means one thing to you and another to the agent until you both see it. When you plan a product with an agent, you need to see the screens before you agree on them. mockup-canvas came out of planning and building services with AI this way: get what is needed on screen first, then work from there.
+
+The agent draws each screen as a small HTML file, and the canvas shows them side by side. You approve one, reject another, or ask for a variant, and the board updates while the agent works. App code starts only after the screens are approved. From then on the approved mockups are the visual spec, and the built screens are compared with them. The mockups stay in your repository as standalone HTML files that open in any browser, no account needed.
 
 ## What you get
 
 **The canvas** (`viewer.html`, served locally)
 
-- The canvas lets you pan and zoom like a design tool, and it re-renders crisply at every zoom level instead of stretching a bitmap.
-- The canvas saves artboard positions to `canvas.json` when you drag them, with undo and redo for moves.
-- The canvas draws flow arrows between screens, labeled with the button or action that leads there.
-- The canvas shows approval badges (approved, rejected), and it shows notes as a tooltip on the artboard title.
-- The canvas shows a violet `built` badge on boards that have a recorded implementation (the route is in its tooltip), and a comment count on boards with review comments; click the count to read them in a panel.
-- The canvas groups artboards under collapsible headers, for example `current` and `old drafts`.
-- The canvas stays responsive on large boards: only boards near the view keep a live page, zoomed out (below about 30 to 40%) boards show cached PNG thumbnails (when served), a board seen once shows its thumbnail instead of a blank card while it loads again, and screen updates are batched once per animation frame. Thumbnails render in the background at low priority. Measured on a 71-artboard canvas (1440x900, Apple M4, Chrome headless): pan and zoom stay at about 59 to 60 FPS with a p95 frame time of about 20 ms and no frame over 50 ms, both on first open and with cached thumbnails. To reproduce, run `python3 tests/perf_check.py <idea folder>`.
-- The canvas reloads live: the server checks for file changes every second, so an edit to an artboard or `canvas.json` appears within about a second.
-- The canvas server opens on a dashboard of every registered project: idea cards with the newest board thumbnails, status counts, comments, and built boards; filters for what needs a decision; search and a command palette (`/` or `Cmd K`); adding projects or finding design folders; warnings for missing folders; light and dark themes; and phone layouts. See [The dashboard](#the-dashboard).
-- The canvas also works on a phone, either live on the same network (share mode) or as a static export you can host anywhere.
+- Pan and zoom like in a design tool. Boards are re-rendered at each zoom level, so they stay sharp instead of looking like a stretched bitmap.
+- Drag artboards around. Positions are saved to `canvas.json`, and moves can be undone and redone.
+- Flow arrows between screens, labeled with the button or action that leads there.
+- Approval badges (approved, rejected). Notes show as a tooltip on the artboard title.
+- A violet `built` badge on boards with a recorded implementation (the route is in its tooltip), and a comment count on boards with review comments. Click the count to read them in a panel.
+- Collapsible groups of artboards, for example `current` and `old drafts`.
+- It stays responsive on large boards. Only boards near the view keep a live page. When zoomed out below about 30 to 40%, boards show cached PNG thumbnails (when served). A board you have seen once shows its thumbnail, not a blank card, while it loads again. Screen updates are batched once per animation frame, and thumbnails render in the background at low priority. On a 71-artboard canvas (1440x900, Apple M4, Chrome headless), pan and zoom stay at about 59 to 60 FPS, with a p95 frame time of about 20 ms and no frame over 50 ms. That holds on first open and with cached thumbnails. To reproduce, run `python3 tests/perf_check.py <idea folder>`.
+- Live reload. The server checks for file changes every second, so an edit to an artboard or `canvas.json` shows up within about a second.
+- The server opens on a dashboard of every registered project. It has idea cards with the newest board thumbnails, status counts, comments, and built boards, filters for what needs a decision, search and a command palette (`/` or `Cmd K`), adding projects or finding design folders, warnings for missing folders, light and dark themes, and a phone layout. See [The dashboard](#the-dashboard).
+- It works on a phone too, live on the same network (share mode) or as a static export you can host anywhere.
 
 **The agent skills** (`skills/<skill>/SKILL.md`)
 
@@ -61,12 +67,12 @@ mockup-canvas exists because text descriptions of UI are ambiguous: when you pla
 
 **The CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- The CLI is a single Python 3 file of about 4,000 lines with no pip dependencies (standard library only, Python 3.8+), and it has 16 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
-- The CLI uses Chrome (or Chromium or Edge) only to render boards and capture app pages as PNGs.
+- One Python 3 file of about 4,000 lines, standard library only (Python 3.8+), no pip dependencies. It has 16 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
+- Chrome (or Chromium or Edge) is used only to render boards and capture app pages as PNGs.
 
 ## The dashboard
 
-`canvas serve` opens on a dashboard of every registered project at `http://localhost:4400/`. It answers "what needs my attention" before you open any canvas.
+`canvas serve` opens on a dashboard of every registered project at `http://localhost:4400/`. It shows what needs your attention before you open a canvas.
 
 - **Idea cards** show thumbnails of the newest boards, a status meter (approved in green, undecided in gray, rejected in red), the open comment count, how many boards are built, and an `N new` badge for boards changed since you last opened that idea.
 - **The rail** lists your projects and four status filters: Needs decision, Has comments, Approved, not built, and Built.
@@ -85,7 +91,7 @@ mockup-canvas exists because text descriptions of UI are ambiguous: when you pla
 
 ## Quick start: install the Claude Code plugin or Codex skill
 
-To install mockup-canvas in Claude Code, run the two `/plugin` commands below: the first adds the `chrisjo-dev/mockup-canvas` marketplace and the second installs the plugin with all three skills. No pip packages are needed, and Chrome is used only to render PNGs.
+In Claude Code, run the two `/plugin` commands below. The first adds the `chrisjo-dev/mockup-canvas` marketplace, and the second installs the plugin with all three skills. There are no pip packages to install, and Chrome is only used to render PNGs.
 
 ### Claude Code plugin
 
@@ -233,7 +239,7 @@ The reviewer never edits artboards, tokens, or `canvas.json`. It works best in a
 
 ### Example conversation
 
-A shortened exchange showing how a request becomes screens on the canvas, how approval and revision work, and how the first draft ends with skill improvement suggestions.
+A shortened example. A request turns into screens on the canvas, one screen is approved and another revised, and the first draft ends with suggestions for improving the skill.
 
 > **You:** Draw a mockup of a trail app for weekend hikers. Four screens.
 >
@@ -328,7 +334,7 @@ User data lives in `~/.mockup-canvas/`, or in the folder set by `MOCKUP_CANVAS_H
 
 ## Security model
 
-mockup-canvas is a local tool and is built to stay that way. Full details are in [SECURITY.md](SECURITY.md).
+mockup-canvas is a local tool and is meant to stay one. Details are in [SECURITY.md](SECURITY.md).
 
 - **Localhost only by default.** `canvas serve` binds to `127.0.0.1`.
 - **Share mode is opt-in.** `--share` binds to the local network and requires a random token on every request (moved into an `HttpOnly; SameSite=Strict` cookie after the first visit). It is read-only unless you pass `--share-edit`, never allows registry changes, and stops after `--minutes` (1 to 240, default 30). A registry share serves the projects registered at start time (or one, with `--project NAME`) and hides folder paths and the management UI. Traffic is plain HTTP, so use it only on networks you trust.
@@ -348,27 +354,27 @@ Report vulnerabilities privately through GitHub Security Advisories, not public 
 
 ### How do I get Claude Code to draw UI mockups before writing code?
 
-Install the plugin with `/plugin marketplace add chrisjo-dev/mockup-canvas` and `/plugin install mockup-canvas@mockup-canvas`, then ask in plain words, for example "Draw a mockup of a habit tracker app: home, add habit, and weekly stats." The agent creates `design/<idea>/`, draws each screen as an HTML artboard, checks and renders them, and gives you a local URL for the canvas. You approve or reject each screen there, and the `mockup-to-code` skill builds only the screens you approved.
+Install the plugin with `/plugin marketplace add chrisjo-dev/mockup-canvas` and `/plugin install mockup-canvas@mockup-canvas`. Then ask in plain words, for example "Draw a mockup of a habit tracker app: home, add habit, and weekly stats." The agent creates `design/<idea>/`, draws each screen as an HTML artboard, checks and renders them, and gives you a local URL for the canvas. You approve or reject each screen there, and the `mockup-to-code` skill builds only the screens you approved.
 
 ### Is there a local, open-source alternative to Figma for reviewing AI-generated mockups?
 
-mockup-canvas is one option: it is MIT-licensed, the canvas server binds to `127.0.0.1` unless you opt into share mode, and the tool makes no outbound requests. The mockups are HTML files in your repository, so they can be diffed and reviewed in a pull request without an account. It is not a vector design editor: the agent (or you) writes the HTML, and the canvas is for arranging, linking, reviewing, commenting on, and approving the screens.
+mockup-canvas is one. It is MIT-licensed, the canvas server binds to `127.0.0.1` unless you turn on share mode, and the tool makes no outbound requests. The mockups are HTML files in your repository, so you can diff them and review them in a pull request without an account. It is not a vector design editor. The agent (or you) writes the HTML, and the canvas is where you arrange, link, review, comment on, and approve the screens.
 
 ### How can I check that AI-generated UI code matches the approved mockup?
 
-Run `canvas compare <idea dir> <board> --url <running route>`: it renders the board and captures the app at the same size, then writes a diff image, a side-by-side image, and `report.json` with the mismatch percent. The `mockup-to-code` skill does this for every approved board, fixes differences, and compares again. `canvas impl <idea dir> --strict` exits with an error while an approved board has no recorded implementation.
+Run `canvas compare <idea dir> <board> --url <running route>`. It renders the board, captures the app at the same size, and writes a diff image, a side-by-side image, and `report.json` with the mismatch percent. The `mockup-to-code` skill does this for every approved board, fixes differences, and compares again. `canvas impl <idea dir> --strict` exits with an error while an approved board has no recorded implementation.
 
 ### Why HTML instead of Figma?
 
-mockup-canvas uses HTML instead of Figma because an AI agent writes HTML and CSS fluently, and the result is a real file in your repo: diffable, reviewable in a pull request, and openable in any browser without an account. The same markup and tokens are a short step from the real UI when you start building.
+An AI agent writes HTML and CSS well, and the result is a real file in your repo. You can diff it, review it in a pull request, and open it in any browser without an account. When you start building, the same markup and tokens are a short step from the real UI.
 
 ### Can it turn mockups into code?
 
-Yes, with the `mockup-to-code` skill. After you approve boards, the agent implements them in your app's own framework and components, mapping the mockup tokens into your token system instead of copying raw values. For each screen it runs `canvas compare` against the running route, looks at `side.png` and `diff.png`, fixes differences, and compares again until only intentional ones remain (real data instead of sample text, font rendering, platform controls). It records each board's route and files with `canvas impl`, so the canvas shows a `built` badge, and `canvas impl <idea dir> --strict` tells you which approved boards are still missing. Its final report separates what it verified from what it could not.
+Yes, that is what the `mockup-to-code` skill does. After you approve boards, the agent implements them with your app's own framework and components. It maps the mockup tokens into your token system instead of copying raw values. For each screen it runs `canvas compare` against the running route, looks at `side.png` and `diff.png`, fixes differences, and compares again until only intentional ones remain (real data instead of sample text, font rendering, platform controls). It records each board's route and files with `canvas impl`, so the canvas shows a `built` badge, and `canvas impl <idea dir> --strict` tells you which approved boards are still missing. The final report keeps what it verified apart from what it could not.
 
 ### How accurate is compare?
 
-`compare` is a pixel comparison, not a judgment. A pixel counts as different when any color channel differs by more than the threshold (default 24 of 255, set with `--threshold`), and `mismatch_percent` is the share of differing pixels in the compared rows. As a rough guide, under about 2% is usually font rendering and antialiasing, 2% to 10% usually means spacing, line height, or a missing element, and above 10% usually means a shifted layout. Mockups often draw a fake phone status bar or home indicator the real app does not render: use `--align-top N` to place the app below the bar, or `--ignore-top N` and `--ignore-bottom N` to leave those bands out. Treat the percentage as a guide and always look at `side.png` and `diff.png`; the skill never claims a screen matches from the number alone.
+`compare` is a pixel comparison, not a judgment. A pixel counts as different when any color channel differs by more than the threshold (default 24 of 255, set with `--threshold`), and `mismatch_percent` is the share of differing pixels in the compared rows. As a rough guide, under about 2% is usually font rendering and antialiasing, 2% to 10% usually means spacing, line height, or a missing element, and above 10% usually means a shifted layout. Mockups often draw a fake phone status bar or home indicator that the real app does not render. Use `--align-top N` to place the app below the bar, or `--ignore-top N` and `--ignore-bottom N` to leave those bands out. Treat the percentage as a guide and always look at `side.png` and `diff.png`. The skill never claims a screen matches based on the number alone.
 
 ### Does it need internet access?
 
@@ -396,7 +402,7 @@ mockup-canvas ships as a Claude Code plugin and as skills for Claude Code and Op
 
 ### How is mockup-canvas different from Figma, v0, or Claude Artifacts?
 
-mockup-canvas is not a hosted design or app generator. It covers planning, review, and building around files you own: every mockup is a local HTML file in your repository, the canvas is served from `127.0.0.1`, and the tool makes no outbound requests. Approvals with notes, review comments, and implementation records live in `canvas.json`, so you keep a history of what was approved, rejected, and built, and the built screens are checked against the approved mockups. It works with any agent that can run a CLI.
+mockup-canvas is not a hosted design tool or app generator. It handles planning, review, and building, and everything stays in files you own. Every mockup is a local HTML file in your repository, the canvas is served from `127.0.0.1`, and the tool makes no outbound requests. Approvals with notes, review comments, and implementation records live in `canvas.json`, so you have a history of what was approved, rejected, and built. The built screens are checked against the approved mockups. It works with any agent that can run a CLI.
 
 ### Can I use it without an AI agent?
 
