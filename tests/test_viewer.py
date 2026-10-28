@@ -58,6 +58,9 @@ class ViewerCase(ServerCase):
         s.call('Page.navigate', url=url)
         s.cdp.wait_event('Page.loadEventFired')
         self.until('document.getElementById("loading").classList.contains("gone")')
+        # The fit transform is written in the next animation frame, which a headless Chrome
+        # without a display (macOS CI runners) can run late
+        self.until('/scale\\(/.test(document.getElementById("canvas").style.transform)')
 
     def js(self, expr):
         self.s.cdp.deadline = time.monotonic() + 30
