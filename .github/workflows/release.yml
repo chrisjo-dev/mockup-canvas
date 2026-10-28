@@ -1,0 +1,27 @@
+name: release
+
+# Creates the GitHub release for a pushed vX.Y.Z tag, with that version's CHANGELOG.md section as notes.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.repository == 'chrisjo-dev/mockup-canvas'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 tools/changelog_section.py "$TAG" > notes.md
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists, skipping"
+            exit 0
+          fi
+          gh release create "$TAG" --title "mockup-canvas $TAG" --notes-file notes.md --verify-tag

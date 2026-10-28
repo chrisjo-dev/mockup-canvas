@@ -87,3 +87,13 @@ Common prefixes are `feat`, `fix`, `perf`, `test`, `docs`, `ci`, and `release`. 
 - Run the unit tests, and the end-to-end suite or `perf_check.py` when you change the viewer or dashboard.
 - Update `CHANGELOG.md` under `Unreleased`, and the READMEs and skill guides when behavior or commands change.
 - Fill in the pull request template; it lists the checks.
+
+## Releasing
+
+Maintainers release from `main`:
+
+1. Move the `Unreleased` entries in `CHANGELOG.md` into a `## [X.Y.Z] - YYYY-MM-DD` section and add its link at the bottom.
+2. Bump the version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `CITATION.cff`, and commit (`release: vX.Y.Z`).
+3. Tag that commit and push the tag: `git tag vX.Y.Z <sha> && git push origin vX.Y.Z`.
+
+The `release` workflow (`.github/workflows/release.yml`) then creates the GitHub release with that CHANGELOG section as notes (taken by `tools/changelog_section.py`). It fails if the CHANGELOG has no section for the tag, and skips a release that already exists.

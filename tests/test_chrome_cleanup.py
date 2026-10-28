@@ -72,7 +72,9 @@ class ChromeCleanupOnSignal(TempHomeCase):
 
     def assert_cleaned(self, proc, chrome):
         try:
-            proc.wait(15)
+            # Generous: a healthy exit takes well under a second, but a loaded machine (e.g. the
+            # e2e suite running in parallel) once needed more than 15 s. Only a failure waits it out.
+            proc.wait(45)
         except subprocess.TimeoutExpired:
             proc.kill()
             self.fail('canvas.py did not exit')

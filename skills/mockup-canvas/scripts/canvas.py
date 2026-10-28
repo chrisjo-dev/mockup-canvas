@@ -183,23 +183,46 @@ def load_collections():
     return _clean_collections(data.get('collections') if isinstance(data, dict) else None)
 
 def save_roots(roots_list, collections=None):
-    """collections: the new collections, or None to keep the ones in the file (every other save)."""
+    """collections: the new collections, or None to keep the ones in the file (every other save).
+    Top-level keys and root entry fields this version does not know are kept from the file, so an
+    older server does not drop what a newer one wrote."""
+    try:
+        with open(ROOTS_PATH, encoding='utf-8') as f:
+            old = json.load(f)
+    except Exception:
+        old = {}
+    if not isinstance(old, dict):
+        old = {}
     if collections is None:
-        collections = load_collections()
+        collections = _clean_collections(old.get('collections'))
+    # Unknown fields of a stored entry follow it by name, or by path after a rename
+    by_name, by_path = {}, {}
+    for e in old.get('roots') if isinstance(old.get('roots'), list) else []:
+        if not isinstance(e, dict):
+            continue
+        extra = {k: v for k, v in e.items() if k not in ('name', 'path')}
+        if isinstance(e.get('name'), str):
+            by_name.setdefault(e['name'].strip(), extra)
+        if isinstance(e.get('path'), str):
+            by_path.setdefault(os.path.realpath(os.path.expanduser(e['path'])), extra)
     serialized = []
     for r in roots_list:
         path = r['path']
+        extra = by_name.get(r['name'])
+        if extra is None:
+            extra = by_path.get(os.path.realpath(path), {})
         if path.startswith(HOME + os.sep):
             path = '~/' + path[len(HOME)+1:]
         elif path == HOME:
             path = '~'
-        serialized.append({'name': r['name'], 'path': path})
+        serialized.append(dict(extra, name=r['name'], path=path))
     # Write through a symlinked roots.json (e.g. one kept in a dotfiles repo)
     target = os.path.realpath(ROOTS_PATH)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     tmp = target + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         data = {'roots': serialized}
+        data.update((k, v) for k, v in old.items() if k not in ('roots', 'collections'))
         if collections:
             data['collections'] = collections
         json.dump(data, f, ensure_ascii=False, indent=2)

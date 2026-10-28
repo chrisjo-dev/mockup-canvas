@@ -6,9 +6,20 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-28
+
 ### Security
 
 - The canvas page is served with a hash-based `Content-Security-Policy` like the dashboard: only its own inline scripts run, including the ones the server injects in share mode, and requests and frames stay on the server (#12).
+
+### Added
+
+- A release workflow: pushing a `vX.Y.Z` tag creates the GitHub release with that version's CHANGELOG section as notes (taken by `tools/changelog_section.py`). `CONTRIBUTING.md` lists the release steps.
+
+### Fixed
+
+- Saving the project registry (`roots.json`) keeps top-level keys and project entry fields that this version does not know, so an older version no longer drops what a newer one wrote. `canvas.json` saves already kept them; tests now cover both.
+- The Chrome cleanup tests wait up to 45 s for `canvas.py` to exit, since 15 s was once too short on a loaded machine.
 
 ## [0.5.0] - 2026-10-28
 
@@ -137,7 +148,8 @@ Note: a server older than 0.4.0 drops collections when it saves `roots.json`, so
 - A local, Figma-like canvas to pan, zoom, and arrange HTML artboards, with flow arrows, groups, approval marks, live reload, and phone sharing.
 - The TrailMate example and a unit test suite.
 
-[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.5.1
 [0.5.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.5.0
 [0.4.1]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.4.1
 [0.4.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.4.0

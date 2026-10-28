@@ -404,7 +404,7 @@ mockup-canvas 不是托管式的设计工具或应用生成器。它围绕你自
 
 ## 参与贡献
 
-欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 227 个）：
+欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 238 个）：
 
 ```bash
 cd tests && python3 -m unittest discover .
