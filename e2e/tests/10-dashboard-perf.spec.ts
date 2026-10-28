@@ -7,7 +7,9 @@ import { test, expect, record, EXAMPLE_IDEA } from './fixtures';
 
 test.skip(!process.env.MC_E2E_PERF, 'set MC_E2E_PERF=1 to run the dashboard performance check');
 
-test('Dashboard scrolls a 40-idea registry smoothly', async ({ page, sandbox, browserName }, testInfo) => {
+// The same 40 ideas on the All ideas page and on a collection page that gathers every project
+for (const [label, url, metric] of [['registry', '/', 'dashboard-scroll-40'], ['collection', '/?col=Perf', 'collection-scroll-40']]) {
+test(`Dashboard scrolls a 40-idea ${label} smoothly`, async ({ page, sandbox, browserName }, testInfo) => {
   test.skip(browserName !== 'chromium', 'frame and heap numbers are recorded in Chromium');
   test.setTimeout(600_000);
   // 4 projects x 10 ideas, each a copy of the 6-board sample (alpha already holds trailmate)
@@ -17,9 +19,18 @@ test('Dashboard scrolls a 40-idea registry smoothly', async ({ page, sandbox, br
     for (let i = 0; i < (p ? 10 : 9); i++) fs.cpSync(EXAMPLE_IDEA, path.join(design, `idea-${p}-${i}`), { recursive: true });
     extra.push([design, 'proj' + p]);
   }
-  const srv = await sandbox.serveRegistry(extra);
+  if (label === 'collection') {
+    const file = path.join(sandbox.data, 'roots.json');
+    sandbox.cli('roots', 'add', sandbox.alphaDesign, '--name', 'alpha');
+    for (const [dir, name] of extra) sandbox.cli('roots', 'add', dir, '--name', name);
+    const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+    d.collections = { Perf: ['alpha/trailmate', ...extra.map(([, name]) => name)] };
+    fs.writeFileSync(file, JSON.stringify(d));
+  }
+  const srv = label === 'collection' ? await sandbox.serve() : await sandbox.serveRegistry(extra);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(srv.origin + '/');
+  await page.goto(srv.origin + url);
+  if (label === 'collection') await expect(page.getByRole('heading', { name: /Perf/ })).toContainText('40 ideas from 5 projects');
   await expect(page.locator('article.gc')).toHaveCount(40);
   const fcp = await page.evaluate(() => performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? -1);
 
@@ -70,8 +81,9 @@ test('Dashboard scrolls a 40-idea registry smoothly', async ({ page, sandbox, br
     heapMB: await page.evaluate(() => (performance as any).memory ? Math.round((performance as any).memory.usedJSHeapSize / 104857.6) / 10 : null),
     nodes: await page.evaluate(() => document.getElementsByTagName('*').length),
   };
-  record(testInfo, 'dashboard-scroll-40', result);
-  console.log('dashboard scroll, 40 ideas:', JSON.stringify(result));
+  record(testInfo, metric, result);
+  console.log(label + ' scroll, 40 ideas:', JSON.stringify(result));
   expect(result.fps).toBeGreaterThanOrEqual(55);
   expect(result.over50).toBe(0);
 });
+}
