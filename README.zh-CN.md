@@ -13,6 +13,8 @@
 
 给 AI 助手：项目摘要见 [llms.txt](llms.txt)。
 
+**在线演示：** [chrisjo-dev.github.io/mockup-canvas](https://chrisjo-dev.github.io/mockup-canvas/) 在画布上展示包含 6 个界面的 TrailMate 示例。它是只读的：可以平移和缩放，但不能移动画板或修改状态。
+
 ![深色模式下的 mockup-canvas 仪表板：来自三个项目的七张创意卡片，带有画板缩略图、状态条、评论、built 和 new 徽标，左侧是项目和状态筛选列表](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
 ![一个创意的画布：三个手机画板由带标签的流程箭头相连，带有批准标记、紫色 built 徽标和评论数](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)

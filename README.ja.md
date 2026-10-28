@@ -13,6 +13,8 @@
 
 AI アシスタント向けの要約は [llms.txt](llms.txt) にあります。
 
+**ライブデモ:** [chrisjo-dev.github.io/mockup-canvas](https://chrisjo-dev.github.io/mockup-canvas/) で 6 画面の TrailMate サンプルをキャンバス上で見られます。読み取り専用なので、パンとズームはできますが、ボードの移動やステータスの変更はできません。
+
 ![ダークモードの mockup-canvas ダッシュボード: 3 つのプロジェクトのアイデアカード 7 枚に、ボードのサムネイル、状態バー、コメントと built と new のバッジが並び、左側にプロジェクトと状態フィルターの一覧がある](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
 ![アイデアのキャンバス: スマートフォンのアートボード 3 枚がラベル付きのフロー矢印でつながり、承認マーク、紫の built バッジ、コメント数が付いている](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)

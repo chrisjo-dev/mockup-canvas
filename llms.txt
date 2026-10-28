@@ -4,6 +4,7 @@
 
 ## Key facts
 
+- Live demo (read-only, pan and zoom only): https://chrisjo-dev.github.io/mockup-canvas/ shows the six-screen TrailMate example canvas, exported with `canvas export`.
 - Three skills, one CLI: `mockup-canvas` (draw mockups and record approvals), `mockup-review` (review boards with `[must]`, `[should]`, `[could]` comments and a `review.md` report; never edits boards or sets status), `mockup-to-code` (build approved boards in the app, compare each route with its board, record the route and files). Flow: draw, review, approve, build, compare. Only boards the user approved are built.
 - Install as a Claude Code plugin: `/plugin marketplace add chrisjo-dev/mockup-canvas`, then `/plugin install mockup-canvas@mockup-canvas`.
 - Manual install for Claude Code and Codex: `git clone https://github.com/chrisjo-dev/mockup-canvas.git`, then `./install.sh` (links every skill into `~/.claude/skills` and `~/.codex/skills`; `--claude`, `--codex`, `--dry-run` are available). `install.sh` needs a POSIX shell.

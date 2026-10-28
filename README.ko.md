@@ -13,6 +13,8 @@
 
 AI 어시스턴트용 요약은 [llms.txt](llms.txt)에 있습니다.
 
+**라이브 데모:** [chrisjo-dev.github.io/mockup-canvas](https://chrisjo-dev.github.io/mockup-canvas/)에서 화면 6개짜리 TrailMate 예제를 캔버스로 볼 수 있습니다. 읽기 전용이라 이동과 확대/축소는 되지만 보드를 옮기거나 상태를 바꿀 수는 없습니다.
+
 ![다크 모드의 mockup-canvas 대시보드: 프로젝트 3개의 아이디어 카드 7개에 보드 썸네일, 상태 막대, 코멘트와 built와 new 배지가 있고, 왼쪽에 프로젝트와 상태 필터 목록이 있음](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
 ![아이디어 캔버스: 휴대폰 아트보드 3개가 이름 붙은 흐름 화살표로 이어져 있고, 승인 표시, 보라색 built 배지, 코멘트 수가 붙어 있음](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)

@@ -13,6 +13,8 @@
 
 AI assistants: a summary is available in [llms.txt](llms.txt).
 
+**Live demo:** [chrisjo-dev.github.io/mockup-canvas](https://chrisjo-dev.github.io/mockup-canvas/) shows the six-screen TrailMate example on the canvas. It is read-only: you can pan and zoom, but not move boards or change status.
+
 ![The mockup-canvas dashboard in dark mode: seven idea cards from three projects with board thumbnails, status meters, comment, built, and new badges, and a rail of projects and status filters](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
 ![An idea canvas: three phone artboards linked by labeled flow arrows, with approved marks, a violet built badge, and a comment count](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/canvas.png)
