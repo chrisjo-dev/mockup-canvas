@@ -6,6 +6,15 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-28
+
+### Security
+
+- Every static file (boards, assets, shared) is served with `Content-Security-Policy: sandbox`, and font CORS headers go only to sandboxed boards.
+- Share mode derives the asset key per idea, so a link to one idea cannot open another idea's files.
+- Chrome is driven over DevTools pipes, so it exits with the server even after `kill -9`.
+- Board renders go through a local SOCKS5 guard proxy that pins DNS and blocks WebSocket, service worker, rebinding, and special IP address tricks.
+
 ### Added
 
 - A GitHub Actions workflow that runs the unit tests on Ubuntu with Python 3.8 and on the latest Ubuntu and macOS with the current Python 3, with Chrome so the render tests run too.
@@ -21,6 +30,8 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ### Fixed
 
+- The dashboard rail no longer shows a stray "null" when there are no collections.
+- An exported page keeps its own `<title>` instead of always showing "Exported canvas".
 - `canvas.py` loads on Python 3.8 again; a decorator needed Python 3.9.
 - `canvas serve` and the `export` check no longer wait on a reverse DNS lookup of the bind address, which took 35 s on a macOS CI runner.
 
@@ -121,10 +132,11 @@ Note: a server older than 0.4.0 drops collections when it saves `roots.json`, so
 - A local, Figma-like canvas to pan, zoom, and arrange HTML artboards, with flow arrows, groups, approval marks, live reload, and phone sharing.
 - The TrailMate example and a unit test suite.
 
-[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.2.1...HEAD
-[0.4.1]: https://github.com/chrisjo-dev/mockup-canvas/commit/60beba9
-[0.4.0]: https://github.com/chrisjo-dev/mockup-canvas/commit/6191ba2
-[0.3.0]: https://github.com/chrisjo-dev/mockup-canvas/commit/faf00e8
+[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.5.0
+[0.4.1]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.4.1
+[0.4.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.4.0
+[0.3.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.3.0
 [0.2.1]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.2.1
 [0.2.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.2.0
 [0.1.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.1.0

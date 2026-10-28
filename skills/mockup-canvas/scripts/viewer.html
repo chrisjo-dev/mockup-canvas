@@ -243,7 +243,8 @@
     if (badge) badge.style.display = '';
   }
 
-  document.title = (IDEA || 'Exported canvas') + ' - Canvas';
+  // an export page may ship its own <title> (the live demo does); keep it
+  if (!STATIC || document.title === 'Canvas') document.title = (IDEA || 'Exported canvas') + ' - Canvas';
   document.getElementById('idea-lbl').textContent = IDEA || 'Canvas';
 
   // ── State ────────────────────────────────────────────────────────────────
