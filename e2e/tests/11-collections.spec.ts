@@ -24,6 +24,7 @@ test('Collections gather ideas from several projects and follow the rail, URL, a
   await page.goto(srv.origin + '/');
   await expect(card(page, 'second')).toBeVisible();
   await expect(rail(page).getByRole('heading', { name: 'Collections' })).toHaveCount(0);
+  await expect(rail(page)).not.toContainText('null');
 
   // A new collection from the card menu: a field inside the menu, Escape goes back, Enter saves
   await cardMenu(page, 'trailmate');
@@ -85,6 +86,7 @@ test('Collections gather ideas from several projects and follow the rail, URL, a
   await page.getByRole('menuitem', { name: 'Add to collection' }).click();
   await page.getByRole('menuitem', { name: 'Remove beta from collection' }).click();
   await expect(rail(page).getByRole('heading', { name: 'Collections' })).toHaveCount(0);
+  await expect(rail(page)).not.toContainText('null');
   await expect.poll(cols).toBeUndefined();
   await page.goto(srv.origin + '/?col=Lily');
   await expect(page.getByRole('heading', { name: 'All ideas' })).toBeVisible();

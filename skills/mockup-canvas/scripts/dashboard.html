@@ -1343,10 +1343,11 @@ body.demo-mode main { padding: 0; }
     const live = DATA.share ? 'Shared' + (DATA.readOnly ? ', read only' : '')
       : empty ? 'No projects yet' : loading ? 'Loading'
       : 'Watching ' + plural(PROJ.filter((p) => !p.missing).length, 'folder');
-    rail.append(h('div', null, h('h4', { text: 'Projects' }), projUl), colBox,
+    // add() skips a null colBox; Element.append would print it as "null"
+    add(rail, [h('div', null, h('h4', { text: 'Projects' }), projUl), colBox,
       h('div', null, h('h4', { text: 'Status' }), stUl),
       h('div', { class: 'foot' }, M ? M.railFoot() : null,
-        h('div', { class: 'srv mono' }, h('span', { class: 'live' + (empty ? ' idle' : '') }), live)));
+        h('div', { class: 'srv mono' }, h('span', { class: 'live' + (empty ? ' idle' : '') }), live))]);
   }
 
   // ── main views ──
