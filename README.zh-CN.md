@@ -398,6 +398,8 @@ cd tests && python3 -m unittest discover .
 
 找不到 Chrome 时会跳过渲染测试。`python3 tests/perf_check.py` 在无头 Chrome 中测量画布的帧时间、长任务以及显示适配视图所需的时间，它不属于单元测试。
 
+开发环境、端到端测试、性能检查、提交信息格式，以及如何先在画布上画出 UI 改动再提出建议，请见 [CONTRIBUTING.md](CONTRIBUTING.md)。各版本的变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 许可证
 
 mockup-canvas 以 [MIT 许可证](LICENSE)发布。Copyright (c) 2026 chrisjo-dev.

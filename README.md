@@ -398,6 +398,8 @@ cd tests && python3 -m unittest discover .
 
 Render tests are skipped when Chrome is not found. `python3 tests/perf_check.py` measures canvas frame times, long tasks, and time to the fit view in headless Chrome; it is not part of the unit suite.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the end-to-end suite, the performance check, commit style, and how to propose UI changes by drawing them on the canvas first. Changes per release are in [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 mockup-canvas is released under the [MIT License](LICENSE). Copyright (c) 2026 chrisjo-dev.

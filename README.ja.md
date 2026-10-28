@@ -398,6 +398,8 @@ cd tests && python3 -m unittest discover .
 
 Chrome が見つからない場合、レンダリングのテストはスキップされます。`python3 tests/perf_check.py` は headless Chrome でキャンバスのフレーム時間、長いタスク、全体表示までの時間を測ります。単体テストには含まれません。
 
+開発環境、end-to-end テスト、性能チェック、コミットの書き方、UI の変更をまずキャンバスに描いて提案する方法は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。リリースごとの変更は [CHANGELOG.md](CHANGELOG.md) にあります。
+
 ## ライセンス
 
 mockup-canvas は [MIT ライセンス](LICENSE)で公開されています。Copyright (c) 2026 chrisjo-dev.

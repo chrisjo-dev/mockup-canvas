@@ -398,6 +398,8 @@ cd tests && python3 -m unittest discover .
 
 Chrome을 찾지 못하면 렌더링 테스트는 건너뜁니다. `python3 tests/perf_check.py`는 headless Chrome에서 캔버스의 프레임 시간, 긴 작업, 전체 맞춤 화면이 뜨기까지의 시간을 잽니다. 단위 테스트에는 들어가지 않습니다.
 
+개발 환경, end-to-end 테스트, 성능 측정, 커밋 형식, 캔버스에 먼저 그려서 UI 변경을 제안하는 방법은 [CONTRIBUTING.md](CONTRIBUTING.md)에 있습니다. 릴리스별 변경 사항은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
+
 ## 라이선스
 
 mockup-canvas는 [MIT 라이선스](LICENSE)로 배포됩니다. Copyright (c) 2026 chrisjo-dev.
