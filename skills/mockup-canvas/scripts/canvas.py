@@ -842,7 +842,10 @@ def _cdp_page_ws(port, timeout):
 
 _BLOCKED_NETS = [ipaddress.ip_network(n) for n in (
     '0.0.0.0/8', '10.0.0.0/8', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16',
-    '::/128', '::1/128', 'fc00::/7', 'fe80::/10')]
+    '::/128', '::1/128', 'fc00::/7', 'fe80::/10',
+    # not global, but older ipaddress (before 3.12/3.13) calls them global: NAT64 local use,
+    # documentation, SRv6
+    '64:ff9b:1::/48', '3fff::/20', '5f00::/16')]
 _DNS_TIMEOUT = 2
 _DNS_CACHE_SECS = 60
 _DNS_CACHE = {}   # host -> (blocked, time checked)

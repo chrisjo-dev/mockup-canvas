@@ -14,6 +14,7 @@ All notable changes to mockup-canvas are listed here. The format follows
 - Share mode derives the asset key per idea, so a link to one idea cannot open another idea's files.
 - Chrome is driven over DevTools pipes, so it exits with the server even after `kill -9`.
 - Board renders go through a local SOCKS5 guard proxy that pins DNS and blocks WebSocket, service worker, rebinding, and special IP address tricks.
+- On Python older than 3.13, render blocking also covers the NAT64 local use, documentation, and SRv6 IPv6 ranges, which older `ipaddress` versions treat as global.
 
 ### Added
 
