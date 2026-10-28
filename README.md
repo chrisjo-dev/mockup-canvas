@@ -61,7 +61,7 @@ mockup-canvas exists because text descriptions of UI are ambiguous: when you pla
 
 **The CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- The CLI is a single Python 3 file of about 3,300 lines with no pip dependencies (standard library only, Python 3.8+), and it has 16 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
+- The CLI is a single Python 3 file of about 4,000 lines with no pip dependencies (standard library only, Python 3.8+), and it has 16 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
 - The CLI uses Chrome (or Chromium or Edge) only to render boards and capture app pages as PNGs.
 
 ## The dashboard

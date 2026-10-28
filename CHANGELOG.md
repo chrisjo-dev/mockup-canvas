@@ -12,6 +12,10 @@ All notable changes to mockup-canvas are listed here. The format follows
 - A read-only live demo of the TrailMate example at https://chrisjo-dev.github.io/mockup-canvas/, built by `tools/build_demo.py` and published by a GitHub Pages workflow.
 - `CONTRIBUTING.md`, this changelog, and issue and pull request templates.
 
+### Changed
+
+- The README gives the CLI size as about 4,000 lines (it had grown past the 3,300 lines it stated).
+
 ## [0.4.1] - 2026-10-28
 
 ### Fixed

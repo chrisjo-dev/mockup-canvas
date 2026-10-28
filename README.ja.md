@@ -61,7 +61,7 @@ mockup-canvas が存在するのは、UI を文章で説明するとあいまい
 
 **CLI**（`skills/mockup-canvas/scripts/canvas.py`）
 
-- CLI は pip の依存がない約 3,300 行の Python 3 ファイル 1 つ（標準ライブラリのみ、Python 3.8 以上）で、コマンドは 16 個です: `serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
+- CLI は pip の依存がない約 4,000 行の Python 3 ファイル 1 つ（標準ライブラリのみ、Python 3.8 以上）で、コマンドは 16 個です: `serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
 - CLI は Chrome（または Chromium、Edge）を、ボードのレンダリングとアプリ画面の PNG キャプチャにだけ使います。
 
 ## ダッシュボード

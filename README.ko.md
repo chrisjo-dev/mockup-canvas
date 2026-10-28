@@ -61,7 +61,7 @@ mockup-canvas를 만든 이유는 UI를 글로 설명하면 모호하기 때문�
 
 **CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- CLI는 pip 의존성 없는 약 3,300줄짜리 Python 3 파일 하나(표준 라이브러리만, Python 3.8 이상)이며 명령은 16개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
+- CLI는 pip 의존성 없는 약 4,000줄짜리 Python 3 파일 하나(표준 라이브러리만, Python 3.8 이상)이며 명령은 16개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
 - CLI는 보드를 렌더링하거나 앱 화면을 PNG로 캡처할 때만 Chrome(또는 Chromium, Edge)을 씁니다.
 
 ## 대시보드

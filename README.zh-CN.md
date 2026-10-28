@@ -61,7 +61,7 @@ mockup-canvas 之所以存在，是因为用文字描述 UI 容易产生歧义�
 
 **命令行工具**（`skills/mockup-canvas/scripts/canvas.py`）
 
-- 命令行工具是单个约 3,300 行的 Python 3 文件，无需 pip 依赖（只用标准库，Python 3.8 及以上），共 16 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
+- 命令行工具是单个约 4,000 行的 Python 3 文件，无需 pip 依赖（只用标准库，Python 3.8 及以上），共 16 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
 - 命令行工具只在渲染画板和把应用页面截取为 PNG 时使用 Chrome（或 Chromium、Edge）。
 
 ## 仪表板
