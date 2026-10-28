@@ -70,6 +70,7 @@ mockup-canvas exists because text descriptions of UI are ambiguous: when you pla
 - **Search and the command palette.** The search box, `/`, or `Cmd+K` (`Ctrl+K`) finds any idea or board across projects and runs actions such as adding a project. A board result opens its canvas fitted to that board.
 - **Views.** Large or Compact cards, sorting by recent edit, name, or board count, and an all-boards page for each project with a status filter.
 - **Projects.** Add project registers a design folder, Find in folders scans folders for design folders, and each project can be renamed or removed from the list (no files are deleted).
+- **Collections** gather ideas from several projects under one name in the rail, without moving any folder. Use Move to collection on an idea card, or Add to collection in a project's menu to include the whole project (its later ideas too). Each idea belongs to one collection, a collection disappears when its last idea is taken out, and they are kept in `roots.json`.
 - **Missing folder warnings** flag a registered project whose folder was moved or deleted, with a button to locate it again.
 - **Light and dark themes** (the sun or moon button, or `Shift+T`), and a phone layout with project tabs and a status menu.
 
