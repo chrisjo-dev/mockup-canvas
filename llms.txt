@@ -4,11 +4,12 @@
 
 ## Key facts
 
+- Live demo (read-only, pan and zoom only): https://chrisjo-dev.github.io/mockup-canvas/ shows the six-screen TrailMate example canvas, exported with `canvas export`.
 - Three skills, one CLI: `mockup-canvas` (draw mockups and record approvals), `mockup-review` (review boards with `[must]`, `[should]`, `[could]` comments and a `review.md` report; never edits boards or sets status), `mockup-to-code` (build approved boards in the app, compare each route with its board, record the route and files). Flow: draw, review, approve, build, compare. Only boards the user approved are built.
 - Install as a Claude Code plugin: `/plugin marketplace add chrisjo-dev/mockup-canvas`, then `/plugin install mockup-canvas@mockup-canvas`.
 - Manual install for Claude Code and Codex: `git clone https://github.com/chrisjo-dev/mockup-canvas.git`, then `./install.sh` (links every skill into `~/.claude/skills` and `~/.codex/skills`; `--claude`, `--codex`, `--dry-run` are available). `install.sh` needs a POSIX shell.
 - In Codex, call the skills with `$mockup-canvas`, `$mockup-review`, or `$mockup-to-code`, for example `Use $mockup-canvas to draw the sign-up flow.`
-- The CLI is one Python 3 file (Python 3.8+) with 16 commands: serve, roots, new, add, group, render, check, overview, export, link, status, artifact, snap, compare, impl, comment.
+- The CLI is one Python 3 file of about 4,000 lines (Python 3.8+, standard library only) with 16 commands: serve, roots, new, add, group, render, check, overview, export, link, status, artifact, snap, compare, impl, comment.
 - `snap <url> --out FILE.png [--size ...] [--wait MS] [--full-page]` screenshots a running app page (http or https) at an exact size. `render --full-page` captures a board's whole scroll height. `add` with a new `--size` resizes a registered board.
 - `compare <idea dir> <file> (--url URL | --png FILE)` renders the board at its registered size, captures the app at the same size, and writes `board.png`, `app.png`, `diff.png`, `side.png`, and `report.json` (with `mismatch_percent`) to `<idea>/compare/<board id>/`. A pixel differs when any channel differs by more than `--threshold` (default 24 of 255). `--ignore-top N`, `--ignore-bottom N`, and `--align-top N` handle fake status bars and home indicators drawn on boards; `--wait MS` defaults to 3000. The percentage is a guide; the images are the evidence.
 - `impl <idea dir> <file> --route PATH --file PATH` records which route and files implement a board; `impl <idea dir> [--strict]` lists approved boards and whether each is implemented (`--strict` exits 1 when one is missing). `comment <idea dir> <file> TEXT [--by NAME]` adds a review comment (`--clear` removes them, no text lists them).
@@ -29,6 +30,8 @@
 - [mockup-canvas SKILL.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-canvas/SKILL.md): the instructions the agent loads to draw mockups
 - [mockup-review SKILL.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-review/SKILL.md): the instructions for reviewing mockups
 - [mockup-to-code SKILL.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-to-code/SKILL.md): the instructions for building approved mockups and comparing them with the app
+- [CHANGELOG.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/CHANGELOG.md): changes per release
+- [CONTRIBUTING.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/CONTRIBUTING.md): setup, tests, design rules, commit style, and how to propose UI changes
 - [SECURITY.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/SECURITY.md): threat model and vulnerability reporting
 
 ## Code
@@ -50,5 +53,6 @@
 
 ## Optional
 
+- [CITATION.cff](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/CITATION.cff): how to cite mockup-canvas
 - [lessons.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-canvas/references/lessons.md): log of approved skill improvements (mockup-review and mockup-to-code keep their own under `references/`)
 - [LICENSE](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/LICENSE): MIT License, Copyright (c) 2026 chrisjo-dev

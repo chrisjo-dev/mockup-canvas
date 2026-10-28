@@ -4,13 +4,16 @@
 
 [English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
+[![Tests](https://github.com/chrisjo-dev/mockup-canvas/actions/workflows/test.yml/badge.svg)](https://github.com/chrisjo-dev/mockup-canvas/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code, Codex 지원](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex-6b4fbb.svg)](#빠른-시작-claude-code-플러그인-또는-codex-스킬-설치)
 [![pip 의존성 없음: Python 표준 라이브러리, PNG 렌더링에만 Chrome](https://img.shields.io/badge/no%20pip%20deps-Python%20stdlib%20%2B%20Chrome-brightgreen.svg)](#faq)
 
-**mockup-canvas란?** mockup-canvas는 chrisjo-dev가 만든 무료 오픈소스(MIT) Claude Code 플러그인으로, OpenAI Codex에서도 쓸 수 있으며 기획, 리뷰, 구현을 맡는 스킬 세 개로 이루어져 있습니다. **mockup-canvas**는 AI 에이전트가 화면 목업을 평범한 HTML 파일로 그리게 하고, 그 화면들을 로컬의 Figma 같은 캔버스에 펼쳐 이동, 확대, 배치, 흐름 화살표 연결, 승인을 할 수 있게 해 줍니다. **mockup-review**는 에이전트가 그 화면들을 리뷰하고 지적 사항을 해당 아트보드에 바로 코멘트로 남기게 합니다. **mockup-to-code**는 승인된 화면을 사용자 앱의 실제 코드로 옮긴 뒤, 실행 중인 각 경로를 캡처해 목업과 픽셀 단위로 비교하고 의도한 차이만 남을 때까지 고칩니다. Python 표준 라이브러리만으로 동작해 pip 의존성이 없고, Google Chrome(또는 Chromium, Edge)은 PNG를 렌더링하고 캡처할 때만 씁니다.
+**mockup-canvas란?** mockup-canvas는 chrisjo-dev가 만든 무료 오픈소스(MIT) 에이전트 스킬 세 개로, Claude Code와 OpenAI Codex에서 AI 에이전트가 앱 코드를 쓰기 전에 개발자와 제품을 만드는 사람이 UI 화면을 눈으로 보고 승인할 수 있게 해 줍니다. **mockup-canvas**는 에이전트가 화면마다 평범한 HTML 파일을 그리고, 그 화면들을 로컬의 Figma 같은 캔버스에 펼쳐 이동, 확대, 흐름 화살표 연결, 승인과 반려를 할 수 있게 합니다. **mockup-review**는 에이전트가 그 화면들을 리뷰하고 지적 사항을 해당 아트보드에 바로 코멘트로 남기게 합니다. **mockup-to-code**는 승인된 화면을 사용자 앱에 구현하고, 실행 중인 각 경로를 목업과 픽셀 단위로 비교해 의도한 차이만 남을 때까지 고칩니다. 호스팅되는 디자인 도구나 앱 생성기와 달리 모든 목업은 사용자가 소유한 파일로 저장소에 남고, 캔버스는 계정 없이 `127.0.0.1`에서 돌며, 승인, 코멘트, 구현 기록은 `canvas.json`에 남습니다. Python 3.8 이상(표준 라이브러리만, pip 패키지 없음)만 있으면 되고, Google Chrome, Chromium, Edge는 PNG를 렌더링하고 캡처할 때만 씁니다.
 
 AI 어시스턴트용 요약은 [llms.txt](llms.txt)에 있습니다.
+
+**라이브 데모:** [chrisjo-dev.github.io/mockup-canvas](https://chrisjo-dev.github.io/mockup-canvas/)에서 화면 6개짜리 TrailMate 예제를 캔버스로 볼 수 있습니다. 읽기 전용이라 이동과 확대/축소는 되지만 보드를 옮기거나 상태를 바꿀 수는 없습니다.
 
 ![다크 모드의 mockup-canvas 대시보드: 프로젝트 3개의 아이디어 카드 7개에 보드 썸네일, 상태 막대, 코멘트와 built와 new 배지가 있고, 왼쪽에 프로젝트와 상태 필터 목록이 있음](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
@@ -58,7 +61,7 @@ mockup-canvas를 만든 이유는 UI를 글로 설명하면 모호하기 때문�
 
 **CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- CLI는 pip 의존성 없는 약 3,300줄짜리 Python 3 파일 하나(표준 라이브러리만, Python 3.8 이상)이며 명령은 16개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
+- CLI는 pip 의존성 없는 약 4,000줄짜리 Python 3 파일 하나(표준 라이브러리만, Python 3.8 이상)이며 명령은 16개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
 - CLI는 보드를 렌더링하거나 앱 화면을 PNG로 캡처할 때만 Chrome(또는 Chromium, Edge)을 씁니다.
 
 ## 대시보드
@@ -342,6 +345,18 @@ mockup-canvas는 로컬 도구이고, 그렇게 머물도록 만들었습니다.
 
 ## FAQ
 
+### Claude Code가 코드를 쓰기 전에 UI 목업부터 그리게 하려면 어떻게 하나요?
+
+`/plugin marketplace add chrisjo-dev/mockup-canvas`와 `/plugin install mockup-canvas@mockup-canvas`로 플러그인을 설치한 뒤, 예를 들어 "습관 기록 앱 목업 그려줘: 홈, 습관 추가, 주간 통계"처럼 평소 말로 요청하면 됩니다. 에이전트가 `design/<idea>/`를 만들고, 화면마다 HTML 아트보드를 그려 확인과 렌더링을 마친 뒤 캔버스의 로컬 URL을 알려 줍니다. 그 캔버스에서 화면마다 승인하거나 반려하고, `mockup-to-code` 스킬은 승인한 화면만 구현합니다.
+
+### AI가 만든 목업을 리뷰할 로컬 오픈소스 Figma 대안이 있나요?
+
+mockup-canvas가 그중 하나입니다. MIT 라이선스이고, 캔버스 서버는 공유 모드를 직접 켜지 않는 한 `127.0.0.1`에만 열리며, 도구 자체는 외부로 요청을 보내지 않습니다. 목업은 저장소 안의 HTML 파일이라 계정 없이 diff로 비교하고 PR에서 리뷰할 수 있습니다. 벡터 디자인 편집기는 아닙니다. HTML은 에이전트(또는 사용자)가 쓰고, 캔버스는 화면을 배치하고 연결하고 리뷰하고 코멘트를 달고 승인하는 곳입니다.
+
+### AI가 만든 UI 코드가 승인한 목업과 같은지 어떻게 확인하나요?
+
+`canvas compare <아이디어 폴더> <보드> --url <실행 중인 경로>`를 실행하면 보드를 렌더링하고 앱을 같은 크기로 캡처한 뒤, 차이 이미지, 나란히 놓은 이미지, 불일치 비율이 담긴 `report.json`을 만듭니다. `mockup-to-code` 스킬은 승인된 모든 보드에 대해 이 비교를 하고, 차이를 고친 뒤 다시 비교합니다. `canvas impl <아이디어 폴더> --strict`는 구현 기록이 없는 승인된 보드가 있으면 오류로 끝납니다.
+
 ### 왜 Figma가 아니라 HTML인가요?
 
 mockup-canvas가 Figma 대신 HTML을 쓰는 이유는 AI 에이전트가 HTML과 CSS를 능숙하게 다루고, 결과물이 저장소 안의 실제 파일로 남습니다. diff로 비교하고 PR에서 리뷰할 수 있으며, 계정 없이 어떤 브라우저에서도 열립니다. 실제 개발을 시작할 때도 같은 마크업과 토큰에서 바로 이어 갈 수 있습니다.
@@ -395,6 +410,8 @@ cd tests && python3 -m unittest discover .
 ```
 
 Chrome을 찾지 못하면 렌더링 테스트는 건너뜁니다. `python3 tests/perf_check.py`는 headless Chrome에서 캔버스의 프레임 시간, 긴 작업, 전체 맞춤 화면이 뜨기까지의 시간을 잽니다. 단위 테스트에는 들어가지 않습니다.
+
+개발 환경, end-to-end 테스트, 성능 측정, 커밋 형식, 캔버스에 먼저 그려서 UI 변경을 제안하는 방법은 [CONTRIBUTING.md](CONTRIBUTING.md)에 있습니다. 릴리스별 변경 사항은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
 
 ## 라이선스
 

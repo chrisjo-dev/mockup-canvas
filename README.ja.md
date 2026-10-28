@@ -4,13 +4,16 @@
 
 [English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
+[![Tests](https://github.com/chrisjo-dev/mockup-canvas/actions/workflows/test.yml/badge.svg)](https://github.com/chrisjo-dev/mockup-canvas/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code と Codex に対応](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex-6b4fbb.svg)](#クイックスタート-claude-code-プラグインまたは-codex-スキルをインストール)
 [![pip 依存なし: Python 標準ライブラリ、Chrome は PNG レンダリング用](https://img.shields.io/badge/no%20pip%20deps-Python%20stdlib%20%2B%20Chrome-brightgreen.svg)](#faq)
 
-**mockup-canvas とは？** mockup-canvas は chrisjo-dev による無料のオープンソース（MIT）Claude Code プラグインで、OpenAI Codex からも使えます。企画、レビュー、実装を受け持つ 3 つのスキルでできています。**mockup-canvas** は、AI エージェントに画面モックアップをプレーンな HTML ファイルとして描かせ、それをローカルの Figma のようなキャンバスに並べて、パン、ズーム、配置、フロー矢印での接続、承認ができるようにします。**mockup-review** は、エージェントがそれらの画面をレビューし、指摘を該当するアートボードにコメントとして直接残します。**mockup-to-code** は、承認された画面をあなたのアプリの実際のコードにし、動いている各ルートをキャプチャしてモックアップとピクセル単位で比較し、意図した差だけが残るまで直します。Python 標準ライブラリだけで動き pip の依存はなく、Google Chrome（または Chromium、Edge）は PNG のレンダリングとキャプチャにだけ使います。
+**mockup-canvas とは？** mockup-canvas は chrisjo-dev による無料のオープンソース（MIT）のエージェントスキル 3 つのセットで、Claude Code と OpenAI Codex で、AI エージェントがアプリのコードを書く前に、開発者やプロダクトを作る人が UI 画面を目で見て承認できるようにします。**mockup-canvas** では、エージェントが画面ごとにプレーンな HTML ファイルを描き、それをローカルの Figma のようなキャンバスに並べて、パン、ズーム、フロー矢印での接続、承認と却下ができるようにします。**mockup-review** では、エージェントがそれらの画面をレビューし、指摘を該当するアートボードにコメントとして直接残します。**mockup-to-code** では、エージェントが承認された画面をあなたのアプリに実装し、動いている各ルートをモックアップとピクセル単位で比較して、意図した差だけが残るまで直します。ホスト型のデザインツールやアプリ生成ツールと違い、すべてのモックアップはあなたが所有するファイルとしてリポジトリに残り、キャンバスはアカウントなしで `127.0.0.1` で動き、承認、コメント、実装記録は `canvas.json` に残ります。必要なのは Python 3.8 以上（標準ライブラリのみ、pip パッケージなし）だけで、Google Chrome、Chromium、Edge は PNG のレンダリングとキャプチャにだけ使います。
 
 AI アシスタント向けの要約は [llms.txt](llms.txt) にあります。
+
+**ライブデモ:** [chrisjo-dev.github.io/mockup-canvas](https://chrisjo-dev.github.io/mockup-canvas/) で 6 画面の TrailMate サンプルをキャンバス上で見られます。読み取り専用なので、パンとズームはできますが、ボードの移動やステータスの変更はできません。
 
 ![ダークモードの mockup-canvas ダッシュボード: 3 つのプロジェクトのアイデアカード 7 枚に、ボードのサムネイル、状態バー、コメントと built と new のバッジが並び、左側にプロジェクトと状態フィルターの一覧がある](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/docs/images/dashboard.png)
 
@@ -58,7 +61,7 @@ mockup-canvas が存在するのは、UI を文章で説明するとあいまい
 
 **CLI**（`skills/mockup-canvas/scripts/canvas.py`）
 
-- CLI は pip の依存がない約 3,300 行の Python 3 ファイル 1 つ（標準ライブラリのみ、Python 3.8 以上）で、コマンドは 16 個です: `serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
+- CLI は pip の依存がない約 4,000 行の Python 3 ファイル 1 つ（標準ライブラリのみ、Python 3.8 以上）で、コマンドは 16 個です: `serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
 - CLI は Chrome（または Chromium、Edge）を、ボードのレンダリングとアプリ画面の PNG キャプチャにだけ使います。
 
 ## ダッシュボード
@@ -342,6 +345,18 @@ mockup-canvas はローカルのツールで、ローカルにとどまるよう
 
 ## FAQ
 
+### Claude Code にコードを書く前に UI モックアップを描かせるにはどうすればよいですか？
+
+`/plugin marketplace add chrisjo-dev/mockup-canvas` と `/plugin install mockup-canvas@mockup-canvas` でプラグインをインストールし、たとえば「習慣トラッカーアプリのモックアップを描いて: ホーム、習慣の追加、週間統計」のように普通の言葉で頼みます。エージェントは `design/<idea>/` を作り、画面ごとに HTML アートボードを描いて確認とレンダリングを済ませ、キャンバスのローカル URL を伝えます。そのキャンバスで画面ごとに承認または却下し、`mockup-to-code` スキルは承認した画面だけを実装します。
+
+### AI が作ったモックアップをレビューするための、ローカルで動くオープンソースの Figma の代わりはありますか？
+
+mockup-canvas がその 1 つです。MIT ライセンスで、キャンバスのサーバーは共有モードを自分でオンにしない限り `127.0.0.1` だけで待ち受け、ツール自体は外部にリクエストを送りません。モックアップはリポジトリ内の HTML ファイルなので、アカウントなしで diff を取り、プルリクエストでレビューできます。ベクターのデザインエディタではありません。HTML はエージェント（またはあなた）が書き、キャンバスは画面を並べ、つなぎ、レビューし、コメントし、承認する場所です。
+
+### AI が作った UI のコードが承認したモックアップと合っているか、どう確認できますか？
+
+`canvas compare <アイデアのフォルダ> <ボード> --url <動いているルート>` を実行すると、ボードをレンダリングしてアプリを同じサイズでキャプチャし、差分画像、横並びの画像、不一致率を含む `report.json` を書き出します。`mockup-to-code` スキルは承認されたすべてのボードでこの比較を行い、差を直して再度比較します。`canvas impl <アイデアのフォルダ> --strict` は、実装の記録がない承認済みボードがあるとエラーで終わります。
+
 ### なぜ Figma ではなく HTML なのですか？
 
 mockup-canvas が Figma ではなく HTML を使うのは、AI エージェントが HTML と CSS を得意としており、成果物はリポジトリ内の実ファイルとして残ります。diff で比較でき、プルリクエストでレビューでき、アカウントなしでどのブラウザでも開けます。実装を始めるときも、同じマークアップとトークンから実際の UI へすぐに進めます。
@@ -395,6 +410,8 @@ cd tests && python3 -m unittest discover .
 ```
 
 Chrome が見つからない場合、レンダリングのテストはスキップされます。`python3 tests/perf_check.py` は headless Chrome でキャンバスのフレーム時間、長いタスク、全体表示までの時間を測ります。単体テストには含まれません。
+
+開発環境、end-to-end テスト、性能チェック、コミットの書き方、UI の変更をまずキャンバスに描いて提案する方法は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。リリースごとの変更は [CHANGELOG.md](CHANGELOG.md) にあります。
 
 ## ライセンス
 

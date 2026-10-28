@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in the skills, the CLI, the canvas, or the dashboard does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please write in English. For a security problem, do not open a public issue: use GitHub Security Advisories (see SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Commands or agent prompts, in order. A small idea folder or the TrailMate example helps.
+      placeholder: |
+        1. python3 skills/mockup-canvas/scripts/canvas.py serve examples
+        2. Open http://127.0.0.1:4400/trailmate/
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output, logs, or screenshots
+      description: Terminal output, browser console errors, or screenshots. Remove private paths or data.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: mockup-canvas version
+      description: The plugin version, or the commit if you installed from a clone.
+      placeholder: 0.4.1
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - Claude Code plugin
+        - install.sh (Claude Code)
+        - install.sh (Codex)
+        - A clone, running canvas.py directly
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, and browser with version.
+      placeholder: macOS 15, Python 3.12, Chrome 141
+    validations:
+      required: true

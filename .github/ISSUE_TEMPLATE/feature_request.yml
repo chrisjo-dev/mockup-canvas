@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a new command, skill step, or change to the canvas or dashboard.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please write in English. For a UI change, draw it on the canvas first (an HTML artboard next to the current UI) and attach the export or PNGs. See "Proposing UI changes" in CONTRIBUTING.md.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should change. For commands, include an example invocation and its output.
+    validations:
+      required: true
+  - type: textarea
+    id: mockup
+    attributes:
+      label: Mockup (UI changes)
+      description: Screenshots, `canvas overview` or `canvas render` PNGs, or a link to an exported canvas.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

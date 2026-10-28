@@ -10,5 +10,5 @@
   "homepage": "https://github.com/chrisjo-dev/mockup-canvas",
   "repository": "https://github.com/chrisjo-dev/mockup-canvas",
   "license": "MIT",
-  "keywords": ["mockup", "wireframe", "prototyping", "ui-design", "design-tools", "html-mockup", "canvas", "figma-alternative", "screen-design", "codex", "skill"]
+  "keywords": ["mockup", "wireframe", "prototyping", "ui-design", "design-tools", "html-mockup", "canvas", "figma-alternative", "screen-design", "codex", "skill", "claude-code", "claude-code-plugin", "ai-agents", "design-review"]
 }
