@@ -38,23 +38,6 @@ jobs:
           if [ ! -x "$chrome" ]; then echo "Chrome not found on this runner"; exit 1; fi
           "$chrome" --version
           echo "MOCKUP_CANVAS_CHROME=$chrome" >> "$GITHUB_ENV"
-      # The first start of a freshly installed Python or Chrome on a macOS runner can stall local
-      # connections for several seconds, which timed out the first server and render tests.
-      # Start each once before the suite. The firewall state is printed to help diagnose it.
-      - name: Warm up Python and Chrome (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate || true
-          python3 -c "import socket,time;t=time.time();print('getfqdn', socket.getfqdn('127.0.0.1'), round(time.time()-t,2))"
-          HOME="$(mktemp -d)" python3 -c "import socket,time;t=time.time();print('getfqdn tmp HOME', socket.getfqdn('127.0.0.1'), round(time.time()-t,2))"
-          python3 -c "import time,subprocess,sys;t=time.time();subprocess.run([sys.executable,'-c','pass']);print('python start', round(time.time()-t,2))"
-          python3 -m http.server 4479 --bind 127.0.0.1 > /dev/null 2>&1 &
-          server=$!
-          for i in $(seq 1 60); do curl -s -o /dev/null http://127.0.0.1:4479/ && break; sleep 1; done
-          echo "http.server answered after about $i s"
-          kill "$server"
-          "$MOCKUP_CANVAS_CHROME" --headless=new --user-data-dir="$RUNNER_TEMP/chrome-warmup" \
-            --dump-dom about:blank > /dev/null
       - name: Unit tests
         working-directory: tests
         env:
