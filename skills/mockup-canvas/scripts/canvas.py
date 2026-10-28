@@ -32,7 +32,7 @@ User data lives in ~/.mockup-canvas/ (override with MOCKUP_CANVAS_HOME):
 """
 import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib, signal
 import socketserver, socket, secrets, mimetypes, http.client, textwrap
-import hmac, hashlib, base64, ipaddress, unicodedata
+import atexit, hmac, hashlib, base64, ipaddress, unicodedata
 import html as _html
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
@@ -1401,7 +1401,7 @@ class _ThumbQueue:
 _THUMBS = _ThumbQueue()
 
 
-@__import__('atexit').register
+@atexit.register
 def _close_chrome_at_exit():
     _THUMBS.close_all(wait=0)   # no new jobs, and workers stay quiet about the kills below
     _kill_all_chrome()
