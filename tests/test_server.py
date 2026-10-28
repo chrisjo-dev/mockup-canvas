@@ -444,7 +444,8 @@ class Collections(RegistryBase):
         self.assertEqual(self.cols(), {})
 
     def test_bad_names_and_bodies_are_400(self):
-        for name in ('   ', 'x' * 41, 'a\x00b', 'tab\there', 'new\nline', 'del\x7f'):
+        for name in ('   ', 'x' * 41, 'a\x00b', 'tab\there', 'new\nline', 'del\x7f',
+                     'Lily‮ylil', 'a‏b', 'zero​width', 'iso⁦late'):
             status, body = self.put('alpha/ideaA', name)
             self.assertEqual(status, 400, repr(name))
             self.assertFalse(body['ok'])
@@ -454,6 +455,14 @@ class Collections(RegistryBase):
             status, _, _ = self.request('POST', '/api/roots/collection', bad, headers=self.origin())
             self.assertEqual(status, 400, bad)
         self.assertEqual(self.cols(), {'x' * 40: ['alpha/ideaA']})
+
+    def test_at_most_100_collections(self):
+        data = self.read_json(self.roots_json)
+        data['collections'] = {f'C{i}': [f'gone/x{i}'] for i in range(100)}
+        self.write_json(self.roots_json, data)
+        self.assertEqual(self.put('alpha/ideaA', 'One more')[0], 400)
+        self.assertEqual(self.put('alpha/ideaA', 'C7')[0], 200)
+        self.assertEqual(self.cols()['C7'], ['gone/x7', 'alpha/ideaA'])
 
     def test_collection_api_needs_same_origin_and_json(self):
         body = {'key': 'alpha/ideaA', 'collection': 'Lily'}

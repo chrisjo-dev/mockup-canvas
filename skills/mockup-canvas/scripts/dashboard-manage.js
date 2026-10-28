@@ -77,7 +77,7 @@
       else if (e.key === 'Enter') {
         e.preventDefault();
         const name = input.value.trim();
-        const bad = !name ? 'Type a name' : name.length > max ? 'Use at most ' + max + ' characters' : /[\u0000-\u001f\u007f]/.test(name) ? 'Remove the control characters' : '';
+        const bad = !name ? 'Type a name' : name.length > max ? 'Use at most ' + max + ' characters' : /[\p{Cc}\p{Cf}]/u.test(name) ? 'Remove the control or invisible characters' : '';
         input.classList.toggle('err', !!bad);
         input.setAttribute('aria-invalid', String(!!bad));
         msg.hidden = !bad;

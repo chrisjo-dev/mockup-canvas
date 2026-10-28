@@ -32,7 +32,7 @@ User data lives in ~/.mockup-canvas/ (override with MOCKUP_CANVAS_HOME):
 """
 import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib, signal
 import socketserver, socket, secrets, mimetypes, http.client, textwrap
-import hmac, hashlib, base64, ipaddress
+import hmac, hashlib, base64, ipaddress, unicodedata
 import html as _html
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
@@ -143,6 +143,7 @@ def load_roots():
     return roots
 
 COLLECTION_NAME_MAX = 40
+COLLECTIONS_MAX = 100
 
 def _validate_collection_name(name):
     """A collection name (already stripped): returns an error message, or None when it is usable."""
@@ -150,8 +151,9 @@ def _validate_collection_name(name):
         return 'The collection name is empty'
     if len(name) > COLLECTION_NAME_MAX:
         return f'Use a collection name of at most {COLLECTION_NAME_MAX} characters'
-    if any(ord(c) < 32 or ord(c) == 127 for c in name):
-        return 'A collection name cannot contain control characters'
+    # Cc and Cf: control characters, and invisible ones like the bidi overrides that make a name read as another
+    if any(unicodedata.category(c) in ('Cc', 'Cf') for c in name):
+        return 'A collection name cannot contain control or invisible characters'
     return None
 
 def _clean_collections(raw):
@@ -2441,6 +2443,9 @@ class RegistryHandler(CanvasHandler):
                 cols[c] = [k for k in cols[c] if k != key]
                 if not cols[c]:
                     del cols[c]
+            if col and col not in cols and len(cols) >= COLLECTIONS_MAX:
+                self._json({'ok': False, 'error': f'Use at most {COLLECTIONS_MAX} collections'}, 400)
+                return
             if col:
                 cols.setdefault(col, []).append(key)
             save_roots(roots, cols)
