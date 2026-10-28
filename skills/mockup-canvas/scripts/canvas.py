@@ -34,7 +34,7 @@ import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib
 import socketserver, socket, secrets, mimetypes, http.client, textwrap
 import atexit, hmac, hashlib, base64, ipaddress, unicodedata
 import html as _html
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
 
 _MACOS_CHROME_PATHS = [
@@ -2460,6 +2460,12 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
         self._slots = threading.BoundedSemaphore(self.max_connections)
         super().__init__(*args, **kwargs)
 
+    def server_bind(self):
+        # HTTPServer.server_bind also runs socket.getfqdn() on the address, a reverse DNS lookup
+        # that can stall the start for half a minute (seen on macOS); the name is never used.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
     def process_request(self, request, client_address):
         if not self._slots.acquire(blocking=False):
             try:
@@ -3314,16 +3320,17 @@ def cmd_export(args):
     print(f'Exported: {outdir}')
     print(f'  boards: {len(canvas.get("boards", {}))}, assets copied')
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
-        _s.bind(('127.0.0.1', 0))
-        port = _s.getsockname()[1]
+    class _QuietFiles(SimpleHTTPRequestHandler):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, directory=outdir, **kw)
 
-    proc = subprocess.Popen(
-        [sys.executable, '-m', 'http.server', str(port), '--bind', '127.0.0.1'],
-        cwd=outdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
+        def log_message(self, *a):
+            pass
+
+    server = ThreadedHTTPServer(('127.0.0.1', 0), _QuietFiles)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        time.sleep(1.5)
         conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
         conn.request('GET', '/')
         resp = conn.getresponse()
@@ -3335,8 +3342,8 @@ def cmd_export(args):
     except Exception as e:
         print(f'Check error: {e}')
     finally:
-        proc.terminate()
-        proc.wait()
+        server.shutdown()
+        server.server_close()
 
 # ── PNG (stdlib only) ──────────────────────────────────────────────────────
 # Enough PNG for compare: decode 8-bit RGB/RGBA non-interlaced images (what Chrome writes)
