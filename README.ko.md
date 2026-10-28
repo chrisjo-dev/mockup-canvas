@@ -4,6 +4,7 @@
 
 [English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
+[![Tests](https://github.com/chrisjo-dev/mockup-canvas/actions/workflows/test.yml/badge.svg)](https://github.com/chrisjo-dev/mockup-canvas/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code, Codex 지원](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex-6b4fbb.svg)](#빠른-시작-claude-code-플러그인-또는-codex-스킬-설치)
 [![pip 의존성 없음: Python 표준 라이브러리, PNG 렌더링에만 Chrome](https://img.shields.io/badge/no%20pip%20deps-Python%20stdlib%20%2B%20Chrome-brightgreen.svg)](#faq)

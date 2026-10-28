@@ -4,6 +4,7 @@
 
 [English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
+[![Tests](https://github.com/chrisjo-dev/mockup-canvas/actions/workflows/test.yml/badge.svg)](https://github.com/chrisjo-dev/mockup-canvas/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex-6b4fbb.svg)](#quick-start-install-the-claude-code-plugin-or-codex-skill)
 [![No pip dependencies: Python stdlib, Chrome for PNG rendering](https://img.shields.io/badge/no%20pip%20deps-Python%20stdlib%20%2B%20Chrome-brightgreen.svg)](#faq)

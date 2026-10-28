@@ -1,0 +1,46 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python: '3.8'
+          - os: ubuntu-latest
+            python: '3.x'
+          - os: macos-latest
+            python: '3.x'
+    env:
+      # Keep the suite away from any real ~/.mockup-canvas
+      MOCKUP_CANVAS_HOME: ${{ runner.temp }}/mockup-canvas-home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Render tests run only when Chrome is found. Pin the browser the runner image ships so
+      # they always run instead of being skipped on one runner and not another.
+      - name: Find Chrome
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          else
+            chrome="$(command -v google-chrome || command -v google-chrome-stable || true)"
+          fi
+          if [ ! -x "$chrome" ]; then echo "Chrome not found on this runner"; exit 1; fi
+          "$chrome" --version
+          echo "MOCKUP_CANVAS_CHROME=$chrome" >> "$GITHUB_ENV"
+      - name: Unit tests
+        working-directory: tests
+        run: python3 -m unittest discover .
