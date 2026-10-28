@@ -6,6 +6,10 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The one-time star line is now a question: the agent asks whether to star the repository and stars it only on a clear yes (with the signed-in `gh`), or gives the link.
+
 ## [0.5.0] - 2026-10-28
 
 ### Security
