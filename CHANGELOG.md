@@ -6,6 +6,10 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- The canvas page is served with a hash-based `Content-Security-Policy` like the dashboard: only its own inline scripts run, including the ones the server injects in share mode, and requests and frames stay on the server (#12).
+
 ## [0.5.0] - 2026-10-28
 
 ### Security

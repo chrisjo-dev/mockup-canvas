@@ -337,6 +337,7 @@ mockup-canvas 是本地工具，设计上也只在本地运行。完整说明见
 - **极小的写入面。** 对创意的唯一写操作是修改 `canvas.json` 中已有画板的 `x` 和 `y`，原子写入，请求体上限 64 KiB。
 - **CSRF 检查。** 保存布局以及添加或移除项目，需要同源的 `Origin` 或 `Referer` 请求头，且 Content-Type 必须正好是 `application/json`。
 - **画板隔离。** `boards/`、`assets/`、`shared/` 下的所有文件都带 `Content-Security-Policy: sandbox` 提供，画板显示在沙盒 iframe 中，画板脚本无法调用画布 API。本地字体的 CORS 只对沙盒画板开放。共享模式下，画板的资源链接只能打开它所属的创意。
+- **页面 CSP。** 仪表盘和画布页面带有严格的 `Content-Security-Policy`：只运行页面自身的内联脚本（按 SHA-256 哈希放行，不允许 `unsafe-eval`），请求和 iframe 只指向本服务器，其他网站无法把这些页面嵌入 iframe。
 - **渲染防护。** 画板渲染和缩略图无法读取创意之外的本地文件，也无法访问 localhost 或私有网络地址。所有连接（包括 WebSocket）都经过防护代理，代理对每个名称只解析一次，并只连接检查过的地址，因此无法借 DNS 重绑定绕过。headless Chrome 通过管道控制，不开 DevTools 端口，画布进程结束时随之退出。
 - **超时。** 每个连接 15 秒超时（实时刷新流除外），同时最多处理 64 个连接。
 - **不发起外部请求。** 工具本身不访问互联网。画板可以加载 Google Fonts，这是技能唯一允许的外部资源。`snap` 和 `compare --url` 只打开你给出的 http 或 https 地址，不在 localhost 上时会发出警告。
