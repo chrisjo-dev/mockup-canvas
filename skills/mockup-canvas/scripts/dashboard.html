@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mockup Canvas</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect x=%272%27 y=%272%27 width=%2718%27 height=%2722%27 rx=%274%27 fill=%27%23a4a7ae%27/%3E%3Crect x=%2712%27 y=%278%27 width=%2718%27 height=%2722%27 rx=%274%27 fill=%27%233358e0%27/%3E%3Cpath d=%27M16.5 15.5h9M16.5 20.5h6%27 stroke=%27%23fff%27 stroke-width=%272.4%27 stroke-linecap=%27round%27/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" id="fonts" media="print" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
@@ -241,8 +242,9 @@ main { position: relative; padding: var(--sp-6) var(--sp-8) var(--sp-10); min-wi
 .mh h1 .pill { font-size: var(--fs-12); font-weight: var(--fw-medium); letter-spacing: 0; }
 .mh p { color: var(--text-2); margin-top: 2px; }
 .mh p.mono { margin-top: 6px; color: var(--text-2); }
-.mh .incl { margin-top: 4px; color: var(--text-2); font-size: var(--fs-12); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.mh .incl .chip { height: 22px; padding: 0 8px; background: var(--surface-2); color: var(--text); }
+.mh .incl { margin-top: 4px; color: var(--text-2); font-size: var(--fs-12); line-height: 26px; }   /* one sentence that wraps like text */
+.mh .incl .chip { display: inline-flex; vertical-align: middle; height: 22px; padding: 0 8px; background: var(--surface-2); color: var(--text); }
+.mh .incl .nw { white-space: nowrap; }
 .mh .tools { margin-left: auto; display: flex; gap: var(--sp-2); align-items: center; position: relative; }
 .sortbtn.open { background: var(--surface-2); color: var(--text); }
 .crumb { display: flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-12); color: var(--text); margin: -8px 0 var(--sp-2); }
@@ -318,6 +320,7 @@ main { position: relative; padding: var(--sp-6) var(--sp-8) var(--sp-10); min-wi
 .ovm.on { background: var(--surface-3); color: var(--text); }
 .gc .menu { right: var(--sp-3); bottom: 50px; max-height: calc(100% - 16px); overflow-y: auto; }
 .gc .menu.top, .gc .menu.cols { top: 8px; bottom: auto; z-index: 3; }
+.gc.menu-open .ov > :not(.ovm) { visibility: hidden; }   /* a tall menu would sit on Open canvas and Reveal */
 @media (hover: hover) {
   .gc:hover { box-shadow: var(--el-1); border-color: var(--line-strong); }
   .gc:hover .slot img, .gc:hover .slot.wait { opacity: .4; }
@@ -806,6 +809,14 @@ body.demo-mode main { padding: 0; }
   function andList(xs) {
     return xs.length < 3 ? xs.join(' and ') : xs.slice(0, -1).join(', ') + ', and ' + xs[xs.length - 1];
   }
+  function andNodes(xs) {   // andList with each name kept on one line
+    const out = [];
+    xs.forEach((x, i) => {
+      if (i) out.push(xs.length < 3 ? ' and ' : i === xs.length - 1 ? ', and ' : ', ');
+      out.push(h('span', { class: 'nw', text: x }));
+    });
+    return out;
+  }
   const isEmpty = () => HOOK.state === 'empty' || !PROJ.length;
   function sortIdeas(xs) {
     const s = xs.slice();
@@ -1100,11 +1111,11 @@ body.demo-mode main { padding: 0; }
       { icon: 'arrow-up-right', label: 'Open in new tab', kbd: '⌘↵', run: () => openTab(x.url) },
       { icon: 'code', label: DATA.share ? 'Copy link' : 'Copy URL', run: () => copy(abs(x.url), 'URL copied') },
     ].concat(M ? M.cardMenuItems(x) : []);
-    el.classList.add('hover');
+    el.classList.add('hover', 'menu-open');
     if (btn) { btn.classList.add('on'); btn.setAttribute('aria-expanded', 'true'); }
     const m = buildMenu(items, 'Idea actions');
     showMenu(el.querySelector('.gw'), m, () => {
-      el.classList.remove('hover');
+      el.classList.remove('hover', 'menu-open');
       if (btn) { btn.classList.remove('on'); btn.setAttribute('aria-expanded', 'false'); }
     });
     if (m.offsetTop < 8) m.classList.add('top');   // taller than the space above the card's buttons
@@ -1453,10 +1464,11 @@ body.demo-mode main { padding: 0; }
     const xs = sortIdeas(colItems(c));
     const projs = [...new Set(xs.map((x) => x.project))];
     const picked = projs.filter((p) => !c.wholes.includes(p)).sort((a, b) => a.localeCompare(b));
-    const chips = c.wholes.map((p) => h('span', { class: 'chip', text: p }));
+    const chips = [];
+    c.wholes.forEach((p, i) => chips.push(i ? ' ' : '', h('span', { class: 'chip', text: p })));
     const incl = h('p', { class: 'incl' }, c.wholes.length
-      ? ['Includes all of', chips, picked.length ? 'and ideas picked from ' + andList(picked) : null]
-      : 'Ideas picked from ' + andList(picked));
+      ? ['Includes all of ', chips, picked.length ? [' and ideas picked from ', andNodes(picked)] : null]
+      : ['Ideas picked from ', andNodes(picked)]);
     main.append(mainHead({ cls: 'colhead', title: c.name, pill: h('span', { class: 'pill', text: plural(xs.length, 'idea') + ' from ' + plural(projs.length, 'project') }),
       subEl: incl, tools: [sortButton(), sizeToggle()] }));
     if (!xs.length) { main.append(h('p', { class: 'note-empty', text: 'No ideas here yet. New ideas in ' + andList(c.wholes) + ' show up here.' })); return; }
