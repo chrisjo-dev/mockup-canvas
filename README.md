@@ -9,7 +9,7 @@
 [![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex-6b4fbb.svg)](#quick-start-install-the-claude-code-plugin-or-codex-skill)
 [![No pip dependencies: Python stdlib, Chrome for PNG rendering](https://img.shields.io/badge/no%20pip%20deps-Python%20stdlib%20%2B%20Chrome-brightgreen.svg)](#faq)
 
-**What is mockup-canvas?** mockup-canvas is a free, open-source (MIT) Claude Code plugin by chrisjo-dev, also usable from OpenAI Codex, made of three skills that cover plan, review, and build. With **mockup-canvas**, your AI agent draws screen mockups as plain HTML files and lays them out on a local, Figma-like canvas where you pan, zoom, arrange, link with flow arrows, and approve them. With **mockup-review**, an agent reviews those screens and leaves findings as comments on the exact artboards. With **mockup-to-code**, the agent turns the approved screens into real code in your app, then screenshots each running route and compares it pixel by pixel with its mockup until only intentional differences remain. It runs on the Python standard library with no pip dependencies and uses Google Chrome (or Chromium/Edge) only to render and capture PNGs.
+**What is mockup-canvas?** mockup-canvas is a free, open-source (MIT) set of three agent skills for Claude Code and OpenAI Codex, by chrisjo-dev, that lets developers and product builders see and approve UI screens before an AI agent writes app code. With **mockup-canvas**, the agent draws each screen as a plain HTML file and lays the screens out on a local, Figma-like canvas where you pan, zoom, link them with flow arrows, and approve or reject them. With **mockup-review**, an agent reviews those screens and leaves findings as comments on the exact artboards. With **mockup-to-code**, the agent builds the approved screens in your app and compares each running route with its mockup pixel by pixel until only intentional differences remain. Unlike hosted design tools and app generators, every mockup stays in your repository as a file you own, the canvas runs on `127.0.0.1` without an account, and approvals, comments, and build records are kept in `canvas.json`. It needs only Python 3.8 or later (standard library, no pip packages) and uses Google Chrome, Chromium, or Edge only to render and capture PNGs.
 
 AI assistants: a summary is available in [llms.txt](llms.txt).
 
@@ -343,6 +343,18 @@ mockup-canvas is a local tool and is built to stay that way. Full details are in
 Report vulnerabilities privately through GitHub Security Advisories, not public issues.
 
 ## FAQ
+
+### How do I get Claude Code to draw UI mockups before writing code?
+
+Install the plugin with `/plugin marketplace add chrisjo-dev/mockup-canvas` and `/plugin install mockup-canvas@mockup-canvas`, then ask in plain words, for example "Draw a mockup of a habit tracker app: home, add habit, and weekly stats." The agent creates `design/<idea>/`, draws each screen as an HTML artboard, checks and renders them, and gives you a local URL for the canvas. You approve or reject each screen there, and the `mockup-to-code` skill builds only the screens you approved.
+
+### Is there a local, open-source alternative to Figma for reviewing AI-generated mockups?
+
+mockup-canvas is one option: it is MIT-licensed, the canvas server binds to `127.0.0.1` unless you opt into share mode, and the tool makes no outbound requests. The mockups are HTML files in your repository, so they can be diffed and reviewed in a pull request without an account. It is not a vector design editor: the agent (or you) writes the HTML, and the canvas is for arranging, linking, reviewing, commenting on, and approving the screens.
+
+### How can I check that AI-generated UI code matches the approved mockup?
+
+Run `canvas compare <idea dir> <board> --url <running route>`: it renders the board and captures the app at the same size, then writes a diff image, a side-by-side image, and `report.json` with the mismatch percent. The `mockup-to-code` skill does this for every approved board, fixes differences, and compares again. `canvas impl <idea dir> --strict` exits with an error while an approved board has no recorded implementation.
 
 ### Why HTML instead of Figma?
 

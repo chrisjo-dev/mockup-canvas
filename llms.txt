@@ -30,6 +30,8 @@
 - [mockup-canvas SKILL.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-canvas/SKILL.md): the instructions the agent loads to draw mockups
 - [mockup-review SKILL.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-review/SKILL.md): the instructions for reviewing mockups
 - [mockup-to-code SKILL.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-to-code/SKILL.md): the instructions for building approved mockups and comparing them with the app
+- [CHANGELOG.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/CHANGELOG.md): changes per release
+- [CONTRIBUTING.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/CONTRIBUTING.md): setup, tests, design rules, commit style, and how to propose UI changes
 - [SECURITY.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/SECURITY.md): threat model and vulnerability reporting
 
 ## Code
@@ -51,5 +53,6 @@
 
 ## Optional
 
+- [CITATION.cff](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/CITATION.cff): how to cite mockup-canvas
 - [lessons.md](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/skills/mockup-canvas/references/lessons.md): log of approved skill improvements (mockup-review and mockup-to-code keep their own under `references/`)
 - [LICENSE](https://raw.githubusercontent.com/chrisjo-dev/mockup-canvas/main/LICENSE): MIT License, Copyright (c) 2026 chrisjo-dev

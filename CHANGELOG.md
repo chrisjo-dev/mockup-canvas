@@ -11,10 +11,12 @@ All notable changes to mockup-canvas are listed here. The format follows
 - A GitHub Actions workflow that runs the unit tests on Ubuntu with Python 3.8 and on the latest Ubuntu and macOS with the current Python 3, with Chrome so the render tests run too.
 - A read-only live demo of the TrailMate example at https://chrisjo-dev.github.io/mockup-canvas/, built by `tools/build_demo.py` and published by a GitHub Pages workflow.
 - `CONTRIBUTING.md`, this changelog, and issue and pull request templates.
+- `CITATION.cff`, more plugin keywords, and links to the changelog and contributing guide in `llms.txt`.
 
 ### Changed
 
 - The README gives the CLI size as about 4,000 lines (it had grown past the 3,300 lines it stated).
+- The README opening paragraph is a self-contained definition, and three new FAQ entries answer common questions directly, in all four languages.
 
 ## [0.4.1] - 2026-10-28
 

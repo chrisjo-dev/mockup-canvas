@@ -9,7 +9,7 @@
 [![支持 Claude Code 和 Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex-6b4fbb.svg)](#快速开始-安装-claude-code-插件或-codex-技能)
 [![无需 pip 依赖：Python 标准库，Chrome 仅用于渲染 PNG](https://img.shields.io/badge/no%20pip%20deps-Python%20stdlib%20%2B%20Chrome-brightgreen.svg)](#常见问题)
 
-**mockup-canvas 是什么？** mockup-canvas 是 chrisjo-dev 开发的免费开源（MIT）Claude Code 插件，也可以在 OpenAI Codex 中使用，由覆盖规划、评审和实现的三个技能（skill）组成。**mockup-canvas** 让 AI 智能体把界面原型画成普通的 HTML 文件，并把这些界面铺在一块本地的类 Figma 画布上，供你平移、缩放、排列、用流程箭头连线和批准。**mockup-review** 让智能体评审这些界面，并把发现的问题作为评论直接留在对应的画板上。**mockup-to-code** 把已批准的界面实现为你应用中的真实代码，然后截取每个运行中的路由，与原型逐像素对比，直到只剩下有意为之的差异。它只依赖 Python 标准库，无需任何 pip 依赖，Google Chrome（或 Chromium、Edge）只用于渲染和截取 PNG。
+**mockup-canvas 是什么？** mockup-canvas 是 chrisjo-dev 开发的一套免费开源（MIT）的智能体技能，共三个，用于 Claude Code 和 OpenAI Codex，让开发者和做产品的人在 AI 智能体编写应用代码之前，先亲眼看到并批准 UI 界面。使用 **mockup-canvas** 时，智能体把每个界面画成一个普通的 HTML 文件，并把这些界面铺在一块本地的类 Figma 画布上，供你平移、缩放、用流程箭头连线，以及批准或驳回。使用 **mockup-review** 时，智能体评审这些界面，并把发现的问题作为评论直接留在对应的画板上。使用 **mockup-to-code** 时，智能体在你的应用中实现已批准的界面，并把每个运行中的路由与原型逐像素对比，直到只剩下有意为之的差异。与托管的设计工具和应用生成器不同，所有原型都作为你拥有的文件保存在你的仓库中，画布无需账号即可在 `127.0.0.1` 上运行，批准、评论和实现记录都保存在 `canvas.json` 中。它只需要 Python 3.8 及以上（只用标准库，无需 pip 包），Google Chrome、Chromium 或 Edge 只用于渲染和截取 PNG。
 
 给 AI 助手：项目摘要见 [llms.txt](llms.txt)。
 
@@ -343,6 +343,18 @@ mockup-canvas 是本地工具，设计上也只在本地运行。完整说明见
 如发现漏洞，请通过 GitHub Security Advisories 私下报告，不要公开提 issue。
 
 ## 常见问题
+
+### 如何让 Claude Code 在写代码之前先画 UI 原型？
+
+用 `/plugin marketplace add chrisjo-dev/mockup-canvas` 和 `/plugin install mockup-canvas@mockup-canvas` 安装插件，然后用平常的话提出请求，例如“画一个习惯追踪应用的原型：首页、添加习惯和每周统计”。智能体会创建 `design/<idea>/`，把每个界面画成 HTML 画板，检查并渲染后给出画布的本地 URL。你在画布上逐个批准或驳回界面，`mockup-to-code` 技能只实现你批准的界面。
+
+### 有没有可以在本地运行、开源的 Figma 替代品，用来评审 AI 生成的原型？
+
+mockup-canvas 是其中一个选择：它采用 MIT 许可证，除非你主动开启共享模式，画布服务器只绑定 `127.0.0.1`，工具本身不发出任何外部请求。原型是你仓库中的 HTML 文件，无需账号就能做 diff，并在 PR 中评审。它不是矢量设计编辑器：HTML 由智能体（或你）编写，画布用于排列、连接、评审、评论和批准界面。
+
+### 如何检查 AI 生成的 UI 代码是否与已批准的原型一致？
+
+运行 `canvas compare <idea 文件夹> <画板> --url <运行中的路由>`：它会渲染画板，并以相同尺寸截取应用，然后写出差异图、并排对比图，以及包含不匹配百分比的 `report.json`。`mockup-to-code` 技能会对每个已批准的画板做这种对比，修正差异后再次对比。只要还有已批准的画板没有实现记录，`canvas impl <idea 文件夹> --strict` 就会以错误退出。
 
 ### 为什么用 HTML 而不是 Figma？
 
