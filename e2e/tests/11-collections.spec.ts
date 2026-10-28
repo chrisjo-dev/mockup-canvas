@@ -71,7 +71,7 @@ test('Collections gather ideas from several projects and follow the rail, URL, a
   await expect.poll(cols).toEqual({ Lily: ['alpha/trailmate', 'beta/second', 'beta'] });
   expect(sandbox.rootsFile().map((r: any) => r.name)).toEqual(['alpha', 'beta']);
   await page.goto(srv.origin + '/?col=Lily');
-  await expect(page.locator('.mh .incl')).toHaveText('Includes all ofbetaand ideas picked from alpha');
+  await expect(page.locator('.mh .incl')).toHaveText('Includes all of beta and ideas picked from alpha');
 
   // Take every key out: the collection, its URL, and the Collections heading go away
   await cardMenu(page, 'trailmate');
