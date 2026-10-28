@@ -21,9 +21,6 @@ jobs:
             python: '3.x'
           - os: macos-latest
             python: '3.x'
-    env:
-      # Keep the suite away from any real ~/.mockup-canvas
-      MOCKUP_CANVAS_HOME: ${{ runner.temp }}/mockup-canvas-home
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,4 +40,7 @@ jobs:
           echo "MOCKUP_CANVAS_CHROME=$chrome" >> "$GITHUB_ENV"
       - name: Unit tests
         working-directory: tests
+        env:
+          # Keep the suite away from any real ~/.mockup-canvas (each test also sets its own)
+          MOCKUP_CANVAS_HOME: ${{ runner.temp }}/mockup-canvas-home
         run: python3 -m unittest discover .
