@@ -6,6 +6,15 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A release workflow: pushing a `vX.Y.Z` tag creates the GitHub release with that version's CHANGELOG section as notes (taken by `tools/changelog_section.py`). `CONTRIBUTING.md` lists the release steps.
+
+### Fixed
+
+- Saving the project registry (`roots.json`) keeps top-level keys and project entry fields that this version does not know, so an older version no longer drops what a newer one wrote. `canvas.json` saves already kept them; tests now cover both.
+- The Chrome cleanup tests wait up to 45 s for `canvas.py` to exit, since 15 s was once too short on a loaded machine.
+
 ## [0.5.0] - 2026-10-28
 
 ### Security
