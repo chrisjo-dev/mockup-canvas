@@ -19,6 +19,11 @@ All notable changes to mockup-canvas are listed here. The format follows
 - The README gives the CLI size as about 4,000 lines (it had grown past the 3,300 lines it stated).
 - The README opening paragraph is a self-contained definition, and three new FAQ entries answer common questions directly, in all four languages.
 
+### Fixed
+
+- `canvas.py` loads on Python 3.8 again; a decorator needed Python 3.9.
+- `canvas serve` and the `export` check no longer wait on a reverse DNS lookup of the bind address, which took 35 s on a macOS CI runner.
+
 ## [0.4.1] - 2026-10-28
 
 ### Fixed
