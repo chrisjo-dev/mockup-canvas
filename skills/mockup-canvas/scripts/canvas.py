@@ -142,7 +142,48 @@ def load_roots():
             roots.append({'name': name, 'path': path})
     return roots
 
-def save_roots(roots_list):
+COLLECTION_NAME_MAX = 40
+
+def _validate_collection_name(name):
+    """A collection name (already stripped): returns an error message, or None when it is usable."""
+    if not name:
+        return 'The collection name is empty'
+    if len(name) > COLLECTION_NAME_MAX:
+        return f'Use a collection name of at most {COLLECTION_NAME_MAX} characters'
+    if any(ord(c) < 32 or ord(c) == 127 for c in name):
+        return 'A collection name cannot contain control characters'
+    return None
+
+def _clean_collections(raw):
+    """{name: [key, ...]} with bad names, bad keys, empty lists and repeated keys dropped.
+    A key is "project" (the whole project) or "project/idea"; each key belongs to one collection."""
+    out, seen = {}, set()
+    if not isinstance(raw, dict):
+        return out
+    for name, keys in raw.items():
+        if not isinstance(name, str) or name != name.strip() or _validate_collection_name(name) or not isinstance(keys, list):
+            continue
+        kept = []
+        for k in keys:
+            if isinstance(k, str) and k and k not in seen:
+                seen.add(k)
+                kept.append(k)
+        if kept:
+            out[name] = kept
+    return out
+
+def load_collections():
+    try:
+        with open(ROOTS_PATH, encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    return _clean_collections(data.get('collections') if isinstance(data, dict) else None)
+
+def save_roots(roots_list, collections=None):
+    """collections: the new collections, or None to keep the ones in the file (every other save)."""
+    if collections is None:
+        collections = load_collections()
     serialized = []
     for r in roots_list:
         path = r['path']
@@ -156,7 +197,10 @@ def save_roots(roots_list):
     os.makedirs(os.path.dirname(target), exist_ok=True)
     tmp = target + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump({'roots': serialized}, f, ensure_ascii=False, indent=2)
+        data = {'roots': serialized}
+        if collections:
+            data['collections'] = collections
+        json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, target)
 
 def load_roots_safe():
@@ -2109,6 +2153,15 @@ class RegistryHandler(CanvasHandler):
     def _index_roots(self):
         return self._roots(), False
 
+    def _index_data(self):
+        data = super()._index_data()
+        cols = load_collections()
+        if self.share_token:   # a share names only the collection keys of the projects it serves
+            names = {r['name'] for r in self._roots()}
+            cols = {c: ks for c, ks in ((c, [k for k in ks if k.split('/', 1)[0] in names]) for c, ks in cols.items()) if ks}
+        data['collections'] = cols
+        return data
+
     def _reveal_target(self, body):
         project = str(body.get('project') or '')
         return self._reveal_in(self._roots_map().get(project), body.get('idea'))
@@ -2240,7 +2293,7 @@ class RegistryHandler(CanvasHandler):
         return {'path': _display_path(inner), 'ideas': ideas, 'boards': boards}
 
     def _handle_roots_api(self, action):
-        """POST /api/roots/{check|add|remove|rename|scan}"""
+        """POST /api/roots/{check|add|remove|rename|scan|collection}"""
         # Never allow registry changes in share mode
         if self.share_token:
             self._json({'ok': False, 'error': 'Not allowed in share mode'}, 403)
@@ -2305,17 +2358,25 @@ class RegistryHandler(CanvasHandler):
             if bad:
                 self._json({'ok': False, 'error': bad}, 400)
                 return
-            roots = load_roots_safe()
-            if any(r['name'] == new_name for r in roots):
-                self._json({'ok': False, 'error': f'Name already in use: {new_name}'}, 409)
-                return
-            target = next((r for r in roots if r['name'] == name), None)
-            if not target:
-                self._json({'ok': False, 'error': f'Not found: {name}'}, 404)
-                return
-            target['name'] = new_name
-            save_roots_safe(roots)
+            with _roots_lock:
+                roots = load_roots()
+                if any(r['name'] == new_name for r in roots):
+                    self._json({'ok': False, 'error': f'Name already in use: {new_name}'}, 409)
+                    return
+                target = next((r for r in roots if r['name'] == name), None)
+                if not target:
+                    self._json({'ok': False, 'error': f'Not found: {name}'}, 404)
+                    return
+                target['name'] = new_name
+                # Collection keys follow the project: "old" and "old/<idea>" become "new", "new/<idea>"
+                cols = {c: [new_name + k[len(name):] if k == name or k.startswith(name + '/') else k for k in ks]
+                        for c, ks in load_collections().items()}
+                save_roots(roots, cols)
             self._json({'ok': True, 'name': new_name})
+            return
+
+        if action == 'collection':
+            self._set_collection(body)
             return
 
         if action == 'remove':
@@ -2349,6 +2410,41 @@ class RegistryHandler(CanvasHandler):
             return
 
         self._json({'ok': False, 'error': 'Unknown API'}, 404)
+
+    def _set_collection(self, body):
+        """{key, collection}: put a project ("name") or one idea ("name/idea") in a collection, taking
+        it out of any other one first; an empty collection takes it out. Returns the new collections."""
+        key, col = body.get('key'), body.get('collection')
+        if not isinstance(key, str) or not isinstance(col, str):
+            self._json({'ok': False, 'error': 'The key and collection fields are required'}, 400)
+            return
+        if col:
+            col = col.strip()
+            bad = _validate_collection_name(col)
+            if bad:
+                self._json({'ok': False, 'error': bad}, 400)
+                return
+        project, _, idea = key.partition('/')
+        with _roots_lock:
+            roots = load_roots()
+            design_dir = next((r['path'] for r in roots if r['name'] == project), None)
+            if not project or not design_dir:
+                self._json({'ok': False, 'error': f'No project named {project}'}, 404)
+                return
+            if '/' in key:
+                p = _safe_path(design_dir, idea) if idea and idea == os.path.basename(idea) and idea not in ('.', '..') else None
+                if not p or not os.path.isfile(os.path.join(p, 'canvas.json')):
+                    self._json({'ok': False, 'error': f'No idea named {idea} in {project}'}, 404)
+                    return
+            cols = load_collections()
+            for c in list(cols):
+                cols[c] = [k for k in cols[c] if k != key]
+                if not cols[c]:
+                    del cols[c]
+            if col:
+                cols.setdefault(col, []).append(key)
+            save_roots(roots, cols)
+        self._json({'ok': True, 'collections': cols})
 
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):

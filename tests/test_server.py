@@ -394,6 +394,151 @@ class Registry(RegistryBase):
         self.assertTrue(all(f['already_registered'] for f in found))
 
 
+class Collections(RegistryBase):
+    """POST /api/roots/collection and the collections kept at the top of roots.json."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_idea(self.d_a, 'ideaA2')
+        self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
+
+    def put(self, key, collection):
+        status, _, body = self.request('POST', '/api/roots/collection', {'key': key, 'collection': collection},
+                                       headers=self.origin())
+        return status, json.loads(body)
+
+    def cols(self):
+        return self.read_json(self.roots_json).get('collections', {})
+
+    def test_add_move_and_remove_an_idea(self):
+        self.assertEqual(self.put('alpha/ideaA', 'Lily')[0], 200)
+        self.assertEqual(self.put('beta/ideaB', ' Lily ')[0], 200)
+        self.assertEqual(self.cols(), {'Lily': ['alpha/ideaA', 'beta/ideaB']})
+        status, body = self.put('alpha/ideaA', 'Manito')   # one collection per key: moving takes it out of Lily
+        self.assertEqual(status, 200)
+        self.assertEqual(body['collections'], {'Lily': ['beta/ideaB'], 'Manito': ['alpha/ideaA']})
+        self.assertEqual(self.cols(), {'Lily': ['beta/ideaB'], 'Manito': ['alpha/ideaA']})
+        self.assertEqual(self.put('alpha/ideaA', '')[0], 200)   # empty name removes; the last key removes the collection
+        self.assertEqual(self.cols(), {'Lily': ['beta/ideaB']})
+        self.assertEqual(self.put('alpha/ideaA', '')[0], 200)   # removing again changes nothing
+        self.assertEqual(self.put('beta/ideaB', '')[0], 200)
+        self.assertNotIn('collections', self.read_json(self.roots_json))
+        self.assertEqual(len(self.read_json(self.roots_json)['roots']), 2)
+
+    def test_whole_project(self):
+        self.assertEqual(self.put('alpha', 'Lily')[0], 200)
+        self.assertEqual(self.put('beta/ideaB', 'Lily')[0], 200)
+        self.assertEqual(self.cols(), {'Lily': ['alpha', 'beta/ideaB']})
+        self.assertEqual(self.put('alpha', 'Manito')[0], 200)
+        self.assertEqual(self.cols(), {'Lily': ['beta/ideaB'], 'Manito': ['alpha']})
+
+    def test_unknown_project_or_idea_is_404(self):
+        for key in ('gamma', 'gamma/ideaA', 'alpha/nope', 'alpha/ideaB', 'alpha/..', 'alpha/.', 'alpha/ideaA/boards',
+                    'alpha/', '/ideaA', ''):
+            status, body = self.put(key, 'Lily')
+            self.assertIn(status, (400, 404), key)
+            self.assertFalse(body['ok'], key)
+        self.assertEqual(self.put('gamma', 'Lily')[0], 404)
+        self.assertEqual(self.put('alpha/nope', 'Lily')[0], 404)
+        self.assertEqual(self.put('alpha/..', 'Lily')[0], 404)
+        self.assertEqual(self.cols(), {})
+
+    def test_bad_names_and_bodies_are_400(self):
+        for name in ('   ', 'x' * 41, 'a\x00b', 'tab\there', 'new\nline', 'del\x7f'):
+            status, body = self.put('alpha/ideaA', name)
+            self.assertEqual(status, 400, repr(name))
+            self.assertFalse(body['ok'])
+        self.assertEqual(self.put('alpha/ideaA', 'x' * 40)[0], 200)
+        for bad in ({'key': 'alpha/ideaA'}, {'collection': 'Lily'}, {'key': 1, 'collection': 'Lily'},
+                    {'key': 'alpha/ideaA', 'collection': ['Lily']}):
+            status, _, _ = self.request('POST', '/api/roots/collection', bad, headers=self.origin())
+            self.assertEqual(status, 400, bad)
+        self.assertEqual(self.cols(), {'x' * 40: ['alpha/ideaA']})
+
+    def test_collection_api_needs_same_origin_and_json(self):
+        body = {'key': 'alpha/ideaA', 'collection': 'Lily'}
+        self.assertEqual(self.request('POST', '/api/roots/collection', body)[0], 403)
+        self.assertEqual(self.request('POST', '/api/roots/collection', body,
+                                      headers={'Origin': 'http://evil.example'})[0], 403)
+        status, _, _ = self.request('POST', '/api/roots/collection', raw_body=json.dumps(body).encode(),
+                                    headers=dict(self.origin(), **{'Content-Type': 'text/plain'}))
+        self.assertEqual(status, 400)
+        self.assertEqual(self.cols(), {})
+
+    def test_rename_moves_the_keys(self):
+        self.put('alpha', 'Lily')
+        self.put('alpha/ideaA', 'Manito')
+        self.put('beta/ideaB', 'Lily')
+        status, _, _ = self.request('POST', '/api/roots/rename', {'name': 'alpha', 'new_name': 'omega'},
+                                    headers=self.origin())
+        self.assertEqual(status, 200)
+        self.assertEqual(self.cols(), {'Lily': ['omega', 'beta/ideaB'], 'Manito': ['omega/ideaA']})
+        self.assertEqual(self.put('omega/ideaA2', 'Manito')[0], 200)
+
+    def test_other_saves_keep_collections(self):
+        self.put('alpha/ideaA', 'Lily')
+        self.put('beta', 'Lily')
+        good = os.path.join(self.home, 'work', 'gamma', 'design')
+        self.make_idea(good, 'g')
+        self.assertEqual(self.request('POST', '/api/roots/add', {'path': good}, headers=self.origin())[0], 200)
+        self.assertEqual(self.cols(), {'Lily': ['alpha/ideaA', 'beta']})
+        # Removing a project from the list keeps its keys (adding it back brings them back)
+        self.assertEqual(self.request('POST', '/api/roots/remove', {'name': 'beta'}, headers=self.origin())[0], 200)
+        self.assertEqual(self.cols(), {'Lily': ['alpha/ideaA', 'beta']})
+        r = self.run_cli('roots', 'remove', 'gamma')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.cols(), {'Lily': ['alpha/ideaA', 'beta']})
+
+    def test_bad_stored_collections_are_dropped(self):
+        data = self.read_json(self.roots_json)
+        data['collections'] = {'Lily': ['alpha/ideaA', 'alpha/ideaA', 3, ''], 'Dup': ['alpha/ideaA', 'beta'],
+                               '': ['beta/ideaB'], 'bad': 'alpha', 'x' * 41: ['alpha'], 'Empty': []}
+        self.write_json(self.roots_json, data)
+        self.assertEqual(canvas.load_collections(), {'Lily': ['alpha/ideaA'], 'Dup': ['beta']})
+        data['collections'] = ['not', 'a', 'dict']
+        self.write_json(self.roots_json, data)
+        self.assertEqual(canvas.load_collections(), {})
+
+    def test_index_includes_collections(self):
+        self.put('alpha/ideaA', 'Lily')
+        self.put('beta', 'Lily')
+        status, _, body = self.request('GET', '/api/index')
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)['collections'], {'Lily': ['alpha/ideaA', 'beta']})
+        html = self.request('GET', '/')[2].decode()
+        self.assertIn('"collections": {"Lily": ["alpha/ideaA", "beta"]}', html)
+
+    def test_index_without_collections_is_empty(self):
+        self.assertEqual(json.loads(self.request('GET', '/api/index')[2])['collections'], {})
+
+
+class CollectionsShare(RegistryBase):
+    def setUp(self):
+        super().setUp()
+        data = self.read_json(self.roots_json)
+        data['collections'] = {'Lily': ['alpha/ideaA', 'beta'], 'Manito': ['beta/ideaB'], 'Old': ['alpha']}
+        self.write_json(self.roots_json, data)
+
+    def test_share_project_keeps_only_its_keys(self):
+        token = 'tok_col_1'
+        self.start_server(canvas.RegistryHandler, share_token=token, share_edit=False, read_only=False,
+                          frozen_roots=[{'name': 'beta', 'path': self.d_b}])
+        cookie = {'Cookie': 'canvas_token=' + token}
+        status, _, body = self.request('GET', '/api/index', headers=cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)['collections'], {'Lily': ['beta'], 'Manito': ['beta/ideaB']})
+        html = self.request('GET', '/', headers=cookie)[2].decode()
+        self.assertNotIn('alpha', html)
+        self.assertNotIn('Old', html)
+
+    def test_share_refuses_collection_changes(self):
+        token = 'tok_col_2'
+        self.start_server(canvas.RegistryHandler, share_token=token, share_edit=True, read_only=False)
+        status, _, body = self.request('POST', '/api/roots/collection', {'key': 'alpha', 'collection': 'X'},
+                                       headers=dict(self.origin(), Cookie='canvas_token=' + token))
+        self.assertEqual(status, 403)
+        self.assertEqual(self.read_json(self.roots_json)['collections']['Old'], ['alpha'])
+
 class ReadOnlyViewerFlag(ServerCase):
     """Viewer HTML must carry CANVAS_READ_ONLY when the session is share-read-only."""
 
@@ -440,7 +585,8 @@ class RegistryShareMode(RegistryBase):
         token = 'tok_registry_1'
         self.start_server(canvas.RegistryHandler, share_token=token, share_edit=True, read_only=False)
         headers = dict(self.origin(), Cookie='canvas_token=' + token)
-        for action, body in (('add', {'path': self.d_a}), ('remove', {'name': 'alpha'}), ('scan', {'dirs': ['~']})):
+        for action, body in (('add', {'path': self.d_a}), ('remove', {'name': 'alpha'}), ('scan', {'dirs': ['~']}),
+                             ('collection', {'key': 'alpha', 'collection': 'Lily'})):
             status, _, resp = self.request('POST', '/api/roots/' + action, body, headers=headers)
             self.assertEqual(status, 403, action)
             self.assertIn('share mode', json.loads(resp)['error'])
