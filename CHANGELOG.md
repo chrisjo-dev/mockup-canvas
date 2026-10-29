@@ -6,6 +6,20 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-29
+
+### Added
+
+- Delete with Undo (#14). Delete idea in a dashboard card's menu, Delete board in a new `...` menu on each board title (or right-click the title) on the canvas, and Delete collection in a collection's menu. Each asks first and then shows a toast with Undo for 8 seconds.
+- Deleting never removes files. An idea folder moves to `<design dir>/.trash/<idea>-<UTC time>/`. A board file moves to `<design dir>/.trash/<idea>/`, with its canvas.json entry (position, group, status, comments, implementation record) and its flow arrows in a sidecar JSON, so a restore puts all of it back. A collection is only taken out of `roots.json`; its projects and ideas stay.
+- `canvas trash <idea dir> [file]`, `canvas trash --list <design dir>`, and `canvas restore <design dir> <id>` do the same from the command line. A restore refuses when something now has the same name.
+- The skills keep their rule: old versions go to `old drafts` as rejected. They delete only when the user asks, and then with `canvas trash`.
+
+### Security
+
+- Delete and restore are local only. Share pages (including `--share-edit`) and read-only servers have no delete menu, and their APIs answer 403. Requests need a same-origin `Origin` like every other write, names with `..`, separators, or a leading dot are refused, a linked `.trash` is refused, and every path is checked against the registered design folder.
+- Folders whose names start with a dot (such as `.trash`) are never listed or served as ideas.
+
 ## [0.5.1] - 2026-10-28
 
 ### Security
@@ -148,7 +162,8 @@ Note: a server older than 0.4.0 drops collections when it saves `roots.json`, so
 - A local, Figma-like canvas to pan, zoom, and arrange HTML artboards, with flow arrows, groups, approval marks, live reload, and phone sharing.
 - The TrailMate example and a unit test suite.
 
-[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.6.0
 [0.5.1]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.5.1
 [0.5.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.5.0
 [0.4.1]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.4.1

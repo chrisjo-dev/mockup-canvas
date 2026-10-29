@@ -59,6 +59,7 @@ Use `references/final-reply.md`. It must include: implemented boards and their r
 - Mark boards approved, or implement boards that are not approved without the user's decision.
 - Edit artboards, `tokens.css`, or `canvas.json` by hand. If a board is wrong or impossible to build as drawn, report it and suggest a `canvas comment`.
 - Use a rejected board or the old UI as the reference when an approved board exists.
+- Delete or trash boards or ideas. That is the user's call, done with `canvas trash` from the mockup-canvas skill.
 - Claim a screen "matches" from the percentage alone without having looked at the images.
 
 ## Retrospective after the first implementation

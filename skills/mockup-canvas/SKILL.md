@@ -42,7 +42,7 @@ User data lives in `$MOCKUP_CANVAS_HOME` (default `~/.mockup-canvas/`):
 6. **Check**: `canvas check <idea>` must report 0 problems. Look at the PNG from `canvas render` for each changed artboard yourself (renders are exact board size; add `--full-page` to see content below the fold); if you changed several, look at the whole thing with `canvas overview` (check flow arrows and groups in that PNG too). Checking the canvas page itself with browser tools is optional. Fix any error text or broken images you see.
 7. **Show**: registry mode (`canvas serve` with no arguments) serves every registered project from one server (default port 4400). `canvas new` registers the design folder automatically, so no separate `roots add` is needed. Add existing projects in one go with `canvas roots scan ~/work ~/projects`. To look at a single project, use `canvas serve <design dir>` (URL `/<idea>/`). Use the printed address as is. Registry mode URL: `http://localhost:4400/<project>/<idea>/`. Leave this server running. Projects can also be added or removed from the index page.
 8. **Phone**: see "View on a phone" below.
-9. **Old versions**: never delete them. Move them with `canvas group <idea> <file> "old drafts"` and mark them with `canvas status ... rejected`.
+9. **Old versions**: never delete them. Move them with `canvas group <idea> <file> "old drafts"` and mark them with `canvas status ... rejected`. Delete only when the user asks for it, and then with `canvas trash` (never `rm`): it moves the idea or board to `<design dir>/.trash/`, and `canvas restore` undoes it.
 10. **Approval**: for a screen the user approved, run `canvas status <idea> <file> approved --note "what was approved"`. That is the approval record. Simple praise is not approval.
 
 ## After implementation
@@ -51,6 +51,7 @@ User data lives in `$MOCKUP_CANVAS_HOME` (default `~/.mockup-canvas/`):
 - `canvas compare <idea> <file> --url URL` (or `--png FILE`): renders the board at its registered size, takes the app screen at the same size, and writes `board.png`, `app.png`, `diff.png` (mismatches in magenta), `side.png`, and `report.json` to `<idea>/compare/<board id>/`. Look at `side.png` and `diff.png` yourself; the mismatch percent alone is not a verdict. `--ignore-top N` / `--ignore-bottom N` leave a band out of the count; `--align-top N` is for a board that draws N px (a fake status bar) the app does not have. See `canvas compare -h`.
 - `canvas impl <idea> <file> --route /path --file src/page.tsx`: record which route and files implement a board (paths relative to the project root). `canvas impl <idea> [--strict]` lists approved boards with or without an implementation.
 - `canvas comment <idea> <file> "text" [--by NAME]`: review notes on a board (`--clear` removes them, no text lists them). The canvas shows a comment count and a violet "built" badge.
+- `canvas trash <idea> [file]`, `canvas trash --list <design dir>`, `canvas restore <design dir> <id>`: move an idea or one board to `<design dir>/.trash/` and back (a board keeps its status, comments, and arrows). Only on the user's request; the dashboard and canvas have the same delete with Undo.
 
 ## View on a phone
 

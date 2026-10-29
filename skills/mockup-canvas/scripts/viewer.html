@@ -156,6 +156,48 @@
       max-width: 90vw; text-align: center;
     }
     .toast.on { opacity: 1; }
+    .toast.act { display: flex; align-items: center; gap: 12px; padding: 4px 4px 4px 16px; }
+    .toast.act.on { pointer-events: auto; }
+    .toast .u { height: 28px; padding: 0 12px; border: 0; border-radius: 14px; display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(255,255,255,0.14); color: #fff; font: 700 12px -apple-system, sans-serif; cursor: pointer; }
+    .toast .u:hover, .toast .u:focus-visible { background: rgba(255,255,255,0.24); outline: none; }
+
+    /* Board menu and delete (D-B24); never in share mode or on read-only canvases */
+    .bar-more { flex-shrink: 0; margin-left: 2px; width: 22px; height: 22px; border: 0; border-radius: 5px; padding: 0;
+      display: grid; place-items: center; background: none; color: rgba(255,255,255,0.75); cursor: pointer; }
+    .board-title-text + .bar-more, .built-badge + .bar-more { margin-left: auto; }
+    .bar-more:hover, .bar-more.on { background: rgba(255,255,255,0.16); color: #fff; }
+    .v-ic { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    .v-ic.dots { fill: currentColor; stroke: none; }
+    #board-menu { position: fixed; z-index: 1600; min-width: 180px; background: #2a2a2a; border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; box-shadow: 0 6px 28px rgba(0,0,0,0.55); padding: 4px; font-size: 12px; color: #e0e0e0; }
+    #board-menu[hidden] { display: none; }
+    #board-menu button { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; border: 0; border-radius: 5px;
+      background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; white-space: nowrap; }
+    #board-menu button:hover, #board-menu button:focus-visible { background: rgba(255,255,255,0.08); outline: none; }
+    #board-menu button.dg { color: #f06a72; }
+    #board-menu .k { margin-left: auto; padding-left: 12px; color: rgba(255,255,255,0.35); font-size: 10px; }
+    #board-menu .sp { height: 1px; background: rgba(255,255,255,0.08); margin: 4px 2px; }
+    #del-layer[hidden] { display: none; }
+    #del-layer { position: fixed; inset: 0; z-index: 2500; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+    #del-dlg { width: 400px; max-width: 100%; background: #2a2a2a; color: #e0e0e0; border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px; box-shadow: 0 6px 28px rgba(0,0,0,0.55); overflow: hidden; user-select: text; }
+    #del-dlg h3 { margin: 0; padding: 18px 20px 0; font-size: 15px; color: #fff; overflow-wrap: anywhere; }
+    #del-dlg p { margin: 0; padding: 8px 20px 0; font-size: 13px; line-height: 19px; color: #bdbdbd; }
+    #del-dlg p:last-of-type { padding-bottom: 18px; }
+    #del-dlg b { color: #fff; }
+    #del-dlg code { font-family: ui-monospace, monospace; font-size: 11px; color: #e0e0e0; background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px; }
+    #del-dlg .ft { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.18); }
+    #del-dlg .ft button { height: 32px; padding: 0 14px; border: 0; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;
+      font: 600 12px -apple-system, sans-serif; background: rgba(255,255,255,0.1); color: #fff; cursor: pointer; }
+    #del-dlg .ft button:focus-visible { outline: none; box-shadow: 0 0 0 2px #2a2a2a, 0 0 0 4px #7b9cff; }
+    #del-dlg .ft .dg { background: #e5484d; }
+    @media (max-width: 480px) {
+      #del-layer { align-items: flex-end; padding: 0; }
+      #del-dlg { width: 100%; border-radius: 12px 12px 0 0; }
+      #del-dlg .ft { padding-bottom: 24px; }
+      #del-dlg .ft button { flex: 1; height: 44px; justify-content: center; }
+    }
 
     /* Loading */
     #loading {
@@ -179,8 +221,10 @@
   <span id="zoom-lbl">35%</span>
   <span id="ro-badge" class="ro-badge" style="display:none">Read-only</span>
 </div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div id="cmt-panel" hidden></div>
+<div id="board-menu" role="menu" aria-label="Board actions" hidden></div>
+<div id="del-layer" hidden><div id="del-dlg" role="alertdialog" aria-modal="true" aria-labelledby="del-t"></div></div>
 
 <script>
 (function () {
@@ -232,6 +276,9 @@
   const IDEA = STATIC ? '' : (_pathParts[_pathParts.length - 1] || '');
   const BASE = STATIC ? '' : ('/' + _pathParts.join('/'));
   const READ_ONLY = STATIC || !!window.CANVAS_READ_ONLY;
+  const SHARED = typeof window.CANVAS_ASSET_PREFIX === 'string';   // set only in share mode
+  const CAN_DELETE = !READ_ONLY && !SHARED && !OVERVIEW;
+  const DOTS_SVG = '<svg class="v-ic dots" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg>';
   // Share mode: sandboxed boards load their files through a keyed path (no cookie in an opaque origin)
   const ASSET_PREFIX = (!STATIC && typeof window.CANVAS_ASSET_PREFIX === 'string' &&
                         /^\/_k\/[0-9a-f]+$/.test(window.CANVAS_ASSET_PREFIX)) ? window.CANVAS_ASSET_PREFIX : '';
@@ -592,11 +639,25 @@
   }
 
   // ── Toast ────────────────────────────────────────────────────────────────
-  function showToast(msg) {
+  // act: {label, run} adds a button (Undo) and keeps the toast 8 s, longer while the pointer is on it
+  function showToast(msg, act) {
     toast.textContent = msg;
+    toast.classList.toggle('act', !!act);
+    toast.onmouseenter = toast.onmouseleave = null;
+    const hide = () => { clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('on'), act ? 8000 : 1800); };
+    if (act) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'u';
+      b.innerHTML = '<svg class="v-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5 3 6l2.5 2.5"/><path d="M3 6h6.5a3.5 3.5 0 0 1 0 7H7"/></svg>';
+      b.appendChild(document.createTextNode(act.label));
+      b.addEventListener('click', () => { clearTimeout(toastTimer); toast.classList.remove('on'); act.run(); });
+      toast.appendChild(b);
+      toast.onmouseenter = () => clearTimeout(toastTimer);
+      toast.onmouseleave = hide;
+    }
     toast.classList.add('on');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove('on'), 1800);
+    hide();
   }
 
   // ── Load canvas ──────────────────────────────────────────────────────────
@@ -706,6 +767,14 @@
       e.stopPropagation();
     });
 
+    // Right click: the board menu (as the ... button)
+    if (CAN_DELETE) {
+      bar.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        openBoardMenu(file, { left: e.clientX, right: e.clientX + 180, top: e.clientY, bottom: e.clientY }, null);
+      });
+    }
+
     // Double click: open in a new tab
     bar.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -761,6 +830,137 @@
       cb.addEventListener('click', (e) => { e.stopPropagation(); openComments(file, cb); });
       bar.appendChild(cb);
     }
+    if (CAN_DELETE) {
+      const mb = document.createElement('button');
+      mb.type = 'button';
+      mb.className = 'bar-more';
+      mb.setAttribute('aria-label', 'Board menu');
+      mb.setAttribute('aria-haspopup', 'menu');
+      mb.innerHTML = DOTS_SVG;
+      mb.addEventListener('mousedown', (e) => e.stopPropagation());
+      mb.addEventListener('dblclick', (e) => e.stopPropagation());
+      mb.addEventListener('click', (e) => { e.stopPropagation(); openBoardMenu(file, mb.getBoundingClientRect(), mb); });
+      bar.appendChild(mb);
+    }
+  }
+
+  // ── Board menu and delete (D-B24) ────────────────────────────────────────
+  // Local mode only: share pages (even with --share-edit) and read-only canvases have neither the
+  // menu nor the API. Deleting moves the file to <design dir>/.trash/; Undo puts it back.
+  const boardMenu = document.getElementById('board-menu');
+  const delLayer = document.getElementById('del-layer');
+  const delDlg = document.getElementById('del-dlg');
+  let menuBtn = null;
+  function svgIcon(d) { return '<svg class="v-ic" viewBox="0 0 16 16" aria-hidden="true">' + d + '</svg>'; }
+  const TRASH_SVG = svgIcon('<path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.6a1 1 0 0 0 1 .9h4.6a1 1 0 0 0 1-.9l.7-8.6M6.7 7v4.5M9.3 7v4.5"/>');
+  function closeBoardMenu() {
+    if (boardMenu.hidden) return;
+    boardMenu.hidden = true;
+    if (menuBtn) { menuBtn.classList.remove('on'); menuBtn.removeAttribute('aria-expanded'); menuBtn = null; }
+  }
+  function openBoardMenu(file, at, btn) {
+    closeBoardMenu();
+    closeComments();
+    boardMenu.textContent = '';
+    const item = (html, label, run, cls, kbd) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('role', 'menuitem');
+      if (cls) b.className = cls;
+      b.innerHTML = html;
+      b.appendChild(document.createTextNode(label));
+      if (kbd) { const k = document.createElement('span'); k.className = 'k'; k.textContent = kbd; b.appendChild(k); }
+      b.addEventListener('click', () => { closeBoardMenu(); run(); });
+      boardMenu.appendChild(b);
+      return b;
+    };
+    const first = item(svgIcon('<path d="M5 11 11 5M6 5h5v5"/>'), 'Open in new tab', () => window.open(boardUrl(file), '_blank', 'noopener'), '', 'dbl-click');
+    item(svgIcon('<path d="m5.5 4.5-3.5 3.5 3.5 3.5M10.5 4.5 14 8l-3.5 3.5"/>'), 'Copy file name', () => {
+      if (navigator.clipboard) navigator.clipboard.writeText(file).then(() => showToast('Copied: ' + file), () => showToast(file));
+      else showToast(file);
+    });
+    const sp = document.createElement('div');
+    sp.className = 'sp';
+    sp.setAttribute('role', 'separator');
+    boardMenu.appendChild(sp);
+    item(TRASH_SVG, 'Delete board', () => confirmDeleteBoard(file), 'dg');
+    boardMenu.hidden = false;
+    const mw = boardMenu.offsetWidth, mh = boardMenu.offsetHeight;
+    boardMenu.style.left = Math.max(8, Math.min(at.right - mw, window.innerWidth - mw - 8)) + 'px';
+    boardMenu.style.top = (at.bottom + mh + 8 > window.innerHeight ? Math.max(8, at.top - mh - 4) : at.bottom + 4) + 'px';
+    if (btn) { menuBtn = btn; btn.classList.add('on'); btn.setAttribute('aria-expanded', 'true'); }
+    first.focus({ preventScroll: true });
+  }
+  boardMenu.addEventListener('mousedown', (e) => e.stopPropagation());
+  boardMenu.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+  boardMenu.addEventListener('keydown', (e) => {
+    const items = [...boardMenu.querySelectorAll('button')];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
+    } else if (e.key === 'Tab') closeBoardMenu();
+  });
+  document.addEventListener('mousedown', (e) => { if (!boardMenu.contains(e.target)) closeBoardMenu(); }, true);
+
+  let delBack = null;
+  function closeDelete() {
+    if (delLayer.hidden) return;
+    delLayer.hidden = true;
+    delDlg.textContent = '';
+    if (delBack && delBack.isConnected) delBack.focus({ preventScroll: true });
+  }
+  function confirmDeleteBoard(file) {
+    const b = canvasData && canvasData.boards[file];
+    if (!b) return;
+    const nc = b.comments.length;
+    const na = canvasData.links.filter(l => l && (l.from === file || l.to === file)).length;
+    const what = [];
+    if (nc) what.push('<b>' + nc + ' comment' + (nc === 1 ? '' : 's') + '</b>');
+    if (na) what.push('<b>' + na + ' flow arrow' + (na === 1 ? '' : 's') + '</b>');
+    delDlg.innerHTML =
+      '<h3 id="del-t">Delete ' + escHtml(file.replace(/\.html$/, '')) + '?</h3>' +
+      (what.length ? '<p>Its ' + what.join(' and ') + ' go with it.</p>' : '<p>Its status, group, and position go with it.</p>') +
+      '<p>The file moves to <code>design/.trash/' + escHtml(IDEA) + '/</code>. Undo puts it back where it was.</p>' +
+      '<div class="ft"><button type="button" class="no">Cancel</button><button type="button" class="dg">' + TRASH_SVG + 'Delete</button></div>';
+    const no = delDlg.querySelector('.no');
+    no.addEventListener('click', closeDelete);
+    delDlg.querySelector('.dg').addEventListener('click', () => { closeDelete(); deleteBoard(file); });
+    delBack = document.activeElement;
+    delLayer.hidden = false;
+    no.focus();
+  }
+  delLayer.addEventListener('mousedown', (e) => { e.stopPropagation(); if (e.target === delLayer) closeDelete(); });
+  delLayer.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+  delLayer.addEventListener('keydown', (e) => {   // keep Tab between the two buttons
+    if (e.key !== 'Tab') return;
+    const f = [...delDlg.querySelectorAll('button')];
+    const i = f.indexOf(document.activeElement);
+    e.preventDefault();
+    f[(i + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus();
+  });
+  async function post(path, body) {
+    try {
+      const r = await fetch(path, { method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const d = await r.json().catch(() => null);
+      return d && typeof d === 'object' ? d : { ok: false, error: 'Request failed (' + r.status + ')' };
+    } catch (_) {
+      return { ok: false, error: 'The server did not answer' };
+    }
+  }
+  const scope = () => (_pathParts.length > 1 ? { project: _pathParts[0], idea: IDEA } : { idea: IDEA });
+  async function deleteBoard(file) {
+    const d = await post('/api/trash', Object.assign(scope(), { file }));
+    if (!d.ok) { showToast(d.error || 'Could not delete'); return; }
+    await loadCanvas(true);
+    const name = file.replace(/\.html$/, '');
+    showToast('Deleted ' + name, { label: 'Undo', run: async () => {
+      const r = await post('/api/restore', Object.assign(scope(), { id: d.id }));
+      if (!r.ok) { showToast('Could not restore: ' + (r.error || 'unknown error')); return; }
+      await loadCanvas(true);
+      showToast('Restored ' + name);
+    } });
   }
 
   // ── Render arrows ────────────────────────────────────────────────────────
@@ -1082,6 +1282,10 @@
 
   // ── Keyboard ─────────────────────────────────────────────────────────────
   window.addEventListener('keydown', (e) => {
+    if (!delLayer.hidden || !boardMenu.hidden) {   // the dialog and the menu take the keys
+      if (e.key === 'Escape') { e.preventDefault(); if (!delLayer.hidden) closeDelete(); else { const b = menuBtn; closeBoardMenu(); if (b) b.focus(); } }
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
       e.preventDefault();
       if (!READ_ONLY) undoMove(e.shiftKey);

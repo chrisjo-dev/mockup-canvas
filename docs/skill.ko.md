@@ -146,6 +146,8 @@ canvas status design/wallet W02-Send.html rejected
 
 반려된 아트보드는 회색 배지와 취소선 제목으로 표시되어, 무엇을 반려했는지가 현재 버전 옆에 그대로 남습니다.
 
+에이전트는 사용자가 요청할 때만 지웁니다. 이때 `canvas trash`가 아이디어나 보드를 `design/.trash/`로 옮기고, `canvas restore`가 되돌립니다. 대시보드(Delete idea)와 캔버스(보드 제목의 `...`)에서도 같은 삭제를 할 수 있고, 알림의 Undo로 되돌립니다.
+
 ### 10. 승인이 곧 기록
 
 사용자가 화면을 승인하면 에이전트가 기록합니다.

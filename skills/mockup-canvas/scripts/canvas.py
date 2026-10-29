@@ -23,6 +23,8 @@ Commands:
   impl <idea dir> [--strict]
   impl <idea dir> <file> --route PATH [--file PATH]... | --clear
   comment <idea dir> <file> [TEXT [--by NAME] | --clear]
+  trash <idea dir> [file] | trash --list <design dir>
+  restore <design dir> <trash id>
 
 Run any command with -h/--help to see its usage.
 
@@ -32,7 +34,7 @@ User data lives in ~/.mockup-canvas/ (override with MOCKUP_CANVAS_HOME):
 """
 import sys, os, json, re, shutil, subprocess, time, threading, tempfile, pathlib, signal, stat
 import socketserver, socket, secrets, mimetypes, http.client, textwrap
-import atexit, hmac, hashlib, base64, ipaddress, unicodedata, select
+import atexit, hmac, hashlib, base64, ipaddress, unicodedata, select, errno
 import html as _html
 from http.server import BaseHTTPRequestHandler, HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
@@ -1415,6 +1417,222 @@ def _ensure_group(canvas, group_name):
     if not any(g.get('id') == group_name for g in groups):
         groups.append({'id': group_name, 'label': group_name})
 
+# ── Trash ──────────────────────────────────────────────────────────────────
+# Deleting an idea or a board moves it into <design dir>/.trash/ instead of removing it:
+#   an idea   -> .trash/<idea>-<UTC time>/           (the folder as it was)
+#   a board   -> .trash/<idea>/<name>-<UTC time>.html, plus a .json sidecar holding its
+#                canvas.json entry (position, group, status, comments, impl) and its flow arrows
+# The id of an entry is its path under .trash without the extension. Nothing here ever deletes:
+# to empty the trash, remove the folder by hand.
+
+TRASH_DIR = '.trash'
+_TRASH_NAME = re.compile(r'^(.+)-(\d{8}T\d{6}Z)(?:-\d+)?$')
+_canvas_lock = threading.Lock()   # read-modify-write of a canvas.json by the server
+
+class TrashError(Exception):
+    pass
+
+def _plain_name(name):
+    """A single path segment that is not hidden: no separators, '..', or NUL."""
+    return (isinstance(name, str) and bool(name) and name == os.path.basename(name) and not name.startswith('.')
+            and '/' not in name and '\\' not in name and '\x00' not in name)
+
+def _trash_root(design_dir, create=False):
+    t = os.path.join(os.path.realpath(design_dir), TRASH_DIR)
+    if os.path.islink(t) or (os.path.lexists(t) and not os.path.isdir(t)):
+        raise TrashError('design/.trash is not a plain folder')
+    if create:
+        os.makedirs(t, exist_ok=True)
+    return t
+
+def _trash_sub(folder, create=False):
+    """A plain (not linked) folder inside the trash."""
+    if os.path.islink(folder) or (os.path.lexists(folder) and not os.path.isdir(folder)):
+        raise TrashError('The trash folder of this idea is not a plain folder')
+    if create:
+        os.makedirs(folder, exist_ok=True)
+    return folder
+
+def _stamped(folder, base, *exts):
+    ts = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+    name, n = f'{base}-{ts}', 2
+    while any(os.path.lexists(os.path.join(folder, name + e)) for e in exts or ('',)):
+        name, n = f'{base}-{ts}-{n}', n + 1
+    return name
+
+def _move(src, dst):
+    if os.path.lexists(dst):   # os.rename would replace a file or an empty folder
+        raise TrashError('Already exists: ' + dst)
+    try:
+        os.rename(src, dst)
+    except OSError as e:
+        if e.errno != errno.EXDEV:
+            raise
+        shutil.move(src, dst)   # another volume (a linked trash is refused, but design/ may be a mount)
+
+def _idea_folder(design_dir, idea):
+    if not _plain_name(idea):
+        raise TrashError(f'Not an idea name: {idea}')
+    real = os.path.realpath(design_dir)
+    d = os.path.join(real, idea)
+    if not os.path.isdir(d) or not _within(d, real) or not os.path.isfile(os.path.join(d, 'canvas.json')):
+        raise TrashError(f'No idea named {idea}')
+    return d
+
+def trash_idea(design_dir, idea):
+    """Move an idea folder into the trash. Returns its trash id."""
+    src = _idea_folder(design_dir, idea)
+    with _canvas_lock:
+        t = _trash_root(design_dir, create=True)
+        tid = _stamped(t, idea)
+        _move(src, os.path.join(t, tid))
+    return tid
+
+def _drop_thumbs(idea_dir, fname):
+    folder = os.path.join(idea_dir, 'render', '.thumbs')
+    pat = re.compile(re.escape(fname[:-5]) + r'-\d+x\d+-[0-9a-f-]+\.png$')
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    for n in names:
+        if pat.match(n):
+            try:
+                os.remove(os.path.join(folder, n))
+            except OSError:
+                pass
+
+def trash_board(design_dir, idea, fname):
+    """Move a board file into the trash and take it out of canvas.json, keeping its entry and
+    flow arrows in a sidecar so restore_trash can put them back. Returns its trash id."""
+    idea_dir = _idea_folder(design_dir, idea)
+    if not _plain_name(fname) or not fname.endswith('.html'):
+        raise TrashError(f'Not a board file name: {fname}')
+    cj = os.path.join(idea_dir, 'canvas.json')
+    with _canvas_lock:
+        canvas = load_canvas(idea_dir)
+        boards = canvas.get('boards') if isinstance(canvas.get('boards'), dict) else {}
+        if fname not in boards:
+            raise TrashError(f'No board named {fname} in {idea}')
+        links = canvas.get('links') if isinstance(canvas.get('links'), list) else []
+        mine = [l for l in links if isinstance(l, dict) and fname in (l.get('from'), l.get('to'))]
+        folder = _trash_sub(os.path.join(_trash_root(design_dir, create=True), idea), create=True)
+        name = _stamped(folder, fname[:-5], '.html', '.json')
+        side = os.path.join(folder, name + '.json')
+        with open(side, 'x', encoding='utf-8') as f:
+            json.dump({'version': 1, 'idea': idea, 'file': fname, 'board': boards[fname], 'links': mine,
+                       'deleted': _now()}, f, ensure_ascii=False, indent=2)
+        src = os.path.join(idea_dir, 'boards', fname)
+        # a linked boards/ folder or board file is not moved (its target lives elsewhere)
+        moved = os.path.isfile(src) and not os.path.islink(src) and _within(src, idea_dir)
+        try:
+            if moved:
+                _move(src, os.path.join(folder, name + '.html'))
+            del boards[fname]
+            canvas['links'] = [l for l in links if not (isinstance(l, dict) and fname in (l.get('from'), l.get('to')))]
+            save_canvas_atomic(cj, canvas)
+        except Exception:
+            if moved and not os.path.lexists(src):
+                _move(os.path.join(folder, name + '.html'), src)
+            os.remove(side)
+            raise
+    _drop_thumbs(idea_dir, fname)
+    return idea + '/' + name
+
+def _trash_id_parts(tid):
+    parts = tid.split('/') if isinstance(tid, str) else []
+    if len(parts) not in (1, 2) or not all(_plain_name(p) for p in parts) or not _TRASH_NAME.match(parts[-1]):
+        raise TrashError(f'Not a trash id: {tid}')
+    return parts
+
+def restore_trash(design_dir, tid):
+    """Put a trash entry back. Returns {'kind': 'idea'|'board', 'idea', 'file'?}."""
+    parts = _trash_id_parts(tid)
+    real = os.path.realpath(design_dir)
+    t = _trash_root(design_dir)
+    with _canvas_lock:
+        if len(parts) == 1:
+            src = os.path.join(t, tid)
+            if not os.path.isdir(src) or os.path.islink(src):
+                raise TrashError(f'Not in the trash: {tid}')
+            idea = _TRASH_NAME.match(tid).group(1)
+            dst = os.path.join(real, idea)
+            if os.path.lexists(dst):
+                raise TrashError(f'design/{idea} already exists')
+            _move(src, dst)
+            return {'kind': 'idea', 'idea': idea}
+        idea, name = parts
+        folder = _trash_sub(os.path.join(t, idea))
+        side = os.path.join(folder, name + '.json')
+        try:
+            with open(side, encoding='utf-8') as f:
+                meta = json.load(f)
+        except (OSError, ValueError):
+            raise TrashError(f'Not in the trash: {tid}')
+        fname = meta.get('file') if isinstance(meta, dict) else None
+        if not _plain_name(fname) or not fname.endswith('.html') or not isinstance(meta.get('board'), dict):
+            raise TrashError(f'Broken trash entry: {tid}')
+        idea_dir = os.path.join(real, idea)
+        if not os.path.isfile(os.path.join(idea_dir, 'canvas.json')) or not _within(idea_dir, real):
+            raise TrashError(f'Restore the idea {idea} first')
+        canvas = load_canvas(idea_dir)
+        boards = canvas.setdefault('boards', {})
+        dst = os.path.join(idea_dir, 'boards', fname)
+        if os.path.lexists(os.path.dirname(dst)) and not _within(os.path.dirname(dst), idea_dir):
+            raise TrashError(f'{idea}/boards is a link out of the idea folder')
+        if fname in boards or os.path.lexists(dst):
+            raise TrashError(f'boards/{fname} already exists')
+        html = os.path.join(folder, name + '.html')
+        moved = os.path.isfile(html)
+        if moved:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            _move(html, dst)
+        try:
+            boards[fname] = meta['board']
+            links = canvas.setdefault('links', [])
+            for l in meta.get('links') or []:
+                if (isinstance(l, dict) and l.get('from') in boards and l.get('to') in boards
+                        and not any(isinstance(o, dict) and o.get('from') == l['from'] and o.get('to') == l['to'] for o in links)):
+                    links.append(l)
+            save_canvas_atomic(os.path.join(idea_dir, 'canvas.json'), canvas)
+        except Exception:
+            if moved:
+                _move(dst, html)
+            raise
+        os.remove(side)
+        try:
+            os.rmdir(folder)   # only when nothing else of this idea is in the trash
+        except OSError:
+            pass
+        return {'kind': 'board', 'idea': idea, 'file': fname}
+
+def list_trash(design_dir):
+    """[{'id', 'kind', 'idea', 'file'?, 'deleted'}] oldest first."""
+    try:
+        t = _trash_root(design_dir)
+        names = sorted(os.listdir(t))
+    except (TrashError, OSError):
+        return []
+    out = []
+    for n in names:
+        p = os.path.join(t, n)
+        m = _TRASH_NAME.match(n)
+        if m and os.path.isdir(p) and not os.path.islink(p):
+            out.append({'id': n, 'kind': 'idea', 'idea': m.group(1), 'deleted': m.group(2)})
+        elif _plain_name(n) and os.path.isdir(p) and not os.path.islink(p):
+            for f in sorted(os.listdir(p)):
+                m = _TRASH_NAME.match(f[:-5]) if f.endswith('.json') else None
+                if not m:
+                    continue
+                try:
+                    with open(os.path.join(p, f), encoding='utf-8') as fh:
+                        meta = json.load(fh)
+                except (OSError, ValueError):
+                    continue
+                out.append({'id': n + '/' + f[:-5], 'kind': 'board', 'idea': n, 'file': meta.get('file'), 'deleted': m.group(2)})
+    out.sort(key=lambda e: e['deleted'])
+    return out
+
 # ── SSE ────────────────────────────────────────────────────────────────────
 
 SSE_SEND_TIMEOUT = 5   # seconds a write to one live reload client may block
@@ -1473,7 +1691,7 @@ def _watch_thread(design_dirs):
             try:
                 for idea in os.listdir(design_dir):
                     idea_dir = os.path.join(design_dir, idea)
-                    if not os.path.isdir(idea_dir):
+                    if idea.startswith('.') or not os.path.isdir(idea_dir):
                         continue
                     sse_key = prefix + idea
                     boards_dir = os.path.join(idea_dir, 'boards')
@@ -1813,7 +2031,8 @@ def _list_ideas(design_dir):
         names = sorted(os.listdir(design_dir))
     except OSError:
         return []
-    return [d for d in names if os.path.isfile(os.path.join(design_dir, d, 'canvas.json'))]
+    # Hidden folders (.trash and the like) are never ideas
+    return [d for d in names if not d.startswith('.') and os.path.isfile(os.path.join(design_dir, d, 'canvas.json'))]
 
 
 def build_index(roots, single=False, share=False):
@@ -2013,11 +2232,12 @@ class CanvasHandler(BaseHTTPRequestHandler):
             board = str(payload['board'])
             new_x = int(payload['x'])
             new_y = int(payload['y'])
-            canvas = load_canvas(idea_dir)
-            if board in canvas.get('boards', {}):
-                canvas['boards'][board]['x'] = new_x
-                canvas['boards'][board]['y'] = new_y
-                save_canvas_atomic(cj_path, canvas)
+            with _canvas_lock:
+                canvas = load_canvas(idea_dir)
+                if board in canvas.get('boards', {}):
+                    canvas['boards'][board]['x'] = new_x
+                    canvas['boards'][board]['y'] = new_y
+                    save_canvas_atomic(cj_path, canvas)
             self._json({'ok': True})
         except Exception as e:
             self._log_error('layout save failed', e)
@@ -2201,7 +2421,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
             return
 
         idea = parts[0]
-        idea_dir = self._safe(idea)
+        idea_dir = self._safe(idea) if not idea.startswith('.') else None   # .trash is not served
         if not idea_dir or not os.path.isdir(idea_dir):
             self._404(); return
 
@@ -2252,6 +2472,9 @@ class CanvasHandler(BaseHTTPRequestHandler):
 
         if parts == ['api', 'reveal']:
             self._reveal()
+            return
+        if parts in (['api', 'trash'], ['api', 'restore']):
+            self._trash_api(parts[1])
             return
 
         if len(parts) == 3 and parts[1] == 'api' and parts[2] == 'layout':
@@ -2340,6 +2563,42 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._log_error('reveal failed', e)
             self._json({'ok': False, 'error': 'Could not open the file manager'}, 500); return
         self._json({'ok': True})
+
+    def _trash_design(self, body):
+        """The design folder a trash request names (single root: the one served)."""
+        return self.design_dir
+
+    def _trash_api(self, action):
+        """POST /api/trash {project?, idea, file?} and /api/restore {project?, id}. Local mode only:
+        share pages (even with --share-edit) and read-only servers never move files."""
+        if self.share_token or self.read_only:
+            self._json({'ok': False, 'error': 'Not allowed in share mode' if self.share_token else 'Read-only'}, 403)
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        design_dir = self._trash_design(body)
+        if not design_dir or not os.path.isdir(design_dir):
+            self._json({'ok': False, 'error': 'No such project'}, 404)
+            return
+        try:
+            if action == 'trash':
+                idea, fname = body.get('idea'), body.get('file')
+                if fname is None:
+                    tid = trash_idea(design_dir, idea)
+                    self._json({'ok': True, 'id': tid, 'kind': 'idea', 'idea': idea})
+                else:
+                    tid = trash_board(design_dir, idea, fname)
+                    self._json({'ok': True, 'id': tid, 'kind': 'board', 'idea': idea, 'file': fname})
+            else:
+                self._json(dict(restore_trash(design_dir, body.get('id')), ok=True))
+        except TrashError as e:
+            self._json({'ok': False, 'error': str(e)}, 400)
+        except OSError as e:
+            self._log_error(action + ' failed', e)
+            self._json({'ok': False, 'error': 'Could not move the files'}, 500)
+        else:
+            _broadcast(DASH_SSE_KEY, {'type': 'canvas'})
 
     def _serve_viewer(self, scope):
         """Serve viewer.html, injecting CANVAS_READ_ONLY when the session is read-only.
@@ -2475,6 +2734,9 @@ class RegistryHandler(CanvasHandler):
         data['collections'] = cols
         return data
 
+    def _trash_design(self, body):
+        return self._roots_map().get(str(body.get('project') or ''))
+
     def _reveal_target(self, body):
         project = str(body.get('project') or '')
         return self._reveal_in(self._roots_map().get(project), body.get('idea'))
@@ -2491,7 +2753,7 @@ class RegistryHandler(CanvasHandler):
         # Set instance attribute so _safe works correctly
         self.design_dir = design_dir
         idea = parts[1]
-        idea_dir = _safe_path(design_dir, idea)
+        idea_dir = _safe_path(design_dir, idea) if not idea.startswith('.') else None   # .trash is not served
         if not idea_dir:
             return None
         return project, idea, design_dir, idea_dir
@@ -2573,6 +2835,9 @@ class RegistryHandler(CanvasHandler):
         if parts == ['api', 'reveal']:
             self._reveal()
             return
+        if parts in (['api', 'trash'], ['api', 'restore']):
+            self._trash_api(parts[1])
+            return
 
         # ── Save layout (/<project>/<idea>/api/layout) ───────────────────
         if self.read_only or (self.share_token and not self.share_edit):
@@ -2606,7 +2871,7 @@ class RegistryHandler(CanvasHandler):
         return {'path': _display_path(inner), 'ideas': ideas, 'boards': boards}
 
     def _handle_roots_api(self, action):
-        """POST /api/roots/{check|add|remove|rename|scan|collection}"""
+        """POST /api/roots/{check|add|remove|rename|scan|collection|collection-delete|collection-restore}"""
         # Never allow registry changes in share mode
         if self.share_token:
             self._json({'ok': False, 'error': 'Not allowed in share mode'}, 403)
@@ -2691,6 +2956,20 @@ class RegistryHandler(CanvasHandler):
         if action == 'collection':
             self._set_collection(body)
             return
+        if action == 'collection-delete':
+            name = body.get('name')
+            with _roots_lock:
+                cols = load_collections()
+                if not isinstance(name, str) or name not in cols:
+                    self._json({'ok': False, 'error': f'No collection named {name}'}, 404)
+                    return
+                keys = cols.pop(name)
+                save_roots(load_roots(), cols)
+            self._json({'ok': True, 'name': name, 'keys': keys})
+            return
+        if action == 'collection-restore':
+            self._restore_collection(body)
+            return
 
         if action == 'remove':
             name = str(body.get('name') or '').strip()
@@ -2723,6 +3002,35 @@ class RegistryHandler(CanvasHandler):
             return
 
         self._json({'ok': False, 'error': 'Unknown API'}, 404)
+
+    def _restore_collection(self, body):
+        """{name, keys} from collection-delete: the collection again, with the keys that still name a
+        registered project and are not in another collection by now."""
+        name, keys = body.get('name'), body.get('keys')
+        if not isinstance(name, str) or _validate_collection_name(name) or name != name.strip() or not isinstance(keys, list):
+            self._json({'ok': False, 'error': 'The name and keys fields are required'}, 400)
+            return
+        with _roots_lock:
+            roots = load_roots()
+            cols = load_collections()
+            if name in cols:
+                self._json({'ok': False, 'error': f'A collection named {name} already exists'}, 409)
+                return
+            if len(cols) >= COLLECTIONS_MAX:
+                self._json({'ok': False, 'error': f'Use at most {COLLECTIONS_MAX} collections'}, 400)
+                return
+            names = {r['name'] for r in roots}
+            taken = {k for ks in cols.values() for k in ks}
+            kept = []
+            for k in keys[:1000]:
+                if isinstance(k, str) and k.split('/', 1)[0] in names and k not in taken and k not in kept:
+                    kept.append(k)
+            if not kept:
+                self._json({'ok': False, 'error': 'Nothing left to put back in ' + name}, 409)
+                return
+            cols[name] = kept
+            save_roots(roots, cols)
+        self._json({'ok': True, 'name': name, 'collections': cols})
 
     def _set_collection(self, body):
         """{key, collection}: put a project ("name") or one idea ("name/idea") in a collection, taking
@@ -4218,6 +4526,48 @@ def cmd_comment(args):
     save_canvas_atomic(cj, canvas)
     print(f'Comment added: {key} ({len(comments)} total)')
 
+# ── trash ──────────────────────────────────────────────────────────────────
+
+def cmd_trash(args):
+    usage = ('Usage: canvas.py trash <idea dir>            move an idea to <design dir>/.trash/\n'
+             '       canvas.py trash <idea dir> <file>     move one board there (canvas.json entry kept for restore)\n'
+             '       canvas.py trash --list <design dir>   list what is in the trash')
+    if not args or _is_help(args):
+        print(usage); return
+    try:
+        if args[0] == '--list':
+            if len(args) != 2:
+                print(usage, file=sys.stderr); return 1
+            items = list_trash(args[1])
+            if not items:
+                print('The trash is empty'); return
+            for e in items:
+                what = e['idea'] + ('/' + str(e['file']) if e['kind'] == 'board' else '/')
+                print(f"{e['id']}  {e['kind']:5}  {what}  deleted {e['deleted']}")
+            return
+        if len(args) > 2:
+            print(usage, file=sys.stderr); return 1
+        idea_dir = os.path.abspath(args[0]).rstrip(os.sep)
+        design_dir, idea = os.path.dirname(idea_dir), os.path.basename(idea_dir)
+        if len(args) == 1:
+            tid = trash_idea(design_dir, idea)
+        else:
+            tid = trash_board(design_dir, idea, _board_key(args[1]))
+    except TrashError as e:
+        print(f'Error: {e}', file=sys.stderr); return 1
+    print(f'Moved to the trash: {tid}')
+    print(f'Undo: canvas.py restore {_display_path(design_dir)} {tid}')
+
+def cmd_restore(args):
+    if len(args) != 2 or _is_help(args):
+        print('Usage: canvas.py restore <design dir> <trash id>   (ids: canvas.py trash --list <design dir>)')
+        return None if _is_help(args) or not args else 1
+    try:
+        r = restore_trash(args[0], args[1])
+    except TrashError as e:
+        print(f'Error: {e}', file=sys.stderr); return 1
+    print('Restored: ' + r['idea'] + ('/boards/' + r['file'] if r['kind'] == 'board' else '/'))
+
 # ── main ───────────────────────────────────────────────────────────────────
 
 def main():
@@ -4236,6 +4586,7 @@ def main():
         'group': cmd_group,
         'snap': cmd_snap, 'compare': cmd_compare,
         'impl': cmd_impl, 'comment': cmd_comment,
+        'trash': cmd_trash, 'restore': cmd_restore,
     }
     if cmd in dispatch:
         ret = dispatch[cmd](sys.argv[2:])

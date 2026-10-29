@@ -1,5 +1,5 @@
-// Registry management for the dashboard: add, find, locate, rename, and remove projects, and
-// reveal folders. The server inlines this file only in local mode; share pages never get it.
+// Registry management for the dashboard: add, find, locate, rename, and remove projects, reveal
+// folders, and delete ideas and collections (with Undo). The server inlines this file only in local mode; share pages never get it.
 (function () {
   'use strict';
   const MC = window.MC;
@@ -93,7 +93,64 @@
     MC.toast(name ? (target.current ? 'Moved ' : 'Added ') + target.name + ' to ' + name : 'Removed ' + target.name + ' from ' + target.current);
     await MC.refresh(true);
   }
-  const collections = () => MC.data.mode !== 'single';   // one design folder has no registry to keep them in
+  const collections = () => MC.data.mode !== 'single';
+
+  // ── Delete (D-B23, D-B25): confirm, then a toast with Undo ──
+  // lines: text nodes and elements for the body; focus starts on Cancel, so Enter does not delete
+  function confirmDelete(title, lines, cli, onYes) {
+    const close = () => MC.closeLayer();
+    const cancel = h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel');
+    const yes = h('button', { class: 'btn danger', type: 'button', onclick: () => { close(); onYes(); } }, icon('trash', 'sm'), 'Delete');
+    const dlg = h('div', { class: 'dialog cf', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'cf-t', 'aria-describedby': 'cf-b' },
+      h('div', { class: 'grab' }),
+      h('div', { class: 'dh' }, h('span', { class: 'ic' }, icon('trash', 'sm')), h('h2', { id: 'cf-t', text: title })),
+      h('div', { class: 'db', id: 'cf-b' }, lines.map((l) => h('p', null, l))),
+      h('div', { class: 'df' }, cli ? h('span', { class: 'mono', text: cli }) : null, h('span', { class: 'sp' }), cancel, yes));
+    MC.openLayer([h('div', { class: 'scrim', onclick: close }), dlg]);
+    dlg.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
+    cancel.focus();
+  }
+  const bold = (t) => h('b', { text: t });
+  async function deleteIdea(x) {
+    const nb = x.boards.length, nc = x.c || 0;
+    const what = [bold(MC.plural(nb, 'board'))].concat(nc ? [' and ', bold(MC.plural(nc, 'comment'))] : []);
+    const p = project(x.project);
+    const cli = 'canvas trash ' + MC.shq(ideaPath(x));
+    confirmDelete('Delete ' + x.name + '?', [
+      what.concat([nb + nc === 1 ? ' goes with it.' : ' go with it.']),
+      ['The folder moves to ', h('span', { class: 'mono', text: 'design/.trash/' }), '. Undo puts it back, or restore it later with ',
+        h('span', { class: 'mono', text: 'canvas restore' }), '.'],
+    ], p && p.path ? cli : '', async () => {
+      const d = await post('/api/trash', { project: x.project, idea: x.name });
+      if (!d.ok) { MC.toast(d.error || 'Could not delete'); return; }
+      await MC.refresh(true);
+      MC.toast('Deleted ' + x.name, { label: 'Undo', run: async () => {
+        const r = await post('/api/restore', { project: x.project, id: d.id });
+        if (!r.ok) { MC.toast('Could not restore: ' + (r.error || 'unknown error')); return; }
+        await MC.refresh(true);
+        MC.toast('Restored ' + x.name);
+      } });
+    });
+  }
+  async function deleteCollection(c, xs) {
+    const projs = new Set(xs.map((x) => x.project)).size;
+    confirmDelete('Delete the ' + c.name + ' collection?', [
+      [bold(MC.plural(xs.length, 'idea')), ' from ' + MC.plural(projs, 'project') + ' stay where they are. Only the collection goes.'],
+      'Files are not touched.',
+    ], '', async () => {
+      const d = await post('/api/roots/collection-delete', { name: c.name });
+      if (!d.ok) { MC.toast(d.error || 'Could not delete'); return; }
+      await MC.refresh(true);
+      MC.go({ project: 'all', col: null, page: 'ideas' }, true);
+      MC.toast('Deleted ' + c.name, { label: 'Undo', run: async () => {
+        const r = await post('/api/roots/collection-restore', { name: d.name, keys: d.keys });
+        if (!r.ok) { MC.toast('Could not restore: ' + (r.error || 'unknown error')); return; }
+        await MC.refresh(true);
+        MC.go({ project: 'all', col: d.name, page: 'ideas' }, true);
+        MC.toast('Restored ' + d.name);
+      } });
+    });
+  }   // one design folder has no registry to keep them in
 
   // ── Add project dialog: Folder path and Find in folders ──
   function openAdd(o) {
@@ -310,7 +367,19 @@
           collectionList(menu, target, 'Move to collection', back);
         } });
       }
+      items.push({ sep: true }, { icon: 'trash', label: 'Delete idea', danger: true, run: () => deleteIdea(x) });
       return items;
+    },
+    collectionTools(c, xs) {
+      const more = h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Collection menu', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon('dots'));
+      more.addEventListener('click', () => {
+        const m = MC.buildMenu([{ icon: 'trash', label: 'Delete collection', danger: true, run: () => deleteCollection(c, xs) }], 'Collection actions');
+        m.style.top = (more.offsetTop + more.offsetHeight + 6) + 'px';
+        m.style.right = '0';
+        more.setAttribute('aria-expanded', 'true');
+        MC.showMenu(more.parentNode, m, () => more.setAttribute('aria-expanded', 'false'));
+      });
+      return [more];
     },
     projectTools(p, rescan) {
       const more = h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Project menu', 'aria-haspopup': 'menu' }, icon('dots'));

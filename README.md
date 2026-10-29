@@ -67,7 +67,7 @@ The agent draws each screen as a small HTML file, and the canvas shows them side
 
 **The CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- One Python 3 file of about 4,000 lines, standard library only (Python 3.8+), no pip dependencies. It has 16 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
+- One Python 3 file of about 4,600 lines, standard library only (Python 3.8+), no pip dependencies. It has 18 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`.
 - Chrome (or Chromium or Edge) is used only to render boards and capture app pages as PNGs.
 
 ## The dashboard
@@ -80,6 +80,7 @@ The agent draws each screen as a small HTML file, and the canvas shows them side
 - **Views.** Large or Compact cards, sorting by recent edit, name, or board count, and an all-boards page for each project with a status filter.
 - **Projects.** Add project registers a design folder, Find in folders scans folders for design folders, and each project can be renamed or removed from the list (no files are deleted).
 - **Collections** gather ideas from several projects under one name in the rail, without moving any folder. Use Move to collection on an idea card, or Add to collection in a project's menu to include the whole project (its later ideas too). Each idea belongs to one collection, a collection disappears when its last idea is taken out, and they are kept in `roots.json`.
+- **Delete with Undo.** Delete idea in a card's menu, and Delete collection in a collection's menu. An idea folder moves to `design/.trash/`, and a toast offers Undo for 8 seconds. Deleting a collection leaves its ideas where they are. Share pages and read-only servers have no delete.
 - **Missing folder warnings** flag a registered project whose folder was moved or deleted, with a button to locate it again.
 - **Light and dark themes** (the sun or moon button, or `Shift+T`), and a phone layout with project tabs and a status menu.
 
@@ -214,7 +215,7 @@ Each skill follows the workflow in its `SKILL.md`. See [docs/skill.md](docs/skil
 6. **Check, render, overview.** `canvas check` must report 0 problems. The agent looks at the PNGs from `canvas render` (with `--full-page` for content below the fold) and `canvas overview` itself before showing you anything.
 7. **Serve and share the URL.** `canvas serve` (registry mode, port 4400) shows every project from one server. The agent leaves it running and gives you the address.
 8. **Phone viewing.** A static bundle from `canvas export` that the agent can upload to a private hosted page, or `canvas serve <design dir> --share` for live viewing on the same network.
-9. **Keep old versions.** Nothing is deleted. Old screens move to an `old drafts` group and are marked `rejected`.
+9. **Keep old versions.** The agent never deletes on its own. Old screens move to an `old drafts` group and are marked `rejected`. When you ask for a delete, `canvas trash` moves the idea or board to `design/.trash/`, and `canvas restore` puts it back.
 10. **Approval is the record.** When you approve a screen, the agent runs `canvas status ... approved --note "..."`. Simple praise is not approval.
 11. **First-draft retrospective.** After the first full draft, the agent reviews how the work went (not the design) and lists at most three skill improvement suggestions. It never edits the skill without your approval.
 
@@ -282,6 +283,8 @@ Run `canvas <command> -h` for the usage of any command.
 | `compare` | Render a board at its registered size, capture the app at the same size (`--url`) or use a PNG (`--png`), and write `board.png`, `app.png`, `diff.png` (mismatches in magenta), `side.png` (board, app, and diff side by side), and `report.json` (with `mismatch_percent`) to `<idea>/compare/<board id>/`, or `--out DIR`. `--threshold N` (0 to 255, default 24) is how far a color channel may differ before a pixel counts; `--ignore-top N` and `--ignore-bottom N` leave bands out; `--align-top N` places the app N px down, below a fake status bar the board draws; `--wait MS` (default 3000). | `canvas compare design/wallet W01-Home.html --url http://localhost:5173/ --align-top 47` |
 | `impl` | With a board: record the route and source files (relative to the project root) that implement it, or `--clear` the record. Without a board: list approved boards and whether each is implemented; `--strict` exits 1 when one is missing. | `canvas impl design/wallet W01-Home.html --route / --file src/pages/Home.tsx`<br>`canvas impl design/wallet --strict` |
 | `comment` | Add a review comment to a board (`--by NAME` for the author), list its comments when no text is given, or remove them with `--clear`. | `canvas comment design/wallet W02-Send.html "[must] No error state" --by reviewer` |
+| `trash` | Move an idea, or one board of it, to `<design dir>/.trash/`. A board keeps its canvas.json entry (position, group, status, comments) and its flow arrows in a sidecar file for restore. `--list` shows what is there. Nothing is ever removed for good; empty the folder by hand. | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
+| `restore` | Put a trash entry back by its id (from `trash --list`). It refuses when something now has the same name. | `canvas restore design wallet/W02-Send-20261029T101034Z` |
 
 ## Canvas shortcuts
 
@@ -300,6 +303,7 @@ Run `canvas <command> -h` for the usage of any command.
 | Click a group header | Collapse or expand the group |
 | Hover an artboard title | Show its note |
 | Click a comment count | Open the board's comments; `Esc` closes them |
+| `...` on an artboard title, or right-click the title | Board menu: open in a new tab, copy the file name, or delete the board (it moves to `design/.trash/`; the toast's Undo puts it back) |
 | Open `.../<idea>/#<board>`, for example `#T01-Home` | Fit that one board in view (dashboard board results link here) |
 
 Moving artboards is not available in a static export. In share mode, moves are saved only when the server was started with `--share-edit`.
@@ -410,7 +414,7 @@ Yes. Write the HTML files yourself and use the CLI: `canvas new`, `canvas add`, 
 
 ## Contributing
 
-Issues and pull requests are welcome. Run the test suite (242 tests) before you open a pull request:
+Issues and pull requests are welcome. Run the test suite (260 tests) before you open a pull request:
 
 ```bash
 cd tests && python3 -m unittest discover .

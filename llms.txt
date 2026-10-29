@@ -9,7 +9,7 @@
 - Install as a Claude Code plugin: `/plugin marketplace add chrisjo-dev/mockup-canvas`, then `/plugin install mockup-canvas@mockup-canvas`.
 - Manual install for Claude Code and Codex: `git clone https://github.com/chrisjo-dev/mockup-canvas.git`, then `./install.sh` (links every skill into `~/.claude/skills` and `~/.codex/skills`; `--claude`, `--codex`, `--dry-run` are available). `install.sh` needs a POSIX shell.
 - In Codex, call the skills with `$mockup-canvas`, `$mockup-review`, or `$mockup-to-code`, for example `Use $mockup-canvas to draw the sign-up flow.`
-- The CLI is one Python 3 file of about 4,000 lines (Python 3.8+, standard library only) with 16 commands: serve, roots, new, add, group, render, check, overview, export, link, status, artifact, snap, compare, impl, comment.
+- The CLI is one Python 3 file of about 4,600 lines (Python 3.8+, standard library only) with 18 commands: serve, roots, new, add, group, render, check, overview, export, link, status, artifact, snap, compare, impl, comment, trash, restore.
 - `snap <url> --out FILE.png [--size ...] [--wait MS] [--full-page]` screenshots a running app page (http or https) at an exact size. `render --full-page` captures a board's whole scroll height. `add` with a new `--size` resizes a registered board.
 - `compare <idea dir> <file> (--url URL | --png FILE)` renders the board at its registered size, captures the app at the same size, and writes `board.png`, `app.png`, `diff.png`, `side.png`, and `report.json` (with `mismatch_percent`) to `<idea>/compare/<board id>/`. A pixel differs when any channel differs by more than `--threshold` (default 24 of 255). `--ignore-top N`, `--ignore-bottom N`, and `--align-top N` handle fake status bars and home indicators drawn on boards; `--wait MS` defaults to 3000. The percentage is a guide; the images are the evidence.
 - `impl <idea dir> <file> --route PATH --file PATH` records which route and files implement a board; `impl <idea dir> [--strict]` lists approved boards and whether each is implemented (`--strict` exits 1 when one is missing). `comment <idea dir> <file> TEXT [--by NAME]` adds a review comment (`--clear` removes them, no text lists them).
@@ -20,7 +20,7 @@
 - `export <idea dir> <output dir>` refuses an output folder that is, is inside, or contains the idea folder, and skips symlinks pointing outside the idea folder.
 - Idea folder layout: `<project>/design/<idea>/` with `canvas.json` (layout, groups, flow arrows, status and notes, impl records, comments), `boards/*.html` (one screen per file), `shared/tokens.css`, `assets/`, `render/` (generated PNGs), `compare/` (compare output), and `review.md` (the mockup-review report).
 - Artboard size presets: mobile 390x844, tablet 768x1024, desktop 1440x900, or any `WxH`.
-- Approvals are recorded with `canvas status <idea dir> <file> approved --note "..."`; old screens are kept in an `old drafts` group as rejected instead of being deleted.
+- Approvals are recorded with `canvas status <idea dir> <file> approved --note "..."`; old screens are kept in an `old drafts` group as rejected instead of being deleted. When the user asks for a delete, `canvas trash` moves an idea or a board to `design/.trash/` (the dashboard and canvas do the same, with Undo), and `canvas restore` puts it back.
 - App code comes only after approval: mockup-to-code implements approved boards in the app's own framework and tokens and reports what it verified versus what it could not.
 
 ## Docs

@@ -67,7 +67,7 @@ mockup-canvas 是三个免费开源（MIT）的 Claude Code 和 OpenAI Codex 技
 
 **命令行工具**（`skills/mockup-canvas/scripts/canvas.py`）
 
-- 单个约 4,000 行的 Python 3 文件。只用标准库（Python 3.8 及以上），没有 pip 依赖。共 16 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
+- 单个约 4,600 行的 Python 3 文件。只用标准库（Python 3.8 及以上），没有 pip 依赖。共 18 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`、`trash`、`restore`。
 - Chrome（或 Chromium、Edge）只在渲染画板和把应用页面截取为 PNG 时使用。
 
 ## 仪表板
@@ -80,6 +80,7 @@ mockup-canvas 是三个免费开源（MIT）的 Claude Code 和 OpenAI Codex 技
 - **视图。** Large 和 Compact 两种卡片，按最近编辑、名称或画板数排序，每个项目还有带状态筛选的全部画板页面。
 - **项目管理。** Add project 注册设计文件夹，Find in folders 在文件夹中查找设计文件夹。每个项目都可以重命名或从列表中移除（不会删除文件）。
 - **合集（Collections）** 把分散在多个项目中的创意集中到左侧列表的一个名称下，不移动任何文件夹。在创意卡片菜单中选择 Move to collection 加入，或在项目菜单中选择 Add to collection 加入整个项目（包括之后新增的创意）。每个创意只属于一个合集，移出最后一个创意时合集随之消失，合集保存在 `roots.json` 中。
+- **删除与撤销。** 用创意卡片菜单中的 Delete idea 和合集菜单中的 Delete collection 删除。创意文件夹会移到 `design/.trash/`，8 秒内可用提示里的 Undo 撤销。删除合集不会动其中的创意。共享页面和只读服务器没有删除功能。
 - **缺失文件夹提醒。** 已注册项目的文件夹被移动或删除时，会显示提醒和重新定位的按钮。
 - **浅色和深色主题**（太阳和月亮按钮，或 `Shift+T`），以及带项目标签页和状态菜单的手机布局。
 
@@ -214,7 +215,7 @@ lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
 6. **检查、渲染、全景图。** `canvas check` 必须报告 0 个问题。在给你看之前，智能体会亲自查看 `canvas render`（首屏以下的内容加 `--full-page`）和 `canvas overview` 生成的 PNG。
 7. **启动服务并给出地址。** `canvas serve`（注册表模式，端口 4400）用一个服务器展示所有项目。智能体让它保持运行，并把地址交给你。
 8. **在手机上查看。** 用 `canvas export` 生成静态包，由智能体上传到私密托管页面；或在同一网络内用 `canvas serve <design dir> --share` 实时查看。
-9. **保留旧版本。** 什么都不删。旧界面移到 `old drafts` 分组并标记为 `rejected`。
+9. **保留旧版本。** 智能体不会自行删除。旧界面移到 `old drafts` 分组并标记为 `rejected`。你要求删除时，`canvas trash` 把创意或画板移到 `design/.trash/`，`canvas restore` 再放回原处。
 10. **批准即记录。** 你批准某个界面时，智能体会运行 `canvas status ... approved --note "..."`。单纯的夸奖不算批准。
 11. **首版回顾。** 首版完成后，智能体回顾的是工作过程而不是设计，并列出最多三条技能改进建议。未经你同意，它不会修改技能。
 
@@ -282,6 +283,8 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `compare` | 按注册尺寸渲染画板，以相同尺寸截取应用（`--url`）或使用一张 PNG（`--png`），并把 `board.png`、`app.png`、`diff.png`（不一致处为品红色）、`side.png`（画板、应用、差异并排）和 `report.json`（含 `mismatch_percent`）写到 `<idea>/compare/<board id>/` 或 `--out DIR`。`--threshold N`（0 到 255，默认 24）是颜色通道差异超过多少才算不同像素；`--ignore-top N` 和 `--ignore-bottom N` 把上下条带排除在外；`--align-top N` 把应用下移 N px，放在画板所画的假状态栏下方；`--wait MS`（默认 3000）。 | `canvas compare design/wallet W01-Home.html --url http://localhost:5173/ --align-top 47` |
 | `impl` | 指定画板时：记录实现它的路由和源文件（相对于项目根目录），或用 `--clear` 清除记录。不指定画板时：列出已批准的画板及其是否已实现；`--strict` 在有未实现的画板时以 1 退出。 | `canvas impl design/wallet W01-Home.html --route / --file src/pages/Home.tsx`<br>`canvas impl design/wallet --strict` |
 | `comment` | 给画板添加评审评论（`--by NAME` 指定作者），不带文字时列出评论，`--clear` 删除评论。 | `canvas comment design/wallet W02-Send.html "[must] 缺少错误状态" --by reviewer` |
+| `trash` | 把创意或其中一个画板移到 `<design dir>/.trash/`。画板的 canvas.json 条目（位置、分组、状态、评论）和流程箭头会保存在一个用于恢复的文件里。`--list` 列出其中内容。不会彻底删除，清空时请手动删除该文件夹。 | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
+| `restore` | 按 `trash --list` 中的 id 恢复。已有同名内容时不会恢复。 | `canvas restore design wallet/W02-Send-20261029T101034Z` |
 
 ## 画布快捷键
 
@@ -300,6 +303,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | 单击分组标题 | 折叠或展开分组 |
 | 鼠标悬停在画板标题上 | 显示备注 |
 | 单击评论数 | 打开该画板的评论，按 `Esc` 关闭 |
+| 画板标题上的 `...`，或右键单击标题 | 画板菜单：在新标签页打开、复制文件名、删除画板（移到 `design/.trash/`，可用提示里的 Undo 撤销） |
 | 打开 `.../<idea>/#<board>`，例如 `#T01-Home` | 让该画板适配视图（仪表板中的画板结果会链接到这里） |
 
 静态导出中无法移动画板。共享模式下，只有用 `--share-edit` 启动服务器时移动才会被保存。
@@ -410,7 +414,7 @@ mockup-canvas 不是托管式的设计工具或应用生成器。它负责规划
 
 ## 参与贡献
 
-欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 242 个）：
+欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 260 个）：
 
 ```bash
 cd tests && python3 -m unittest discover .

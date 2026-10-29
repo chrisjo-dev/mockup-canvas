@@ -67,7 +67,7 @@ UI를 글로 설명하면 모호합니다. "상단에 히어로 배너, 아래�
 
 **CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- 약 4,000줄짜리 Python 3 파일 하나입니다. 표준 라이브러리만 쓰고(Python 3.8 이상) pip 의존성은 없습니다. 명령은 16개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`.
+- 약 4,600줄짜리 Python 3 파일 하나입니다. 표준 라이브러리만 쓰고(Python 3.8 이상) pip 의존성은 없습니다. 명령은 18개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`.
 - Chrome(또는 Chromium, Edge)은 보드를 렌더링하거나 앱 화면을 PNG로 캡처할 때만 씁니다.
 
 ## 대시보드
@@ -80,6 +80,7 @@ UI를 글로 설명하면 모호합니다. "상단에 히어로 배너, 아래�
 - **보기.** Large와 Compact 카드, 최근 수정순, 이름순, 보드 수 정렬, 그리고 프로젝트마다 상태 필터가 있는 전체 보드 페이지가 있습니다.
 - **프로젝트 관리.** Add project로 디자인 폴더를 등록하고, Find in folders로 폴더 안의 디자인 폴더를 찾습니다. 프로젝트마다 이름을 바꾸거나 목록에서 뺄 수 있습니다(파일은 지우지 않습니다).
 - **묶음(Collections)** 은 여러 프로젝트에 흩어진 아이디어를 폴더를 옮기지 않고 왼쪽 목록의 이름 하나로 모아 보여 줍니다. 아이디어 카드 메뉴의 Move to collection으로 넣거나, 프로젝트 메뉴의 Add to collection으로 프로젝트 전체(나중에 생기는 아이디어 포함)를 넣습니다. 아이디어 하나는 묶음 하나에만 들어가고, 마지막 아이디어를 빼면 묶음도 사라지며, 묶음은 `roots.json`에 저장됩니다.
+- **삭제와 되돌리기.** 아이디어 카드 메뉴의 Delete idea, 묶음 메뉴의 Delete collection으로 지웁니다. 아이디어 폴더는 `design/.trash/`로 옮겨지고, 8초 동안 뜨는 알림의 Undo로 되돌릴 수 있습니다. 묶음을 지워도 안의 아이디어는 그대로 남습니다. 공유 페이지와 읽기 전용 서버에는 삭제가 없습니다.
 - **사라진 폴더 경고.** 등록된 프로젝트의 폴더가 옮겨지거나 지워지면 경고와 함께 다시 찾는 버튼을 보여 줍니다.
 - **라이트와 다크 테마**(해와 달 버튼 또는 `Shift+T`), 그리고 프로젝트 탭과 상태 메뉴가 있는 휴대폰 레이아웃을 지원합니다.
 
@@ -214,7 +215,7 @@ lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
 6. **점검, 렌더링, 전체 보기.** `canvas check` 결과는 문제 0개여야 합니다. 사용자에게 보여 주기 전에 에이전트가 `canvas render`(스크롤 아래 내용은 `--full-page`), `canvas overview`로 만든 PNG를 직접 확인합니다.
 7. **서버 띄우고 주소 전달.** `canvas serve`(레지스트리 모드, 포트 4400)는 서버 하나로 모든 프로젝트를 보여 줍니다. 에이전트는 서버를 켜 둔 채 주소를 알려 줍니다.
 8. **휴대폰으로 보기.** `canvas export`로 만든 정적 번들을 비공개 호스팅 페이지에 올리거나, 같은 네트워크에서 `canvas serve <design dir> --share`로 실시간으로 봅니다.
-9. **이전 버전 보존.** 아무것도 지우지 않습니다. 이전 화면은 `old drafts` 그룹으로 옮기고 `rejected`로 표시합니다.
+9. **이전 버전 보존.** 에이전트는 스스로 지우지 않습니다. 이전 화면은 `old drafts` 그룹으로 옮기고 `rejected`로 표시합니다. 사용자가 삭제를 요청하면 `canvas trash`로 아이디어나 보드를 `design/.trash/`로 옮기고, `canvas restore`로 되돌립니다.
 10. **승인이 곧 기록.** 사용자가 화면을 승인하면 에이전트가 `canvas status ... approved --note "..."`를 실행합니다. 단순한 칭찬은 승인이 아닙니다.
 11. **첫 초안 회고.** 첫 초안이 끝나면 에이전트가 디자인이 아니라 작업 과정을 돌아보고, 스킬 개선안을 최대 3개 제안합니다. 사용자가 승인하기 전에는 스킬을 고치지 않습니다.
 
@@ -282,6 +283,8 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `compare` | 보드를 등록된 크기로 렌더링하고, 앱을 같은 크기로 캡처(`--url`)하거나 PNG(`--png`)를 받아 `board.png`, `app.png`, `diff.png`(다른 픽셀은 마젠타), `side.png`(보드, 앱, diff를 나란히), `report.json`(`mismatch_percent` 포함)을 `<idea>/compare/<board id>/`나 `--out DIR`에 씁니다. `--threshold N`(0~255, 기본 24)은 색 채널이 이만큼 넘게 달라야 다른 픽셀로 세는 기준이고, `--ignore-top N`, `--ignore-bottom N`은 위아래 띠를 계산에서 빼며, `--align-top N`은 보드가 그린 가짜 상태 표시줄 아래로 앱을 N px 내려 놓습니다. `--wait MS`(기본 3000). | `canvas compare design/wallet W01-Home.html --url http://localhost:5173/ --align-top 47` |
 | `impl` | 보드를 주면 그 보드를 구현한 경로와 소스 파일(프로젝트 루트 기준)을 기록하고, `--clear`로 기록을 지웁니다. 보드를 주지 않으면 승인된 보드와 구현 여부를 보여 주고, `--strict`는 구현 안 된 보드가 있으면 1로 종료합니다. | `canvas impl design/wallet W01-Home.html --route / --file src/pages/Home.tsx`<br>`canvas impl design/wallet --strict` |
 | `comment` | 보드에 리뷰 코멘트를 추가하고(`--by NAME`으로 작성자 지정), 텍스트 없이 실행하면 목록을 보여 주고, `--clear`로 지웁니다. | `canvas comment design/wallet W02-Send.html "[must] 오류 상태 없음" --by reviewer` |
+| `trash` | 아이디어나 그 안의 보드 하나를 `<design dir>/.trash/`로 옮깁니다. 보드는 canvas.json 항목(위치, 그룹, 상태, 코멘트)과 흐름 화살표를 복원용 파일에 함께 남깁니다. `--list`로 들어 있는 것을 봅니다. 완전히 지우지는 않으니, 비우려면 폴더를 직접 지웁니다. | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
+| `restore` | `trash --list`에 나온 id로 되돌립니다. 같은 이름이 이미 있으면 되돌리지 않습니다. | `canvas restore design wallet/W02-Send-20261029T101034Z` |
 
 ## 캔버스 단축키
 
@@ -300,6 +303,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | 그룹 머리글 클릭 | 그룹 접기, 펴기 |
 | 아트보드 제목에 마우스 올리기 | 메모 보기 |
 | 코멘트 수 클릭 | 보드 코멘트 열기, `Esc`로 닫기 |
+| 아트보드 제목의 `...`, 또는 제목 오른쪽 클릭 | 보드 메뉴: 새 탭에서 열기, 파일 이름 복사, 보드 삭제(`design/.trash/`로 옮겨지고, 알림의 Undo로 되돌림) |
 | `.../<idea>/#<board>` 열기, 예: `#T01-Home` | 그 보드 하나를 화면에 맞추기 (대시보드의 보드 결과가 이 주소로 연결됨) |
 
 정적 내보내기에서는 아트보드를 옮길 수 없습니다. 공유 모드에서는 서버를 `--share-edit`로 띄웠을 때만 이동이 저장됩니다.
@@ -410,7 +414,7 @@ mockup-canvas는 호스팅형 디자인 도구나 앱 생성기가 아닙니다.
 
 ## 기여하기
 
-이슈와 PR 모두 환영합니다. PR을 올리기 전에 테스트(242개)를 돌려 주세요.
+이슈와 PR 모두 환영합니다. PR을 올리기 전에 테스트(260개)를 돌려 주세요.
 
 ```bash
 cd tests && python3 -m unittest discover .

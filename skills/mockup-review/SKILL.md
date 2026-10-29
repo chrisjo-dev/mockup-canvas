@@ -53,6 +53,7 @@ Usage for each command: `canvas <command> -h`.
 
 - Edit artboards, `tokens.css`, assets, or `canvas.json`. Not even a typo. Report it instead.
 - Mark boards approved or rejected on the user's behalf.
+- Delete or trash boards or ideas. Suggest it in the report if a board looks obsolete; the user decides.
 - Rewrite the design to taste. A finding needs a reason: a checklist rule, the spec, a token, or a concrete user problem.
 
 ## Reply to the user

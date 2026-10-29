@@ -67,7 +67,7 @@ UI を文章で説明するとあいまいになります。「上にヒーロ�
 
 **CLI**（`skills/mockup-canvas/scripts/canvas.py`）
 
-- 約 4,000 行の Python 3 ファイル 1 つです。標準ライブラリだけを使い（Python 3.8 以上）、pip の依存はありません。コマンドは 16 個です: `serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`。
+- 約 4,600 行の Python 3 ファイル 1 つです。標準ライブラリだけを使い（Python 3.8 以上）、pip の依存はありません。コマンドは 18 個です: `serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`、`trash`、`restore`。
 - Chrome（または Chromium、Edge）は、ボードのレンダリングとアプリ画面の PNG キャプチャにだけ使います。
 
 ## ダッシュボード
@@ -80,6 +80,7 @@ UI を文章で説明するとあいまいになります。「上にヒーロ�
 - **表示。** Large と Compact のカード、最近の編集順、名前順、ボード数順の並べ替え、そしてプロジェクトごとに状態フィルター付きの全ボードページがあります。
 - **プロジェクトの管理。** Add project でデザインフォルダを登録し、Find in folders でフォルダ内のデザインフォルダを探します。プロジェクトごとに名前を変えたり、一覧から外したりできます（ファイルは削除しません）。
 - **コレクション（Collections）** は、複数のプロジェクトに散らばったアイデアを、フォルダを動かさずに左側の一覧の 1 つの名前にまとめます。アイデアカードのメニューの Move to collection で入れるか、プロジェクトのメニューの Add to collection でプロジェクト全体（あとから増えるアイデアも含む）を入れます。1 つのアイデアは 1 つのコレクションにだけ入り、最後のアイデアを外すとコレクションも消えます。コレクションは `roots.json` に保存されます。
+- **削除と元に戻す。** アイデアカードのメニューの Delete idea と、コレクションのメニューの Delete collection で削除します。アイデアのフォルダは `design/.trash/` に移され、8 秒間出る通知の Undo で元に戻せます。コレクションを削除しても、中のアイデアはそのまま残ります。共有ページと読み取り専用のサーバーには削除がありません。
 - **見つからないフォルダの警告。** 登録済みのプロジェクトのフォルダが移動または削除されると、警告と、もう一度探すためのボタンを表示します。
 - **ライトとダークのテーマ**（太陽と月のボタン、または `Shift+T`）と、プロジェクトのタブと状態メニューを備えたスマートフォン向けレイアウトに対応します。
 
@@ -214,7 +215,7 @@ lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
 6. **チェック、レンダリング、全体図。** `canvas check` の結果は問題 0 件でなければなりません。見せる前に、エージェントが `canvas render`（スクロールの下の内容は `--full-page`）と `canvas overview` の PNG を自分で確認します。
 7. **サーバーを起動して URL を伝える。** `canvas serve`（レジストリモード、ポート 4400）は 1 つのサーバーですべてのプロジェクトを表示します。エージェントはサーバーを動かしたまま URL を伝えます。
 8. **スマートフォンで見る。** `canvas export` で作った静的バンドルを非公開のホスティングページにアップロードするか、同じネットワーク内で `canvas serve <design dir> --share` を使ってリアルタイムに見ます。
-9. **古いバージョンを残す。** 何も削除しません。古い画面は `old drafts` グループへ移し、`rejected` にします。
+9. **古いバージョンを残す。** エージェントが自分から削除することはありません。古い画面は `old drafts` グループへ移し、`rejected` にします。削除を頼まれたときは `canvas trash` でアイデアやボードを `design/.trash/` に移し、`canvas restore` で戻します。
 10. **承認が記録になる。** あなたが画面を承認すると、エージェントが `canvas status ... approved --note "..."` を実行します。ただ褒めただけでは承認になりません。
 11. **最初のドラフトのふりかえり。** 最初のドラフトが終わると、エージェントはデザインではなく作業の進め方をふりかえり、スキルの改善案を最大 3 つ挙げます。あなたが承認しない限り、スキルは変更しません。
 
@@ -282,6 +283,8 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `compare` | ボードを登録サイズでレンダリングし、アプリを同じサイズでキャプチャ（`--url`）するか PNG（`--png`）を受け取って、`board.png`、`app.png`、`diff.png`（不一致はマゼンタ）、`side.png`（ボード、アプリ、差分を横に並べたもの）、`report.json`（`mismatch_percent` を含む）を `<idea>/compare/<board id>/` または `--out DIR` に書き出します。`--threshold N`（0 から 255、既定 24）は色チャンネルがどれだけ違えば不一致ピクセルとみなすかの基準、`--ignore-top N` と `--ignore-bottom N` は上下の帯を集計から外し、`--align-top N` はボードが描いた偽のステータスバーの下にアプリを N px 下げて置きます。`--wait MS`（既定 3000）。 | `canvas compare design/wallet W01-Home.html --url http://localhost:5173/ --align-top 47` |
 | `impl` | ボードを指定すると、それを実装したルートとソースファイル（プロジェクトルートからの相対パス）を記録し、`--clear` で記録を消します。ボードを指定しないと、承認済みのボードと実装の有無を一覧し、`--strict` は未実装のボードがあれば 1 で終了します。 | `canvas impl design/wallet W01-Home.html --route / --file src/pages/Home.tsx`<br>`canvas impl design/wallet --strict` |
 | `comment` | ボードにレビューコメントを追加し（`--by NAME` で書き手を指定）、テキストなしで実行すると一覧を表示し、`--clear` で削除します。 | `canvas comment design/wallet W02-Send.html "[must] エラー状態がない" --by reviewer` |
+| `trash` | アイデア、またはその中のボード 1 枚を `<design dir>/.trash/` に移します。ボードは canvas.json の項目（位置、グループ、状態、コメント）とフローの矢印を復元用のファイルに残します。`--list` で中身を表示します。完全には削除しないので、空にするときはフォルダを手で消します。 | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
+| `restore` | `trash --list` に出る id で元に戻します。同じ名前がすでにあるときは戻しません。 | `canvas restore design wallet/W02-Send-20261029T101034Z` |
 
 ## キャンバスのショートカット
 
@@ -300,6 +303,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | グループの見出しをクリック | グループを折りたたむ、展開する |
 | アートボードのタイトルにカーソルを合わせる | メモを表示 |
 | コメント数をクリック | ボードのコメントを開く、`Esc` で閉じる |
+| アートボードのタイトルの `...`、またはタイトルを右クリック | ボードのメニュー: 新しいタブで開く、ファイル名をコピー、ボードを削除（`design/.trash/` に移り、通知の Undo で戻る） |
 | `.../<idea>/#<board>` を開く（例: `#T01-Home`） | そのボード 1 枚を画面に合わせる（ダッシュボードのボードの結果はこの URL に移動） |
 
 静的エクスポートではアートボードを移動できません。共有モードでは、サーバーを `--share-edit` 付きで起動したときだけ移動が保存されます。
@@ -410,7 +414,7 @@ mockup-canvas はホスト型のデザインツールやアプリ生成ツール
 
 ## コントリビュート
 
-Issue もプルリクエストも歓迎します。プルリクエストを出す前にテスト（242 件）を実行してください。
+Issue もプルリクエストも歓迎します。プルリクエストを出す前にテスト（260 件）を実行してください。
 
 ```bash
 cd tests && python3 -m unittest discover .

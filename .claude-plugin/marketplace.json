@@ -9,7 +9,7 @@
     {
       "name": "mockup-canvas",
       "source": "./",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "description": "Draw design mockups as plain HTML artboards and lay them out on a local, Figma-like canvas."
     }
   ]

@@ -146,6 +146,8 @@ canvas status design/wallet W02-Send.html rejected
 
 Rejected artboards show a gray badge and a struck-through title, so the history of what you turned down stays visible next to the current version.
 
+The agent deletes only when you ask. Then `canvas trash` moves the idea or board to `design/.trash/`, and `canvas restore` puts it back. The dashboard (Delete idea) and the canvas (the `...` on a board title) do the same, with an Undo in the toast.
+
 ### 10. Approval is the record
 
 When you approve a screen, the agent records it:

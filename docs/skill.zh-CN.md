@@ -146,6 +146,8 @@ canvas status design/wallet W02-Send.html rejected
 
 被否决的画板显示灰色徽章和删除线标题，你否决过什么，会一直留在当前版本旁边。
 
+智能体只在你要求时才删除。这时 `canvas trash` 把创意或画板移到 `design/.trash/`，`canvas restore` 再放回原处。仪表板（Delete idea）和画布（画板标题上的 `...`）也能做同样的删除，可用提示里的 Undo 撤销。
+
 ### 10. 批准即记录
 
 你批准某个界面时，智能体会记录下来：
