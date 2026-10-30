@@ -176,7 +176,9 @@ class ChromeDiesWithKilledServer(TempHomeCase):
         self.assertGreater(len(processes_using(profile)), 1)
         os.kill(proc.pid, signal.SIGKILL)
         proc.wait(5)
-        end = time.monotonic() + 5
+        # Chrome shuts down once it sees the pipes close: under 1 s idle, up to about 4 s on a
+        # busy CI runner (measured), so 15 s only matters when it never exits
+        end = time.monotonic() + 15
         while processes_using(profile) and time.monotonic() < end:
             time.sleep(0.1)
         self.assertEqual(processes_using(profile), [], 'Chrome outlived the killed server')
