@@ -1241,13 +1241,16 @@
     placeNear(pinCmp, file, at);
     ta.focus({ preventScroll: true });
   }
+  // One line, unambiguous: whitespace runs (line breaks too) become one space, then \ and " are
+  // escaped (same rule as _pin_quote in canvas.py)
+  const pinQuote = (v) => '"' + String(v == null ? '' : v).replace(/\s+/g, ' ').trim().replace(/[\\"]/g, '\\$&') + '"';
   function pinCopyText(file, n, c) {
     const t = (c.target && typeof c.target === 'object') ? c.target : {};
     const box = pinBox(c);
-    let s = (IDEA ? IDEA + '/' : '') + file + ' pin ' + n + ': "' + String(c.text == null ? '' : c.text).replace(/\s+/g, ' ') + '"';
+    let s = (IDEA ? IDEA + '/' : '') + file + ' pin ' + n + ': ' + pinQuote(c.text);
     if (typeof t.selector === 'string' && t.selector) {
-      s += ' -> ' + t.selector;
-      if (typeof t.text === 'string' && t.text) s += ' "' + t.text.slice(0, 60) + '"';
+      s += ' -> ' + t.selector.replace(/\s+/g, ' ');
+      if (typeof t.text === 'string' && t.text) s += ' ' + pinQuote(t.text.slice(0, 60));
     } else if (box) s += ' at ' + box.x + ',' + box.y + (box.w || box.h ? ' ' + box.w + 'x' + box.h : '');
     return s + ' (see canvas pins)';
   }

@@ -173,6 +173,7 @@ class PngCodec(TempHomeCase):
 # With --remote-debugging-port it serves HTTP /json/list + WebSocket; server frames are sent
 # fragmented and after a ping, so the client's continuation and ping/pong handling are exercised.
 # FAKE_CHROME_NO_PIPE=1 exits at once in pipe mode (canvas.py falls back to the port).
+# FAKE_CHROME_PIPE_HANG=1 keeps the pipes open without answering (a slow cold start).
 # FAKE_CHROME_MODE=screenshot refuses DevTools and acts like the old --screenshot path.
 
 FAKE_CHROME = r"""#!/usr/bin/env python3
@@ -198,6 +199,9 @@ if env.get('FAKE_CHROME_EXIT'):
     sys.exit(int(env['FAKE_CHROME_EXIT']))
 if pipe and env.get('FAKE_CHROME_NO_PIPE'):
     sys.exit(1)
+if pipe and env.get('FAKE_CHROME_PIPE_HANG'):   # a cold start that never answers in time
+    log(args=args)
+    time.sleep(60)
 if cdp and env.get('FAKE_CHROME_MODE') == 'screenshot':
     sys.exit(1)
 log(args=args)
@@ -426,6 +430,20 @@ class SnapCommand(FakeChromeCase):
         self.assertIn('--remote-debugging-address=127.0.0.1', run['args'])
         self.assertGreater(run['pongs'], 0)          # pings from Chrome are answered
         self.assertEqual(self.params(run, 'Page.captureScreenshot'), [{'format': 'png'}])
+
+    def test_a_pipe_that_does_not_answer_in_time_does_not_fall_back_to_the_port(self):
+        # A port Chrome would outlive a kill -9 of the server (it never sees the pipes close), so
+        # a slow pipe start fails instead of starting one. Over 10 s: the old code gave the pipe
+        # 10 s and then started a port Chrome.
+        with mock.patch.dict(os.environ, {k: self.env[k] for k in ('MOCKUP_CANVAS_CHROME', 'FAKE_CHROME_LOG')},
+                             FAKE_CHROME_PIPE_HANG='1'):
+            t = time.monotonic()
+            with self.assertRaises(canvas.CdpConnectError):
+                canvas._CdpSession(connect_timeout=12)
+        self.assertLess(time.monotonic() - t, 20)
+        run, = self.chrome_calls()
+        self.assertIn('--remote-debugging-pipe', run['args'])
+        self.assertFalse(any(a.startswith('--remote-debugging-port') for a in run['args']))
 
     def test_snap_waits_for_a_slow_devtools_start(self):
         # A half-written DevToolsActivePort, a port that refuses connections, and an empty

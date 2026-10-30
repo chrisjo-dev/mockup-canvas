@@ -1084,8 +1084,13 @@ class _CdpSession:
 
     def _start(self, connect_by):
         try:
-            self._start_pipe(min(connect_by, time.monotonic() + 10))
-        except (OSError, ValueError, KeyError, StopIteration, TimeoutError, CdpError) as e:
+            self._start_pipe(connect_by)
+        except TimeoutError as e:
+            # Still starting (a cold start on a busy machine can take over 10 s). No port fallback:
+            # a port Chrome does not see the pipes close, so it would outlive a kill -9 of this
+            # process. A Chrome that cannot use the pipes exits at once and takes the branch below.
+            raise CdpConnectError(f'DevTools pipe did not answer in time: {e!r}')
+        except (OSError, ValueError, KeyError, StopIteration, CdpError) as e:
             # Pipe mode failed (an old or wrapped Chrome): start a new Chrome with a port
             if self.ws:
                 self.ws.close()
@@ -4993,6 +4998,12 @@ def cmd_comment(args):
     print(f'Comment added: {key} ({len(comments)} total)')
 
 
+def _pin_quote(v):
+    """Quote pin text on one line: whitespace runs (line breaks too) become one space, then \\ and "
+    are escaped. The viewer's Copy for AI uses the same rule (pinQuote)."""
+    return '"' + re.sub(r'[\\"]', lambda m: '\\' + m.group(0), ' '.join(str('' if v is None else v).split())) + '"'
+
+
 def _pin_row(idea_dir, key, n, c):
     """One pin as printed by `canvas pins` (and its --json object)."""
     t = c.get('target') if isinstance(c.get('target'), dict) else {}
@@ -5049,9 +5060,9 @@ def cmd_pins(args):
                                                    'none': 'open, no element found there'}.get(r['state'], 'open')
         at = r['at']
         where = '' if not at else (f' (area {at["x"]},{at["y"]} {at["w"]}x{at["h"]})' if at['w'] or at['h'] else f' (point {at["x"]},{at["y"]})')
-        print(f'  {r["n"]}. "{r["text"]}"{where} [{state}]')
+        print(f'  {r["n"]}. {_pin_quote(r["text"])}{where} [{state}]')
         if r['selector']:
-            print(f'     element: {r["selector"]}' + (f' "{r["element_text"]}"' if r['element_text'] else ''))
+            print(f'     element: {r["selector"]}' + (' ' + _pin_quote(r['element_text']) if r['element_text'] else ''))
         if r['html']:
             print(f'     html: {r["html"]}')
         if r['image']:

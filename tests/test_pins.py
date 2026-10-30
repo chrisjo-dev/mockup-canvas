@@ -116,6 +116,13 @@ class PinStorage(TempHomeCase):
         self.assertEqual(self.run_cli('pins', self.idea, 'A01-One.html', '--resolve', '9').returncode, 1)
 
 
+    def test_cli_quotes_text_on_one_line(self):
+        canvas.add_pin(self.idea, 'A01-One.html', 'Say "Send"\nnot \\ "Go"', at={'x': 1, 'y': 1})
+        self.assertEqual(canvas._pin_quote('a "b"\n\n  c \\ d'), '"a \\"b\\" c \\\\ d"')
+        out = self.run_cli('pins', self.idea).stdout
+        self.assertIn('1. "Say \\"Send\\" not \\\\ \\"Go\\""', out)
+
+
 class PinApi(ServerCase):
     def setUp(self):
         super().setUp()

@@ -48,8 +48,10 @@ test('Point at a spot, the server finds the element, copy it for the AI, resolve
     await pop.getByRole('button', { name: 'Copy for AI' }).click();
     await expect(page.locator('#toast')).toContainText('Copied pin 1 for the AI');
     const text = await page.evaluate(() => navigator.clipboard.readText());
+    // Same one-line rule as the viewer and `canvas pins`: whitespace squashed, \\ and " escaped
+    const q = (v: string) => '"' + v.replace(/\s+/g, ' ').trim().replace(/[\\"]/g, '\\$&') + '"';
     expect(text).toBe(`trailmate/T01-Home.html pin 1: "Make these buttons bigger" -> ${p.target.selector}` +
-      (p.target.text ? ` "${p.target.text.slice(0, 60)}"` : '') + ' (see canvas pins)');
+      (p.target.text ? ' ' + q(p.target.text.slice(0, 60)) : '') + ' (see canvas pins)');
   }
 
   // Resolve, then the marker turns gray; P hides the pins
@@ -81,6 +83,21 @@ test('Point at a spot, the server finds the element, copy it for the AI, resolve
   await expect(page.locator('#pin-cmp')).toBeHidden();
   expect(pins(cj, 'T01-Home.html')).toHaveLength(1);
   expect(consoleErrors).toEqual([]);
+});
+
+test('Copy for AI keeps quotes, backslashes, and line breaks on one unambiguous line', async ({ page, context, sandbox, browserName }) => {
+  test.skip(browserName !== 'chromium', 'clipboard read is granted in Chromium');
+  sandbox.cli('comment', sandbox.idea, 'T01-Home.html', 'Say "Send"\nnot \\ "Go"', '--at', '10,10');
+  const srv = await sandbox.serveRegistry();
+  await openCanvas(page, srv.origin + '/alpha/trailmate/');
+  await settled(page);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await board(page, 'T01-Home.html').locator('.pin').click();
+  await page.locator('#pin-pop').getByRole('button', { name: 'Copy for AI' }).click();
+  await expect(page.locator('#toast')).toContainText('Copied pin 1 for the AI');
+  const text = await page.evaluate(() => navigator.clipboard.readText());
+  expect(text).toMatch(/^trailmate\/T01-Home\.html pin 1: "Say \\"Send\\" not \\\\ \\"Go\\"" /);
+  expect(text).not.toContain('\n');
 });
 
 test('Share links have no pins', async ({ page, sandbox }) => {
