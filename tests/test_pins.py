@@ -267,3 +267,29 @@ class PinProbe(TempHomeCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PinQueueFailures(unittest.TestCase):
+    """The failure map stays small: one entry per board that failed recently, gone after a success."""
+    def run_jobs(self, q, jobs, probe):
+        with mock.patch.object(canvas, '_CdpSession', lambda **kw: mock.Mock()), \
+             mock.patch.object(canvas, 'probe_pins', probe), \
+             mock.patch.object(canvas, '_board_ver', lambda d, f: f + '@' + str(len(q.failed))), \
+             mock.patch.object(canvas, '_broadcast', lambda *a: None), \
+             mock.patch.object(q, 'IDLE', 0):
+            q.jobs = list(jobs)
+            q.working = True
+            q._work()
+
+    def test_failures_are_pruned(self):
+        q = canvas._PinQueue()
+        q.failed = {('/x', 'Old.html', 'v1'): 0.0}          # expired long ago
+        boom = mock.Mock(side_effect=RuntimeError('no chrome'))
+        with mock.patch('sys.stderr'):
+            self.run_jobs(q, [('/i', 'A.html', 'k'), ('/i', 'A.html', 'k'), ('/i', 'B.html', 'k')], boom)
+        self.assertEqual(sorted(k[1] for k in q.failed), ['A.html', 'B.html'])   # one per board, expired gone
+        self.run_jobs(q, [('/i', 'A.html', 'k')], mock.Mock(return_value=1))
+        self.assertEqual([k[1] for k in q.failed], ['B.html'])                   # success clears A
+
+    def test_chrome_stays_warm_between_pins(self):
+        self.assertGreaterEqual(canvas._PinQueue.IDLE, 60)

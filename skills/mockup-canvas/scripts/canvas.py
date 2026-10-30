@@ -2220,7 +2220,7 @@ def probe_pins(session, idea_dir, fname, timeout=30):
 
 class _PinQueue:
     """One background Chrome that probes boards with new or moved pins, one board at a time."""
-    IDLE = 15
+    IDLE = 60          # pins come one at a time while someone reviews; keep Chrome warm between them
     RETRY_AFTER = 30
 
     def __init__(self):
@@ -2269,16 +2269,27 @@ class _PinQueue:
                                 s.close()
                                 raise CdpError('pin queue closed')
                             self.session = s
-                    if probe_pins(self.session, idea_dir, fname):
+                    found = probe_pins(self.session, idea_dir, fname)
+                    with self.cv:
+                        self._forget(idea_dir, fname)
+                    if found:
                         _broadcast(sse_key, {'type': 'canvas'})
                 except Exception as e:
                     if not self.closed:
                         print(f'[mockup-canvas] pin probe failed: {fname}: {e!r}', file=sys.stderr, flush=True)
                     with self.cv:
+                        self._forget(idea_dir, fname)
                         self.failed[(idea_dir, fname, _board_ver(idea_dir, fname))] = time.time()
                     self._drop()
         finally:
             self._drop()
+
+    def _forget(self, idea_dir, fname):
+        """Under self.cv: drop this board's failures (any version) and every expired one, so the map
+        holds at most one entry per board that failed in the last RETRY_AFTER seconds."""
+        now = time.time()
+        self.failed = {k: t for k, t in self.failed.items()
+                       if k[:2] != (idea_dir, fname) and now - t < self.RETRY_AFTER}
 
     def _drop(self):
         with self.cv:

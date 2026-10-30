@@ -6,6 +6,13 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A Chrome start over pipes that times out (a cold start on a busy machine) now fails instead of starting a `--remote-debugging-port` Chrome, which outlived a `kill -9` of the server (#16). A Chrome that cannot use pipes at all still falls back to the port.
+- Copy for AI and `canvas pins` quote a note on one line: runs of whitespace become one space, and backslashes and double quotes are escaped (#16).
+- The pin probe keeps its Chrome for 60 seconds between pins instead of 15, so pins placed during a review do not each start a new Chrome (#17).
+- The pin probe's list of failed boards no longer grows: it keeps one entry per board that failed in the last 30 seconds and drops it once the board probes cleanly (#17).
+
 ## [0.7.0] - 2026-10-30
 
 ### Added
