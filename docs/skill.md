@@ -146,6 +146,8 @@ canvas status design/wallet W02-Send.html rejected
 
 Rejected artboards show a gray badge and a struck-through title, so the history of what you turned down stays visible next to the current version.
 
+To show the agent one spot, press `C` on the canvas, click the spot (or drag an area), and write a note. The server finds the element under it and crops that part of the board. Copy for AI gives you a line to paste into the chat, and the agent can also run `canvas pins` to read every open pin, fix the element, and resolve the pin.
+
 The agent deletes only when you ask. Then `canvas trash` moves the idea or board to `design/.trash/`, and `canvas restore` puts it back. The dashboard (Delete idea) and the canvas (the `...` on a board title) do the same, with an Undo in the toast.
 
 ### 10. Approval is the record

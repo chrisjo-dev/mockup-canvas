@@ -52,6 +52,7 @@ mockup-canvas 是三个免费开源（MIT）的 Claude Code 和 OpenAI Codex 技
 - 界面之间画流程箭头，并标注通往下一个界面的按钮或操作。
 - 显示批准、否决徽章。鼠标悬停在画板标题上可以看到备注。
 - 已记录实现的画板显示紫色 `built` 徽章（悬停可看到路由），有评审评论的画板显示评论数。点击评论数可以在面板中阅读评论。
+- **图钉。** 按 `C`（或工具栏中的 Point），在画板上单击一个点或拖出一个区域并写下备注，画板上就会出现一个带编号的图钉。服务器用自己的无头 Chrome 打开画板，找到图钉下的元素，保存它的 CSS 选择器、文字和该部分的截图。Copy for AI 会把一行写明画板、图钉编号和元素的文字放到剪贴板，智能体用 `canvas pins` 读取所有未解决的图钉。画板文件改动后，图钉会跟着元素移动。按 `P` 隐藏图钉。
 - 用可折叠的分组整理画板，例如 `current` 和 `old drafts`。
 - 画板很多时依然流畅。只有视图附近的画板保持实时页面。缩小到约 30% 到 40% 以下时，显示缓存的 PNG 缩略图（通过服务器打开时）。看过一次的画板在重新加载时显示缩略图，而不是空白卡片。界面更新按每个动画帧合并一次，缩略图在后台以低优先级渲染。在一个有 71 个画板的画布上（1440x900，Apple M4，headless Chrome），平移和缩放保持在约 59 到 60 FPS，p95 帧时间约 20 ms，没有超过 50 ms 的帧。首次打开和缩略图已缓存时都是如此。可用 `python3 tests/perf_check.py <创意文件夹>` 复现。
 - 实时刷新。服务器每秒检查一次文件变化，修改画板或 `canvas.json` 后，打开的画布大约一秒内更新。
@@ -67,7 +68,7 @@ mockup-canvas 是三个免费开源（MIT）的 Claude Code 和 OpenAI Codex 技
 
 **命令行工具**（`skills/mockup-canvas/scripts/canvas.py`）
 
-- 单个约 4,600 行的 Python 3 文件。只用标准库（Python 3.8 及以上），没有 pip 依赖。共 18 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`、`trash`、`restore`。
+- 单个约 5,100 行的 Python 3 文件。只用标准库（Python 3.8 及以上），没有 pip 依赖。共 19 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`、`trash`、`restore`、`pins`。
 - Chrome（或 Chromium、Edge）只在渲染画板和把应用页面截取为 PNG 时使用。
 
 ## 仪表板
@@ -224,7 +225,7 @@ lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
 1. **读取上下文：** 界面所依据的需求文档、`tokens.css`、`canvas.json`，以及之前的 `review.md`（如果有）。
 2. **机器检查：** `canvas check` 和 `canvas overview`。`check` 报告的每个问题都会成为一条发现。
 3. **逐个画板和流程：** 渲染每个当前画板（也用 `--full-page`），阅读其 HTML，按检查清单逐项检查，并从入口界面沿连线走一遍，找出死胡同和无法到达的画板。
-4. **在画板上评论：** 每条发现一条 `canvas comment`，以 `[must]`、`[should]` 或 `[could]` 开头。
+4. **在画板上评论：** 每条发现一条 `canvas comment`，以 `[must]`、`[should]` 或 `[could]` 开头。针对单个元素的发现用 `--at x,y[,w,h]` 或 `--el SELECTOR` 钉在该位置。
 5. **报告：** 写出 `design/<idea>/review.md`，并对每个画板建议批准、修改或否决。设置状态仍由你决定。
 
 评审者从不修改画板、令牌或 `canvas.json`。由不同于绘制界面的智能体或会话来运行时效果最好。
@@ -283,6 +284,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `compare` | 按注册尺寸渲染画板，以相同尺寸截取应用（`--url`）或使用一张 PNG（`--png`），并把 `board.png`、`app.png`、`diff.png`（不一致处为品红色）、`side.png`（画板、应用、差异并排）和 `report.json`（含 `mismatch_percent`）写到 `<idea>/compare/<board id>/` 或 `--out DIR`。`--threshold N`（0 到 255，默认 24）是颜色通道差异超过多少才算不同像素；`--ignore-top N` 和 `--ignore-bottom N` 把上下条带排除在外；`--align-top N` 把应用下移 N px，放在画板所画的假状态栏下方；`--wait MS`（默认 3000）。 | `canvas compare design/wallet W01-Home.html --url http://localhost:5173/ --align-top 47` |
 | `impl` | 指定画板时：记录实现它的路由和源文件（相对于项目根目录），或用 `--clear` 清除记录。不指定画板时：列出已批准的画板及其是否已实现；`--strict` 在有未实现的画板时以 1 退出。 | `canvas impl design/wallet W01-Home.html --route / --file src/pages/Home.tsx`<br>`canvas impl design/wallet --strict` |
 | `comment` | 给画板添加评审评论（`--by NAME` 指定作者），不带文字时列出评论，`--clear` 删除评论。 | `canvas comment design/wallet W02-Send.html "[must] 缺少错误状态" --by reviewer` |
+| `pins` | 列出某个创意或某个画板的未解决图钉，以及每个图钉指向的元素和截图路径（`--all` 包含已解决的，`--json` 供脚本使用）。修好后用 `--resolve N --note TEXT` 关闭，`--reopen N` 重新打开。用 `canvas comment ... --at x,y[,w,h]` 或 `--el SELECTOR` 添加图钉。 | `canvas pins design/wallet`<br>`canvas pins design/wallet W02-Send.html --resolve 3 --note "44 px button"` |
 | `trash` | 把创意或其中一个画板移到 `<design dir>/.trash/`。画板的 canvas.json 条目（位置、分组、状态、评论）和流程箭头会保存在一个用于恢复的文件里。`--list` 列出其中内容。不会彻底删除，清空时请手动删除该文件夹。 | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
 | `restore` | 按 `trash --list` 中的 id 恢复。已有同名内容时不会恢复。 | `canvas restore design wallet/W02-Send-20261029T101034Z` |
 
@@ -295,6 +297,8 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | 单指拖动、双指捏合（触屏） | 平移、缩放 |
 | `F` | 让所有画板适配视图 |
 | `L` | 显示或隐藏流程箭头 |
+| `C` | 图钉模式：在画板上单击一个点或拖出区域来钉上备注（`Esc` 取消） |
+| `P` | 显示或隐藏图钉 |
 | 单击画板标题 | 复制其 ID，例如 `W01-Home` |
 | 双击画板标题 | 在新标签页中单独打开该画板 |
 | 拖动画板标题 | 移动并保存位置 |
@@ -303,6 +307,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | 单击分组标题 | 折叠或展开分组 |
 | 鼠标悬停在画板标题上 | 显示备注 |
 | 单击评论数 | 打开该画板的评论，按 `Esc` 关闭 |
+| 单击图钉 | 备注、指向的元素、该位置的截图、Copy for AI 和 Resolve |
 | 画板标题上的 `...`，或右键单击标题 | 画板菜单：在新标签页打开、复制文件名、删除画板（移到 `design/.trash/`，可用提示里的 Undo 撤销） |
 | 打开 `.../<idea>/#<board>`，例如 `#T01-Home` | 让该画板适配视图（仪表板中的画板结果会链接到这里） |
 
@@ -344,7 +349,7 @@ mockup-canvas 是本地工具，设计上也不打算超出本地。详细说明
 - **共享模式需主动开启。** `--share` 绑定到局域网，每个请求都需要随机令牌（首次访问后转存为 `HttpOnly; SameSite=Strict` Cookie）。除非传入 `--share-edit`，否则为只读；始终不允许修改项目注册；超过 `--minutes`（1 到 240，默认 30 分钟）后自动停止。注册表共享只展示启动时已注册的项目（用 `--project NAME` 时只有那一个），并隐藏文件夹路径和管理界面。传输使用明文 HTTP，请只在可信网络中使用。
 - **Host 检查。** 每个请求的 `Host` 请求头必须是本服务器（`127.0.0.1`、`localhost`、`[::1]` 加端口，共享模式下还包括局域网地址），否则返回 `421`，以阻止 DNS 重绑定。
 - **路径限制。** 只提供已注册设计文件夹内的文件。`../`、编码后的路径穿越、绝对路径以及指向外部的符号链接都会被拒绝。
-- **极小的写入面。** 对创意的唯一写操作是修改 `canvas.json` 中已有画板的 `x` 和 `y`，原子写入，请求体上限 64 KiB。
+- **极小的写入面。** 对创意的写操作只有画板位置、图钉（每条备注 500 字以内，每个画板 50 个以内），以及把画板或创意移到 `design/.trash/`。`canvas.json` 原子写入，请求体上限 64 KiB。共享页面和只读服务器没有图钉，也不能删除。
 - **CSRF 检查。** 保存布局以及添加或移除项目，需要同源的 `Origin` 或 `Referer` 请求头，且 Content-Type 必须正好是 `application/json`。
 - **画板隔离。** `boards/`、`assets/`、`shared/` 下的所有文件都带 `Content-Security-Policy: sandbox` 提供，画板显示在沙盒 iframe 中，画板脚本无法调用画布 API。本地字体的 CORS 只对沙盒画板开放。共享模式下，画板的资源链接只能打开它所属的创意。
 - **页面 CSP。** 仪表盘和画布页面带有严格的 `Content-Security-Policy`：只运行页面自身的内联脚本（按 SHA-256 哈希放行，不允许 `unsafe-eval`），请求和 iframe 只指向本服务器，其他网站无法把这些页面嵌入 iframe。
@@ -414,7 +419,7 @@ mockup-canvas 不是托管式的设计工具或应用生成器。它负责规划
 
 ## 参与贡献
 
-欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 260 个）：
+欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 274 个）：
 
 ```bash
 cd tests && python3 -m unittest discover .

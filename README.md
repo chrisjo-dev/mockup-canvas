@@ -52,6 +52,7 @@ The agent draws each screen as a small HTML file, and the canvas shows them side
 - Flow arrows between screens, labeled with the button or action that leads there.
 - Approval badges (approved, rejected). Notes show as a tooltip on the artboard title.
 - A violet `built` badge on boards with a recorded implementation (the route is in its tooltip), and a comment count on boards with review comments. Click the count to read them in a panel.
+- **Pins.** Press `C` (or Point in the toolbar), click a spot or drag an area on a board, and write a note. The board gets a numbered pin. The server opens the board in its own headless Chrome, finds the element under the pin, and saves its CSS selector, its text, and a crop of that part of the board. Copy for AI puts one line on the clipboard that names the board, the pin, and the element, and `canvas pins` lists every open pin for the agent. When the board file changes, the pin follows its element. `P` hides pins.
 - Collapsible groups of artboards, for example `current` and `old drafts`.
 - It stays responsive on large boards. Only boards near the view keep a live page. When zoomed out below about 30 to 40%, boards show cached PNG thumbnails (when served). A board you have seen once shows its thumbnail, not a blank card, while it loads again. Screen updates are batched once per animation frame, and thumbnails render in the background at low priority. On a 71-artboard canvas (1440x900, Apple M4, Chrome headless), pan and zoom stay at about 59 to 60 FPS, with a p95 frame time of about 20 ms and no frame over 50 ms. That holds on first open and with cached thumbnails. To reproduce, run `python3 tests/perf_check.py <idea folder>`.
 - Live reload. The server checks for file changes every second, so an edit to an artboard or `canvas.json` shows up within about a second.
@@ -67,7 +68,7 @@ The agent draws each screen as a small HTML file, and the canvas shows them side
 
 **The CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- One Python 3 file of about 4,600 lines, standard library only (Python 3.8+), no pip dependencies. It has 18 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`.
+- One Python 3 file of about 5,100 lines, standard library only (Python 3.8+), no pip dependencies. It has 19 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`, `pins`.
 - Chrome (or Chromium or Edge) is used only to render boards and capture app pages as PNGs.
 
 ## The dashboard
@@ -224,7 +225,7 @@ Each skill follows the workflow in its `SKILL.md`. See [docs/skill.md](docs/skil
 1. **Load the context:** the spec the screens were drawn from, `tokens.css`, `canvas.json`, and any earlier `review.md`.
 2. **Machine checks:** `canvas check` and `canvas overview`. Every `check` problem becomes a finding.
 3. **Per board and flow:** render each current board (also with `--full-page`), read its HTML, go through the checklist, and walk the links from the entry screen for dead ends and unreachable boards.
-4. **Comment on the board:** one finding per `canvas comment`, starting with `[must]`, `[should]`, or `[could]`.
+4. **Comment on the board:** one finding per `canvas comment`, starting with `[must]`, `[should]`, or `[could]`. A finding about one element is pinned to it with `--at x,y[,w,h]` or `--el SELECTOR`.
 5. **Report:** write `design/<idea>/review.md` and recommend approve, revise, or reject per board. Setting status stays your decision.
 
 The reviewer never edits artboards, tokens, or `canvas.json`. It works best in a different agent or session than the one that drew the screens.
@@ -283,6 +284,7 @@ Run `canvas <command> -h` for the usage of any command.
 | `compare` | Render a board at its registered size, capture the app at the same size (`--url`) or use a PNG (`--png`), and write `board.png`, `app.png`, `diff.png` (mismatches in magenta), `side.png` (board, app, and diff side by side), and `report.json` (with `mismatch_percent`) to `<idea>/compare/<board id>/`, or `--out DIR`. `--threshold N` (0 to 255, default 24) is how far a color channel may differ before a pixel counts; `--ignore-top N` and `--ignore-bottom N` leave bands out; `--align-top N` places the app N px down, below a fake status bar the board draws; `--wait MS` (default 3000). | `canvas compare design/wallet W01-Home.html --url http://localhost:5173/ --align-top 47` |
 | `impl` | With a board: record the route and source files (relative to the project root) that implement it, or `--clear` the record. Without a board: list approved boards and whether each is implemented; `--strict` exits 1 when one is missing. | `canvas impl design/wallet W01-Home.html --route / --file src/pages/Home.tsx`<br>`canvas impl design/wallet --strict` |
 | `comment` | Add a review comment to a board (`--by NAME` for the author), list its comments when no text is given, or remove them with `--clear`. | `canvas comment design/wallet W02-Send.html "[must] No error state" --by reviewer` |
+| `pins` | List the open pins of an idea or one board, with the element each one points at and the path of its cropped image (`--all` includes resolved ones, `--json` for scripts). `--resolve N --note TEXT` closes a pin after the fix, `--reopen N` opens it again. Add a pin with `canvas comment ... --at x,y[,w,h]` or `--el SELECTOR`. | `canvas pins design/wallet`<br>`canvas pins design/wallet W02-Send.html --resolve 3 --note "44 px button"` |
 | `trash` | Move an idea, or one board of it, to `<design dir>/.trash/`. A board keeps its canvas.json entry (position, group, status, comments) and its flow arrows in a sidecar file for restore. `--list` shows what is there. Nothing is ever removed for good; empty the folder by hand. | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
 | `restore` | Put a trash entry back by its id (from `trash --list`). It refuses when something now has the same name. | `canvas restore design wallet/W02-Send-20261029T101034Z` |
 
@@ -295,6 +297,8 @@ Run `canvas <command> -h` for the usage of any command.
 | One-finger drag, two-finger pinch (touch) | Pan, zoom |
 | `F` | Fit all artboards in view |
 | `L` | Show or hide flow arrows |
+| `C` | Point mode: click a spot or drag an area on a board to pin a note to it (`Esc` cancels) |
+| `P` | Show or hide pins |
 | Click an artboard title | Copy its ID, for example `W01-Home` |
 | Double-click an artboard title | Open the artboard alone in a new tab |
 | Drag an artboard title | Move it and save the position |
@@ -303,6 +307,7 @@ Run `canvas <command> -h` for the usage of any command.
 | Click a group header | Collapse or expand the group |
 | Hover an artboard title | Show its note |
 | Click a comment count | Open the board's comments; `Esc` closes them |
+| Click a pin | Its note, the element it points at, a crop of that spot, Copy for AI, and Resolve |
 | `...` on an artboard title, or right-click the title | Board menu: open in a new tab, copy the file name, or delete the board (it moves to `design/.trash/`; the toast's Undo puts it back) |
 | Open `.../<idea>/#<board>`, for example `#T01-Home` | Fit that one board in view (dashboard board results link here) |
 
@@ -344,7 +349,7 @@ mockup-canvas is a local tool and is meant to stay one. Details are in [SECURITY
 - **Share mode is opt-in.** `--share` binds to the local network and requires a random token on every request (moved into an `HttpOnly; SameSite=Strict` cookie after the first visit). It is read-only unless you pass `--share-edit`, never allows registry changes, and stops after `--minutes` (1 to 240, default 30). A registry share serves the projects registered at start time (or one, with `--project NAME`) and hides folder paths and the management UI. Traffic is plain HTTP, so use it only on networks you trust.
 - **Host check.** Every request must name this server in its `Host` header (`127.0.0.1`, `localhost`, or `[::1]` with the port, plus the LAN address in share mode); anything else gets `421`, which blocks DNS rebinding.
 - **Path containment.** Only files inside a registered design folder are served. `../`, encoded traversal, absolute paths, and symlinks pointing outside are rejected.
-- **Small write surface.** The only write on an idea changes `x` and `y` of an existing board in `canvas.json`, atomically, with a 64 KiB body limit.
+- **Small write surface.** Writes on an idea are limited to board positions, pins (500 characters per note, 50 per board), and moving a board or an idea to `design/.trash/`. `canvas.json` is saved atomically, and request bodies are limited to 64 KiB. Share pages and read-only servers have no pins and no delete.
 - **CSRF checks.** Layout saves and registry changes require a same-origin `Origin` or `Referer` header and the exact media type `application/json`.
 - **Sandboxed artboards.** Every file under `boards/`, `assets/`, and `shared/` is served with `Content-Security-Policy: sandbox`, and boards are shown in sandboxed iframes, so a board script cannot call the canvas API. Local fonts get CORS only for sandboxed boards. In share mode a board's asset link opens only its own idea.
 - **Page CSP.** The dashboard and the canvas page carry a strict `Content-Security-Policy`: only their own inline scripts run (allowed by SHA-256 hash, no `unsafe-eval`), requests and frames stay on this server, and no other site can frame them.
@@ -414,7 +419,7 @@ Yes. Write the HTML files yourself and use the CLI: `canvas new`, `canvas add`, 
 
 ## Contributing
 
-Issues and pull requests are welcome. Run the test suite (260 tests) before you open a pull request:
+Issues and pull requests are welcome. Run the test suite (274 tests) before you open a pull request:
 
 ```bash
 cd tests && python3 -m unittest discover .

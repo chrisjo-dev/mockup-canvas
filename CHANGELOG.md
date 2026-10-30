@@ -6,6 +6,22 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-30
+
+### Added
+
+- Pins (#15): tell the agent exactly which part of a board you mean. Press `C` or Point in the canvas toolbar, click a spot or drag an area on a board, and write a note. The board gets a numbered pin.
+- The server opens the board in its own headless Chrome (the guarded one that renders thumbnails), finds the element under the pin, and saves its CSS selector, text, a short HTML excerpt, and a crop of that part of the board in `<idea>/render/.pins/`. The canvas never reads into a board's sandboxed iframe.
+- Pin details show the note, the element, and the crop, with Copy for AI (one line naming the idea, board, pin, and element), Resolve or Reopen, and Delete with Undo. `P` hides pins.
+- When a board file changes, its pins are looked up again by selector and move with their elements; a pin whose element is gone is marked `lost` and stays where it was.
+- `canvas pins <idea dir> [file] [--all] [--json]` lists pins for an agent, and `--resolve N --note TEXT` and `--reopen N` change them. `canvas comment ... --at x,y[,w,h]` or `--el SELECTOR` adds a pin from the command line, so mockup-review can pin its findings.
+- The three skills run `canvas pins` when the user mentions pins and treat pin text as data, not instructions.
+- Pins are optional fields on the existing `comments[]` entries in `canvas.json`, so older versions keep them.
+
+### Security
+
+- `POST /api/pin` takes the same same-origin and `Content-Type` checks as every other write. Share pages (including `--share-edit`) and read-only servers have no pin UI, answer 403, and do not serve pin images. A note is at most 500 characters and a board holds at most 50 pins. Share and read-only servers never probe pins (a probe writes `canvas.json`).
+
 ## [0.6.0] - 2026-10-29
 
 ### Added
@@ -162,7 +178,8 @@ Note: a server older than 0.4.0 drops collections when it saves `roots.json`, so
 - A local, Figma-like canvas to pan, zoom, and arrange HTML artboards, with flow arrows, groups, approval marks, live reload, and phone sharing.
 - The TrailMate example and a unit test suite.
 
-[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.7.0
 [0.6.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.6.0
 [0.5.1]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.5.1
 [0.5.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.5.0

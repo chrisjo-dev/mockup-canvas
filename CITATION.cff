@@ -5,8 +5,8 @@ title: "mockup-canvas"
 abstract: "Free, open-source agent skills for Claude Code and OpenAI Codex that draw UI mockups as HTML artboards on a local Figma-like canvas, review them, and build approved screens into app code that is compared with the mockups."
 authors:
   - alias: chrisjo-dev
-version: 0.6.0
-date-released: 2026-10-29
+version: 0.7.0
+date-released: 2026-10-30
 license: MIT
 repository-code: "https://github.com/chrisjo-dev/mockup-canvas"
 url: "https://chrisjo-dev.github.io/mockup-canvas/"

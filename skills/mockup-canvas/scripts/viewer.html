@@ -199,6 +199,79 @@
       #del-dlg .ft button { flex: 1; height: 44px; justify-content: center; }
     }
 
+    /* Pins (D-B26 to D-B29): numbered markers that point at a spot or an area of a board. They
+       keep a 24 px screen size at any zoom (--ps = 1 / zoom, set when the view rests). Local mode only. */
+    #toolbar .tb-btn { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; margin: -4px 0;
+      border: 0; border-radius: 12px; background: none; color: rgba(255,255,255,0.8); font: inherit; cursor: pointer; }
+    #toolbar .tb-btn:hover { background: rgba(255,255,255,0.1); }
+    #toolbar .tb-btn.on { background: #3d7bff; color: #fff; }
+    #toolbar .tb-btn.on kbd { background: rgba(255,255,255,0.22); color: #fff; }
+    #toolbar .tb-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px #7b9cff; }
+    #stage.pinning .board { cursor: crosshair; }
+    #pin-hint { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0,0,0,0.82);
+      color: #fff; font-size: 12px; padding: 6px 14px; border-radius: 16px; white-space: nowrap; pointer-events: none; }
+    #pin-hint[hidden] { display: none; }
+    #pin-hint span { color: rgba(255,255,255,0.55); margin-left: 6px; }
+    .pins { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 2; pointer-events: none; --ps: 1; }
+    .board.collapsed .pins { display: none; }
+    .pin { position: absolute; width: 24px; height: 24px; transform-origin: 0 0; transform: scale(var(--ps)) translate(-50%, -50%);
+      border: 0; padding: 0; border-radius: 50% 50% 50% 4px; background: #3d7bff; color: #fff; display: grid; place-items: center;
+      font: 700 11px -apple-system, sans-serif; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,0.35); cursor: pointer; pointer-events: auto; }
+    .pin.sel { box-shadow: 0 0 0 2px #fff, 0 0 0 5px rgba(61,123,255,0.45), 0 2px 6px rgba(0,0,0,0.35); }
+    .pin.done { background: #8a8a8a; opacity: 0.7; }
+    .pin.lost { background: #f59e0b; color: #1a1a1a; }
+    .pin.wait::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid rgba(61,123,255,0.5);
+      border-top-color: transparent; animation: pin-spin 0.9s linear infinite; }
+    @keyframes pin-spin { to { transform: rotate(360deg); } }
+    .pin:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 5px #7b9cff; }
+    .pin-area { position: absolute; border: calc(1.5px * var(--ps)) dashed #3d7bff; background: rgba(61,123,255,0.08); border-radius: 3px; }
+    .pin-area.done { border-color: #8a8a8a; background: none; }
+    .pin-dim { position: absolute; transform-origin: 0 0; transform: scale(var(--ps)) translate(-50%, 6px); background: #3d7bff; color: #fff;
+      font: 600 10px ui-monospace, monospace; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+    #pin-cmp, #pin-pop { position: fixed; z-index: 1700; background: #2a2a2a; color: #e0e0e0; border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px; box-shadow: 0 6px 28px rgba(0,0,0,0.55); font-size: 12px; user-select: text; }
+    #pin-cmp[hidden], #pin-pop[hidden] { display: none; }
+    #pin-cmp { width: 280px; padding: 10px; }
+    #pin-cmp .wh { color: rgba(255,255,255,0.5); font-size: 11px; margin-bottom: 6px; display: flex; gap: 6px; align-items: center; }
+    #pin-cmp .wh b { color: rgba(255,255,255,0.75); font: 400 11px ui-monospace, monospace; }
+    #pin-cmp textarea { display: block; width: 100%; min-height: 54px; max-height: 160px; resize: vertical; background: #1e1e1e; color: #fff;
+      border: 1px solid #3d7bff; box-shadow: 0 0 0 3px rgba(61,123,255,0.25); border-radius: 7px; padding: 7px 9px;
+      font: 13px/18px -apple-system, 'Helvetica Neue', Arial, sans-serif; outline: none; }
+    #pin-cmp .ft { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+    #pin-cmp .ft span { color: rgba(255,255,255,0.4); font-size: 10px; margin-right: auto; }
+    #pin-cmp button, #pin-pop .ft button { height: 28px; padding: 0 10px; border: 0; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;
+      font: 600 11px -apple-system, sans-serif; background: rgba(255,255,255,0.1); color: #fff; cursor: pointer; }
+    #pin-cmp button:focus-visible, #pin-pop button:focus-visible { outline: none; box-shadow: 0 0 0 2px #2a2a2a, 0 0 0 4px #7b9cff; }
+    #pin-cmp .pri, #pin-pop .pri { background: #3d7bff; }
+    #pin-cmp .pri:disabled { opacity: 0.5; cursor: default; }
+    #pin-pop { width: 300px; overflow: hidden; }
+    #pin-pop .ph { display: flex; align-items: center; gap: 8px; padding: 10px 12px 0; }
+    #pin-pop .ph .n { width: 20px; height: 20px; border-radius: 50% 50% 50% 3px; background: #3d7bff; color: #fff; display: grid; place-items: center;
+      font-weight: 700; font-size: 10px; flex: none; }
+    #pin-pop .ph .n.done { background: #8a8a8a; }
+    #pin-pop .ph .n.lost { background: #f59e0b; color: #1a1a1a; }
+    #pin-pop .ph b { color: #fff; }
+    #pin-pop .ph .m { margin-left: auto; color: rgba(255,255,255,0.4); font-size: 10px; }
+    #pin-pop .tx { padding: 6px 12px 0; color: #fff; font-size: 13px; line-height: 18px; white-space: pre-wrap; word-break: break-word; }
+    #pin-pop .tg { margin: 10px 12px 0; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden; }
+    #pin-pop .tg img { display: block; width: 100%; max-height: 140px; object-fit: contain; background: #fff; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    #pin-pop .tg .sel { padding: 7px 9px 0; font: 11px ui-monospace, monospace; color: #9ecbff; overflow-wrap: anywhere; }
+    #pin-pop .tg .et { padding: 2px 9px 8px; color: rgba(255,255,255,0.6); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #pin-pop .tg.find { padding: 10px; color: rgba(255,255,255,0.6); display: flex; gap: 8px; align-items: center; }
+    #pin-pop .tg.find::before { content: ''; width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25);
+      border-top-color: #fff; flex: none; animation: pin-spin 0.9s linear infinite; }
+    #pin-pop .tg.warn { padding: 9px 10px; color: #f5c56b; line-height: 16px; }
+    #pin-pop .tg.note { padding: 9px 10px; color: rgba(255,255,255,0.65); line-height: 16px; }
+    #pin-pop .ft { display: flex; gap: 6px; padding: 10px 12px; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.18); }
+    #pin-pop .ft .sp { flex: 1; }
+    #pin-pop .ft .ghost { background: none; color: rgba(255,255,255,0.7); padding: 0 8px; }
+    #pin-pop .ft .ghost.dg { color: #f06a72; }
+    @media (max-width: 480px) {
+      #pin-pop { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; border-radius: 12px 12px 0 0; }
+      #pin-pop .ft { padding-bottom: 20px; }
+      #pin-pop .ft button { height: 44px; flex: 1; justify-content: center; }
+      #pin-pop .ft .sp { display: none; }
+    }
     /* Loading */
     #loading {
       position: fixed; inset: 0; background: #1e1e1e; z-index: 3000;
@@ -217,6 +290,8 @@
   <span class="key-hint"><kbd>F</kbd> Fit</span>
   <span class="sep key-hint">|</span>
   <span class="key-hint"><kbd>L</kbd> Arrows</span>
+  <span class="sep pin-ui">|</span>
+  <button type="button" id="pin-btn" class="tb-btn pin-ui" aria-pressed="false" title="Point at a spot or an area on a board (C)"><svg class="v-ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2"/></svg>Point <kbd class="key-hint">C</kbd></button>
   <span class="sep">|</span>
   <span id="zoom-lbl">35%</span>
   <span id="ro-badge" class="ro-badge" style="display:none">Read-only</span>
@@ -224,6 +299,9 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div id="cmt-panel" hidden></div>
 <div id="board-menu" role="menu" aria-label="Board actions" hidden></div>
+<div id="pin-hint" hidden>Click a spot or drag an area on a board<span>Esc to cancel</span></div>
+<div id="pin-cmp" role="dialog" aria-label="New pin" hidden></div>
+<div id="pin-pop" role="dialog" aria-label="Pin" hidden></div>
 <div id="del-layer" hidden><div id="del-dlg" role="alertdialog" aria-modal="true" aria-labelledby="del-t"></div></div>
 
 <script>
@@ -278,6 +356,7 @@
   const READ_ONLY = STATIC || !!window.CANVAS_READ_ONLY;
   const SHARED = typeof window.CANVAS_ASSET_PREFIX === 'string';   // set only in share mode
   const CAN_DELETE = !READ_ONLY && !SHARED && !OVERVIEW;
+  const CAN_PIN = CAN_DELETE;   // pins: local mode only (share links are read-only for them)
   const DOTS_SVG = '<svg class="v-ic dots" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg>';
   // Share mode: sandboxed boards load their files through a keyed path (no cookie in an opaque origin)
   const ASSET_PREFIX = (!STATIC && typeof window.CANVAS_ASSET_PREFIX === 'string' &&
@@ -404,6 +483,7 @@
   }
   function settle() {
     moving = false;
+    scalePins();
     if (layerScale && layerScale !== sc) { cvs.classList.remove('layer'); layerScale = 0; }
     visDirty = true;
     schedule();
@@ -733,7 +813,9 @@
         r.sizeKey = b.w + 'x' + b.h;
       }
       fillBar(r, b);
+      renderPins(r, b);
     }
+    if (pinOpen) openPin(pinOpen.file, pinOpen.id);   // a probe or an edit changed it
     renderArrows();
     // The overview screenshot waits for the page load event, so its iframes must exist before it
     if (!VIRTUAL) updateVisibility();
@@ -963,6 +1045,308 @@
     } });
   }
 
+  // ── Pins (D-B26 to D-B29) ────────────────────────────────────────────────
+  // A pin is a comment with an id and a spot (at: {x, y, w, h} in the board's own CSS px). The
+  // server finds the element under it with its own headless Chrome and fills in target and img;
+  // the canvas never reads into a board's sandboxed iframe. Local mode only, like delete.
+  const PIN_ID = /^p[0-9a-f]{8}$/;
+  const pinHint = document.getElementById('pin-hint');
+  const pinCmp = document.getElementById('pin-cmp');
+  const pinPop = document.getElementById('pin-pop');
+  const pinBtn = document.getElementById('pin-btn');
+  let pinMode = false, pinsHidden = false;
+  let pinDrag = null;    // {file, r, x0, y0, sx, sy, area, dim, moved}
+  let pinDraft = null;   // {file, at, els}
+  let pinOpen = null;    // {file, id}
+  if (!CAN_PIN) for (const el of document.querySelectorAll('.pin-ui')) el.remove();
+  function pinList(b) {
+    const out = [];
+    for (const c of (b && b.comments) || []) if (typeof c.id === 'string' && PIN_ID.test(c.id)) out.push([out.length + 1, c]);
+    return out;
+  }
+  function pinBox(c) {
+    const a = c.at;
+    return a && typeof a === 'object' ? { x: num(a.x, 0), y: num(a.y, 0), w: Math.max(0, num(a.w, 0)), h: Math.max(0, num(a.h, 0)) } : null;
+  }
+  const pinState = (c) => c.resolved ? 'done' : c.state === 'lost' ? 'lost' : c.state === 'pending' ? 'wait' : '';
+  function pinLayer(r) {
+    if (!r.pins) { r.pins = document.createElement('div'); r.pins.className = 'pins'; r.div.appendChild(r.pins); }
+    r.pins.style.setProperty('--ps', String(1 / sc));
+    return r.pins;
+  }
+  function pinMarker(layer, n, cls, box) {
+    if (box.w || box.h) {
+      const a = document.createElement('div');
+      a.className = 'pin-area' + (cls === 'done' ? ' done' : '');
+      a.style.cssText = `left:${box.x}px;top:${box.y}px;width:${box.w}px;height:${box.h}px;`;
+      layer.appendChild(a);
+    }
+    const m = document.createElement('button');
+    m.type = 'button';
+    m.className = 'pin' + (cls ? ' ' + cls : '');
+    m.textContent = String(n);
+    m.style.cssText = `left:${box.x}px;top:${box.y}px;`;
+    layer.appendChild(m);
+    return m;
+  }
+  function renderPins(r, b) {
+    const pins = CAN_PIN && !pinsHidden ? pinList(b) : [];
+    const busy = (pinDraft && pinDraft.file === r.file) || (pinDrag && pinDrag.file === r.file);
+    if (!pins.length && !busy) {
+      if (r.pins) { r.pins.remove(); r.pins = null; }
+      return;
+    }
+    const layer = pinLayer(r);
+    layer.textContent = '';
+    for (const [n, c] of pins) {
+      const box = pinBox(c);
+      if (!box) continue;
+      const m = pinMarker(layer, n, pinState(c), box);
+      m.setAttribute('aria-label', 'Pin ' + n + ': ' + String(c.text == null ? '' : c.text).slice(0, 80));
+      if (pinOpen && pinOpen.id === c.id) m.classList.add('sel');
+      m.addEventListener('mousedown', (e) => e.stopPropagation());
+      m.addEventListener('click', (e) => { e.stopPropagation(); openPin(r.file, c.id); });
+    }
+    if (pinDraft && pinDraft.file === r.file) drawDraft(r);
+    // a canvas reload (live reload, another tab) during a drag keeps the area being drawn
+    if (pinDrag && pinDrag.file === r.file && pinDrag.area) { layer.appendChild(pinDrag.area); layer.appendChild(pinDrag.dim); }
+  }
+  function scalePins() {   // when the view rests: markers back to 24 px on screen
+    for (const r of Object.values(recs)) if (r.pins) r.pins.style.setProperty('--ps', String(1 / sc));
+  }
+  function setPinMode(on) {
+    if (!CAN_PIN) return;
+    pinMode = on;
+    stage.classList.toggle('pinning', on);
+    pinHint.hidden = !on;
+    pinBtn.classList.toggle('on', on);
+    pinBtn.setAttribute('aria-pressed', String(on));
+    if (on) { closePin(); closeComments(); closeBoardMenu(); }
+  }
+  if (CAN_PIN) pinBtn.addEventListener('click', () => { if (pinDraft) cancelDraft(); setPinMode(!pinMode); });
+  // Screen point -> the board's own CSS px
+  function boardPoint(file, cx, cy) {
+    const b = canvasData.boards[file];
+    return { x: (cx - vx) / sc - b.x, y: (cy - vy) / sc - b.y };
+  }
+  function startPin(e, boardEl) {
+    const file = boardEl.dataset.file, r = recs[file], b = canvasData && canvasData.boards[file];
+    if (!r || !b) return false;
+    if (pinDraft) cancelDraft();
+    const p = boardPoint(file, e.clientX, e.clientY);
+    pinDrag = { file, r, x0: p.x, y0: p.y, sx: e.clientX, sy: e.clientY, moved: false, area: null, dim: null };
+    return true;
+  }
+  function dragBox(d, cx, cy) {
+    const b = canvasData.boards[d.file], p = boardPoint(d.file, cx, cy);
+    const cl = (v, m) => Math.round(Math.max(0, Math.min(m, v)));
+    const x1 = cl(Math.min(d.x0, p.x), b.w), y1 = cl(Math.min(d.y0, p.y), b.h);
+    return { x: x1, y: y1, w: cl(Math.max(d.x0, p.x), b.w) - x1, h: cl(Math.max(d.y0, p.y), b.h) - y1 };
+  }
+  function movePin(e) {
+    const d = pinDrag;
+    if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4) return;
+    d.moved = true;
+    const box = dragBox(d, e.clientX, e.clientY), layer = pinLayer(d.r);
+    if (!d.area) {
+      d.area = document.createElement('div'); d.area.className = 'pin-area';
+      d.dim = document.createElement('div'); d.dim.className = 'pin-dim';
+      layer.appendChild(d.area); layer.appendChild(d.dim);
+    }
+    d.area.style.cssText = `left:${box.x}px;top:${box.y}px;width:${box.w}px;height:${box.h}px;`;
+    d.dim.style.cssText = `left:${box.x + box.w / 2}px;top:${box.y + box.h}px;`;
+    d.dim.textContent = box.w + ' x ' + box.h;
+  }
+  function endPin(e) {
+    const d = pinDrag;
+    pinDrag = null;
+    if (d.area) { d.area.remove(); d.dim.remove(); }
+    const b = canvasData.boards[d.file];
+    if (!b) return;
+    let at = d.moved ? dragBox(d, e.clientX, e.clientY) : { x: Math.round(d.x0), y: Math.round(d.y0), w: 0, h: 0 };
+    if (at.w < 4 && at.h < 4) at = { x: at.x + (at.w >> 1), y: at.y + (at.h >> 1), w: 0, h: 0 };
+    at.x = Math.max(0, Math.min(b.w, at.x)); at.y = Math.max(0, Math.min(b.h, at.y));
+    pinDraft = { file: d.file, at };
+    renderPins(d.r, b);
+    openComposer();
+  }
+  function drawDraft(r) {
+    const n = pinList(canvasData.boards[r.file]).length + 1;
+    pinMarker(pinLayer(r), n, 'sel', pinDraft.at);
+  }
+  function cancelDraft() {
+    if (!pinDraft) return;
+    const r = recs[pinDraft.file], b = canvasData && canvasData.boards[pinDraft.file];
+    pinDraft = null;
+    pinCmp.hidden = true; pinCmp.textContent = '';
+    if (r && b) renderPins(r, b);
+  }
+  // Place a popup next to a pin marker on screen (or next to a screen point), inside the window
+  function placeNear(el, file, box) {
+    const b = canvasData.boards[file];
+    const x = vx + (b.x + box.x + box.w) * sc, y = vy + (b.y + box.y) * sc;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    let left = x + 18;
+    if (left + w > window.innerWidth - 12) left = vx + (b.x + box.x) * sc - w - 18;
+    el.style.left = Math.max(12, Math.min(window.innerWidth - w - 12, left)) + 'px';
+    el.style.top = Math.max(12, Math.min(window.innerHeight - h - 60, y - 24)) + 'px';
+  }
+  function openComposer() {
+    const { file, at } = pinDraft;
+    pinCmp.textContent = '';
+    const wh = document.createElement('div');
+    wh.className = 'wh';
+    wh.appendChild(document.createTextNode(at.w || at.h ? 'Area ' : 'Point '));
+    const pos = document.createElement('b');
+    pos.textContent = at.w || at.h ? at.w + ' x ' + at.h + ' at ' + at.x + ', ' + at.y : at.x + ', ' + at.y;
+    wh.appendChild(pos);
+    wh.appendChild(document.createTextNode(' on ' + file.replace(/\.html$/, '')));
+    const ta = document.createElement('textarea');
+    ta.maxLength = 500;
+    ta.placeholder = 'What should change here?';
+    ta.setAttribute('aria-label', 'Note');
+    const ft = document.createElement('div');
+    ft.className = 'ft';
+    const hint = document.createElement('span');
+    hint.textContent = 'Enter to save';
+    const no = document.createElement('button');
+    no.type = 'button'; no.textContent = 'Cancel';
+    no.addEventListener('click', () => { cancelDraft(); setPinMode(false); });
+    const yes = document.createElement('button');
+    yes.type = 'button'; yes.className = 'pri'; yes.textContent = 'Save'; yes.disabled = true;
+    ta.addEventListener('input', () => { yes.disabled = !ta.value.trim(); });
+    let busy = false;
+    const save = async () => {
+      if (!ta.value.trim() || busy) return;
+      busy = yes.disabled = true;
+      const d = await post('/api/pin', Object.assign(scope(), { file, action: 'add', text: ta.value, at }));
+      busy = false;
+      if (!d.ok) { yes.disabled = false; showToast(d.error || 'Could not save the pin'); return; }
+      pinDraft = null;
+      pinCmp.hidden = true; pinCmp.textContent = '';
+      setPinMode(false);
+      await loadCanvas(true);
+      showToast('Pin ' + d.n + ' saved');
+      openPin(file, d.pin.id);
+    };
+    yes.addEventListener('click', save);
+    ta.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); save(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancelDraft(); }
+    });
+    ft.appendChild(hint); ft.appendChild(no); ft.appendChild(yes);
+    pinCmp.appendChild(wh); pinCmp.appendChild(ta); pinCmp.appendChild(ft);
+    pinCmp.hidden = false;
+    placeNear(pinCmp, file, at);
+    ta.focus({ preventScroll: true });
+  }
+  function pinCopyText(file, n, c) {
+    const t = (c.target && typeof c.target === 'object') ? c.target : {};
+    const box = pinBox(c);
+    let s = (IDEA ? IDEA + '/' : '') + file + ' pin ' + n + ': "' + String(c.text == null ? '' : c.text).replace(/\s+/g, ' ') + '"';
+    if (typeof t.selector === 'string' && t.selector) {
+      s += ' -> ' + t.selector;
+      if (typeof t.text === 'string' && t.text) s += ' "' + t.text.slice(0, 60) + '"';
+    } else if (box) s += ' at ' + box.x + ',' + box.y + (box.w || box.h ? ' ' + box.w + 'x' + box.h : '');
+    return s + ' (see canvas pins)';
+  }
+  function closePin() {
+    if (pinPop.hidden) return;
+    pinPop.hidden = true; pinPop.textContent = '';
+    const was = pinOpen;
+    pinOpen = null;
+    const r = was && recs[was.file];
+    if (r && r.pins) for (const m of r.pins.querySelectorAll('.pin.sel')) m.classList.remove('sel');
+  }
+  function openPin(file, id) {
+    const b = canvasData && canvasData.boards[file];
+    const hit = b && pinList(b).find(([, c]) => c.id === id);
+    if (!hit) { closePin(); return; }
+    const [n, c] = hit;
+    closeComments(); closeBoardMenu();
+    pinOpen = { file, id };
+    const r = recs[file];
+    if (r && r.pins) {
+      for (const m of r.pins.querySelectorAll('.pin')) m.classList.toggle('sel', m.textContent === String(n));
+    }
+    const st = pinState(c);
+    const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+    pinPop.textContent = '';
+    const ph = el('div', 'ph');
+    ph.appendChild(el('span', 'n' + (st && st !== 'wait' ? ' ' + st : ''), String(n)));
+    ph.appendChild(el('b', '', 'Pin ' + n + (c.resolved ? ', resolved' : '')));
+    ph.appendChild(el('span', 'm', [c.by, c.created].filter(v => v != null && v !== '').map(String).join(', ')));
+    pinPop.appendChild(ph);
+    pinPop.appendChild(el('div', 'tx', String(c.text == null ? '' : c.text)));
+    const t = (c.target && typeof c.target === 'object') ? c.target : {};
+    const sel = typeof t.selector === 'string' ? t.selector : '';
+    if (c.state === 'pending') pinPop.appendChild(el('div', 'tg find', 'Finding the element under the pin...'));
+    else if (c.state === 'lost') pinPop.appendChild(el('div', 'tg warn', 'The board changed and ' + (sel || 'the element') + ' is no longer there. The pin stays where it was.'));
+    else if (c.state === 'none') pinPop.appendChild(el('div', 'tg warn', sel ? 'No element matches ' + sel + '.' : 'No element found under the pin.'));
+    else if (sel) {
+      const tg = el('div', 'tg');
+      if (typeof c.img === 'string' && PIN_ID.test(c.img.replace(/\.png$/, ''))) {
+        const img = el('img');
+        img.alt = '';
+        img.src = BASE + '/pins/' + encodeURIComponent(c.img) + '?v=' + encodeURIComponent(String(c.ver || ''));
+        tg.appendChild(img);
+      }
+      tg.appendChild(el('div', 'sel', sel));
+      const rc = t.rect && typeof t.rect === 'object' ? t.rect : null;
+      const what = (typeof t.text === 'string' && t.text ? '"' + t.text.slice(0, 60) + '"' : '') +
+        (rc ? (t.text ? ', ' : '') + num(rc.w, 0) + ' x ' + num(rc.h, 0) : '');
+      if (what) tg.appendChild(el('div', 'et', what));
+      pinPop.appendChild(tg);
+    }
+    if (c.resolved && typeof c.resolved === 'object' && c.resolved.note) pinPop.appendChild(el('div', 'tg note', 'Note: ' + String(c.resolved.note)));
+    const ft = el('div', 'ft');
+    const btn = (label, cls, run, html) => {
+      const bt = el('button', cls);
+      bt.type = 'button';
+      if (html) bt.innerHTML = html;
+      if (label) bt.appendChild(document.createTextNode(label));
+      bt.addEventListener('click', run);
+      ft.appendChild(bt);
+      return bt;
+    };
+    const first = btn('Copy for AI', c.resolved ? '' : 'pri', () => {
+      const text = pinCopyText(file, n, c);
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => showToast('Copied pin ' + n + ' for the AI'), () => showToast(text));
+      else showToast(text);
+    }, svgIcon('<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.8A1.3 1.3 0 0 0 9.2 2.5H3.8A1.3 1.3 0 0 0 2.5 3.8v5.4a1.3 1.3 0 0 0 1.3 1.3h1.7"/>'));
+    ft.appendChild(el('span', 'sp'));
+    btn(c.resolved ? 'Reopen' : 'Resolve', 'ghost', async () => {
+      const d = await post('/api/pin', Object.assign(scope(), { file, action: c.resolved ? 'reopen' : 'resolve', ref: c.id }));
+      if (!d.ok) { showToast(d.error || 'Could not save the pin'); return; }
+      await loadCanvas(true);
+      openPin(file, c.id);
+    });
+    const del = btn('', 'ghost dg', async () => {
+      const d = await post('/api/pin', Object.assign(scope(), { file, action: 'delete', ref: c.id }));
+      if (!d.ok) { showToast(d.error || 'Could not delete the pin'); return; }
+      closePin();
+      await loadCanvas(true);
+      const box = pinBox(c);
+      showToast('Deleted pin ' + n, box ? { label: 'Undo', run: async () => {
+        const a = await post('/api/pin', Object.assign(scope(), { file, action: 'add', text: c.text, at: box }));
+        if (!a.ok) { showToast(a.error || 'Could not restore the pin'); return; }
+        await loadCanvas(true);
+      } } : undefined);
+    }, TRASH_SVG);
+    del.setAttribute('aria-label', 'Delete pin');
+    pinPop.appendChild(ft);
+    pinPop.hidden = false;
+    placeNear(pinPop, file, pinBox(c) || { x: 0, y: 0, w: 0, h: 0 });
+    first.focus({ preventScroll: true });
+  }
+  for (const p of [pinCmp, pinPop]) {
+    p.addEventListener('mousedown', (e) => e.stopPropagation());
+    p.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+  }
+  pinPop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePin(); } });
+  window.addEventListener('mousedown', () => { if (!pinPop.hidden) closePin(); });
+
   // ── Render arrows ────────────────────────────────────────────────────────
   function arrowGeometry(lnk, boards, all) {
     const fb = boards[lnk.from], tb = boards[lnk.to];
@@ -1138,6 +1522,10 @@
 
   // ── Mouse events ─────────────────────────────────────────────────────────
   stage.addEventListener('mousedown', (e) => {
+    if (pinMode && e.button === 0 && !e.target.closest?.('.board-bar') && !e.target.closest?.('.pin')) {
+      const bd = e.target.closest?.('.board');
+      if (bd && !bd.classList.contains('collapsed') && startPin(e, bd)) { e.preventDefault(); return; }
+    }
     if (e.target === stage || e.target === cvs ||
         e.target.closest?.('.grp-bg') || e.target.closest?.('.grp-hdr')) {
       if (e.button !== 0) return;
@@ -1149,6 +1537,7 @@
   });
 
   window.addEventListener('mousemove', (e) => {
+    if (pinDrag) { movePin(e); return; }
     if (panning) {
       vx = e.clientX - panRef.x;
       vy = e.clientY - panRef.y;
@@ -1164,6 +1553,7 @@
   });
 
   window.addEventListener('mouseup', async (e) => {
+    if (pinDrag) { endPin(e); return; }
     panning = false;
     stage.style.cursor = '';
     if (!dragging) return;
@@ -1282,6 +1672,7 @@
 
   // ── Keyboard ─────────────────────────────────────────────────────────────
   window.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) return;   // typing a pin note
     if (!delLayer.hidden || !boardMenu.hidden) {   // the dialog and the menu take the keys
       if (e.key === 'Escape') { e.preventDefault(); if (!delLayer.hidden) closeDelete(); else { const b = menuBtn; closeBoardMenu(); if (b) b.focus(); } }
       return;
@@ -1297,7 +1688,14 @@
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === 'Escape') closeComments();
+    if (e.key === 'Escape') { closeComments(); closePin(); if (pinDraft) cancelDraft(); else if (pinMode) setPinMode(false); }
+    if (CAN_PIN && (e.key === 'c' || e.key === 'C')) { if (pinDraft) cancelDraft(); setPinMode(!pinMode); }
+    if (CAN_PIN && (e.key === 'p' || e.key === 'P')) {
+      pinsHidden = !pinsHidden;
+      if (pinsHidden) closePin();
+      renderAll();
+      showToast(pinsHidden ? 'Pins hidden' : 'Pins shown');
+    }
     if (e.key === 'f' || e.key === 'F') fitToView();
     if (e.key === 'l' || e.key === 'L') {
       showArrows = !showArrows;

@@ -52,6 +52,7 @@ UI를 글로 설명하면 모호합니다. "상단에 히어로 배너, 아래�
 - 화면 사이에 흐름 화살표를 그리고, 그 화면으로 넘어가는 버튼이나 동작 이름을 붙입니다.
 - 승인, 반려 배지가 붙습니다. 메모는 아트보드 제목에 마우스를 올리면 보입니다.
 - 구현이 기록된 보드에는 보라색 `built` 배지(마우스를 올리면 경로 표시)가, 리뷰 코멘트가 있는 보드에는 코멘트 수가 붙습니다. 코멘트 수를 누르면 패널에서 내용을 읽을 수 있습니다.
+- **핀.** `C`(또는 툴바의 Point)를 누르고 보드의 한 지점을 클릭하거나 영역을 드래그한 뒤 메모를 쓰면 보드에 번호 핀이 붙습니다. 서버가 자체 헤드리스 Chrome으로 보드를 열어 핀 아래 요소를 찾고, 그 요소의 CSS selector와 텍스트, 그 부분을 잘라낸 이미지를 저장합니다. Copy for AI는 보드, 핀 번호, 요소를 담은 한 줄을 클립보드에 넣고, 에이전트는 `canvas pins`로 열린 핀을 모두 봅니다. 보드 파일이 바뀌면 핀이 요소를 따라 움직입니다. `P`로 핀을 숨깁니다.
 - 아트보드를 접고 펼 수 있는 그룹으로 묶습니다. 예: `current`, `old drafts`.
 - 보드가 많아도 부드럽게 움직입니다. 화면 근처의 보드만 실제 페이지를 띄웁니다. 배율 약 30~40% 미만으로 축소하면 캐시된 PNG 썸네일을 보여 줍니다(서버로 열었을 때). 한 번 본 보드는 다시 불러오는 동안 빈 카드 대신 썸네일이 보입니다. 화면 갱신은 애니메이션 프레임마다 한 번으로 묶고, 썸네일은 낮은 우선순위로 뒤에서 만듭니다. 아트보드 71개짜리 캔버스(1440x900, Apple M4, headless Chrome)에서 이동과 확대/축소는 약 59~60 FPS, p95 프레임 시간 약 20 ms이고 50 ms를 넘는 프레임은 없습니다. 처음 열 때와 썸네일이 캐시된 뒤 모두 그렇습니다. `python3 tests/perf_check.py <아이디어 폴더>`로 다시 측정할 수 있습니다.
 - 실시간으로 갱신됩니다. 서버가 1초마다 파일 변경을 확인하므로, 아트보드나 `canvas.json`을 고치면 열린 캔버스가 1초 안팎으로 바뀝니다.
@@ -67,7 +68,7 @@ UI를 글로 설명하면 모호합니다. "상단에 히어로 배너, 아래�
 
 **CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- 약 4,600줄짜리 Python 3 파일 하나입니다. 표준 라이브러리만 쓰고(Python 3.8 이상) pip 의존성은 없습니다. 명령은 18개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`.
+- 약 5,100줄짜리 Python 3 파일 하나입니다. 표준 라이브러리만 쓰고(Python 3.8 이상) pip 의존성은 없습니다. 명령은 19개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`, `pins`.
 - Chrome(또는 Chromium, Edge)은 보드를 렌더링하거나 앱 화면을 PNG로 캡처할 때만 씁니다.
 
 ## 대시보드
@@ -224,7 +225,7 @@ lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
 1. **맥락 읽기:** 화면의 근거가 된 기획서, `tokens.css`, `canvas.json`, 이전 `review.md`가 있으면 그것까지 읽습니다.
 2. **기계 점검:** `canvas check`와 `canvas overview`. `check`가 찾은 문제는 모두 지적 사항이 됩니다.
 3. **보드별, 흐름 점검:** 현재 보드를 하나씩 렌더링하고(`--full-page`도), HTML을 읽고, 체크리스트를 따라 봅니다. 시작 화면부터 링크를 따라가며 막다른 화면과 닿지 않는 보드를 찾습니다.
-4. **보드에 코멘트:** 지적 사항 하나에 `canvas comment` 하나, 앞에 `[must]`, `[should]`, `[could]`를 붙입니다.
+4. **보드에 코멘트:** 지적 사항 하나에 `canvas comment` 하나, 앞에 `[must]`, `[should]`, `[could]`를 붙입니다. 요소 하나에 대한 지적은 `--at x,y[,w,h]`나 `--el SELECTOR`로 그 위치에 핀을 꽂습니다.
 5. **보고:** `design/<idea>/review.md`를 쓰고 보드마다 승인, 수정, 반려를 권고합니다. 상태를 바꾸는 결정은 사용자에게 남깁니다.
 
 리뷰어는 아트보드, 토큰, `canvas.json`을 고치지 않습니다. 화면을 그린 에이전트나 세션이 아닌 다른 쪽에서 돌릴 때 가장 잘 동작합니다.
@@ -283,6 +284,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `compare` | 보드를 등록된 크기로 렌더링하고, 앱을 같은 크기로 캡처(`--url`)하거나 PNG(`--png`)를 받아 `board.png`, `app.png`, `diff.png`(다른 픽셀은 마젠타), `side.png`(보드, 앱, diff를 나란히), `report.json`(`mismatch_percent` 포함)을 `<idea>/compare/<board id>/`나 `--out DIR`에 씁니다. `--threshold N`(0~255, 기본 24)은 색 채널이 이만큼 넘게 달라야 다른 픽셀로 세는 기준이고, `--ignore-top N`, `--ignore-bottom N`은 위아래 띠를 계산에서 빼며, `--align-top N`은 보드가 그린 가짜 상태 표시줄 아래로 앱을 N px 내려 놓습니다. `--wait MS`(기본 3000). | `canvas compare design/wallet W01-Home.html --url http://localhost:5173/ --align-top 47` |
 | `impl` | 보드를 주면 그 보드를 구현한 경로와 소스 파일(프로젝트 루트 기준)을 기록하고, `--clear`로 기록을 지웁니다. 보드를 주지 않으면 승인된 보드와 구현 여부를 보여 주고, `--strict`는 구현 안 된 보드가 있으면 1로 종료합니다. | `canvas impl design/wallet W01-Home.html --route / --file src/pages/Home.tsx`<br>`canvas impl design/wallet --strict` |
 | `comment` | 보드에 리뷰 코멘트를 추가하고(`--by NAME`으로 작성자 지정), 텍스트 없이 실행하면 목록을 보여 주고, `--clear`로 지웁니다. | `canvas comment design/wallet W02-Send.html "[must] 오류 상태 없음" --by reviewer` |
+| `pins` | 아이디어나 보드 하나의 열린 핀을, 각 핀이 가리키는 요소와 잘라낸 이미지 경로와 함께 보여 줍니다(`--all`은 해결된 핀까지, `--json`은 스크립트용). 고친 뒤 `--resolve N --note TEXT`로 닫고, `--reopen N`으로 다시 엽니다. 핀은 `canvas comment ... --at x,y[,w,h]`나 `--el SELECTOR`로 추가합니다. | `canvas pins design/wallet`<br>`canvas pins design/wallet W02-Send.html --resolve 3 --note "44 px button"` |
 | `trash` | 아이디어나 그 안의 보드 하나를 `<design dir>/.trash/`로 옮깁니다. 보드는 canvas.json 항목(위치, 그룹, 상태, 코멘트)과 흐름 화살표를 복원용 파일에 함께 남깁니다. `--list`로 들어 있는 것을 봅니다. 완전히 지우지는 않으니, 비우려면 폴더를 직접 지웁니다. | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
 | `restore` | `trash --list`에 나온 id로 되돌립니다. 같은 이름이 이미 있으면 되돌리지 않습니다. | `canvas restore design wallet/W02-Send-20261029T101034Z` |
 
@@ -295,6 +297,8 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | 한 손가락 드래그, 두 손가락 핀치 (터치) | 이동, 확대, 축소 |
 | `F` | 모든 아트보드가 보이게 맞춤 |
 | `L` | 흐름 화살표 보이기, 숨기기 |
+| `C` | 핀 모드: 보드의 한 지점을 클릭하거나 영역을 드래그해 메모를 꽂기(`Esc`로 취소) |
+| `P` | 핀 보이기, 숨기기 |
 | 아트보드 제목 클릭 | ID 복사 (예: `W01-Home`) |
 | 아트보드 제목 더블클릭 | 새 탭에서 그 아트보드만 열기 |
 | 아트보드 제목 드래그 | 위치 이동 후 저장 |
@@ -303,6 +307,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | 그룹 머리글 클릭 | 그룹 접기, 펴기 |
 | 아트보드 제목에 마우스 올리기 | 메모 보기 |
 | 코멘트 수 클릭 | 보드 코멘트 열기, `Esc`로 닫기 |
+| 핀 클릭 | 메모, 가리키는 요소, 그 부분 이미지, Copy for AI, Resolve |
 | 아트보드 제목의 `...`, 또는 제목 오른쪽 클릭 | 보드 메뉴: 새 탭에서 열기, 파일 이름 복사, 보드 삭제(`design/.trash/`로 옮겨지고, 알림의 Undo로 되돌림) |
 | `.../<idea>/#<board>` 열기, 예: `#T01-Home` | 그 보드 하나를 화면에 맞추기 (대시보드의 보드 결과가 이 주소로 연결됨) |
 
@@ -344,7 +349,7 @@ mockup-canvas는 로컬에서 쓰는 도구이고, 그 범위를 벗어나지 �
 - **공유 모드는 직접 켤 때만.** `--share`는 로컬 네트워크에 열리고, 모든 요청에 무작위 토큰이 필요합니다. 첫 방문 뒤에는 토큰이 `HttpOnly; SameSite=Strict` 쿠키로 옮겨집니다. `--share-edit`를 주지 않으면 읽기 전용이고, 프로젝트 등록 변경은 항상 막히며, `--minutes`(1~240, 기본 30분)가 지나면 저절로 멈춥니다. 레지스트리 공유는 시작 시점에 등록된 프로젝트(`--project NAME`이면 그 하나)만 보여 주고, 폴더 경로와 관리 화면은 숨깁니다. 통신은 평문 HTTP이니 믿을 수 있는 네트워크에서만 쓰세요.
 - **Host 검사.** 모든 요청의 `Host` 헤더가 이 서버(`127.0.0.1`, `localhost`, `[::1]`과 포트, 공유 모드에서는 LAN 주소도)여야 합니다. 다르면 `421`로 거절해 DNS 리바인딩을 막습니다.
 - **경로 제한.** 등록된 디자인 폴더 안의 파일만 제공합니다. `../`, 인코딩된 상위 경로, 절대 경로, 바깥을 가리키는 심볼릭 링크는 거부합니다.
-- **최소한의 쓰기.** 아이디어에 대한 쓰기는 `canvas.json`에 있는 아트보드의 `x`, `y` 변경 하나뿐이고, 원자적으로 저장하며 본문은 64 KiB로 제한합니다.
+- **최소한의 쓰기.** 아이디어에 대한 쓰기는 보드 위치, 핀(메모 500자, 보드당 50개), 보드나 아이디어를 `design/.trash/`로 옮기는 일뿐입니다. `canvas.json`은 원자적으로 저장하고 요청 본문은 64 KiB로 제한합니다. 공유 페이지와 읽기 전용 서버에는 핀과 삭제가 없습니다.
 - **CSRF 검사.** 배치 저장과 프로젝트 추가, 제거에는 같은 출처의 `Origin`이나 `Referer` 헤더와 정확히 `application/json`인 Content-Type이 필요합니다.
 - **아트보드 격리.** `boards/`, `assets/`, `shared/` 아래 모든 파일을 `Content-Security-Policy: sandbox`로 제공하고 아트보드를 sandbox iframe 안에서 보여 주므로, 아트보드 스크립트가 캔버스 API를 부를 수 없습니다. 로컬 글꼴의 CORS는 sandbox 아트보드에만 허용합니다. 공유 모드에서 아트보드의 리소스 링크는 그 아트보드가 속한 아이디어만 엽니다.
 - **페이지 CSP.** 대시보드와 캔버스 페이지에는 엄격한 `Content-Security-Policy`가 붙습니다. 페이지 자신의 인라인 스크립트만 SHA-256 해시로 허용해 실행하고(`unsafe-eval` 없음), 요청과 iframe은 이 서버로만 향하며, 다른 사이트는 이 페이지를 iframe에 넣을 수 없습니다.
@@ -414,7 +419,7 @@ mockup-canvas는 호스팅형 디자인 도구나 앱 생성기가 아닙니다.
 
 ## 기여하기
 
-이슈와 PR 모두 환영합니다. PR을 올리기 전에 테스트(260개)를 돌려 주세요.
+이슈와 PR 모두 환영합니다. PR을 올리기 전에 테스트(274개)를 돌려 주세요.
 
 ```bash
 cd tests && python3 -m unittest discover .

@@ -22,7 +22,8 @@ Commands:
           [--ignore-top N] [--ignore-bottom N] [--align-top N]
   impl <idea dir> [--strict]
   impl <idea dir> <file> --route PATH [--file PATH]... | --clear
-  comment <idea dir> <file> [TEXT [--by NAME] | --clear]
+  comment <idea dir> <file> [TEXT [--by NAME] [--at X,Y[,W,H] | --el SELECTOR] | --clear]
+  pins <idea dir> [file] [--all] [--json] | pins <idea dir> <file> --resolve N [--note TEXT] | --reopen N
   trash <idea dir> [file] | trash --list <design dir>
   restore <design dir> <trash id>
 
@@ -1633,6 +1634,144 @@ def list_trash(design_dir):
     out.sort(key=lambda e: e['deleted'])
     return out
 
+# ── Pins (comments that point at a spot or an area of a board) ─────────────
+# A pin is a comment in boards[<file>].comments with extra fields: id, at {x, y, w, h} in the
+# board's own CSS px (w = h = 0 for a point), state, target {selector, text, html, rect}, img,
+# ver (the board file's mtime when target was found), and resolved {at, by, note}. Older servers
+# keep these fields (save_canvas_atomic writes the whole entry back). The server fills target and
+# img in the background with its headless Chrome (_PinQueue) and moves the pin when the board
+# changes. Pin numbers are 1-based positions among the pins of a board.
+
+PIN_TEXT_MAX = 500
+PIN_MAX_PER_BOARD = 50
+PIN_DIR = os.path.join('render', '.pins')
+_PIN_ID = re.compile(r'^p[0-9a-f]{8}$')
+
+
+class PinError(Exception):
+    pass
+
+
+def _is_pin(c):
+    return isinstance(c, dict) and isinstance(c.get('id'), str) and _PIN_ID.match(c['id']) is not None
+
+
+def board_pins(b):
+    """[(number, entry)] for the pins of one canvas.json board entry."""
+    cs = b.get('comments') if isinstance(b, dict) and isinstance(b.get('comments'), list) else []
+    return [(i, c) for i, c in enumerate((c for c in cs if _is_pin(c)), 1)]
+
+
+def _pin_box(at, bw, bh):
+    """{x, y, w, h} as ints inside a bw x bh board, or raise PinError."""
+    try:
+        if isinstance(at, str):
+            at = dict(zip('xywh', (float(v) for v in at.split(','))))
+        x, y = float(at['x']), float(at['y'])
+        w, h = float(at.get('w', 0) or 0), float(at.get('h', 0) or 0)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise PinError('at needs x,y or x,y,w,h numbers')
+    if not all(v == v and abs(v) < 1e6 for v in (x, y, w, h)) or w < 0 or h < 0:
+        raise PinError('at needs x,y or x,y,w,h numbers')
+    x, y = min(max(0, round(x)), bw), min(max(0, round(y)), bh)
+    return {'x': x, 'y': y, 'w': min(round(w), bw - x), 'h': min(round(h), bh - y)}
+
+
+def _board_ver(idea_dir, fname):
+    try:
+        return format(os.stat(os.path.join(idea_dir, 'boards', fname)).st_mtime_ns, 'x')
+    except OSError:
+        return ''
+
+
+def _pin_board(canvas, fname):
+    boards = canvas.get('boards') if isinstance(canvas.get('boards'), dict) else {}
+    b = boards.get(fname) if isinstance(fname, str) else None
+    if not isinstance(b, dict):
+        raise PinError(f'No board named {fname}')
+    return b
+
+
+def _find_pin(b, ref):
+    """ref: a pin number (int or digits) or a pin id."""
+    pins = board_pins(b)
+    for n, c in pins:
+        if str(ref) == str(n) or ref == c['id']:
+            return n, c
+    raise PinError(f'No pin {ref} on this board')
+
+
+def add_pin(idea_dir, fname, text, at=None, selector=None, by='user'):
+    """Add a pin at a point or area (at) or on an element (selector). Returns (number, entry)."""
+    text = text.strip() if isinstance(text, str) else ''
+    if not text:
+        raise PinError('The note is empty')
+    if len(text) > PIN_TEXT_MAX:
+        raise PinError(f'Keep the note under {PIN_TEXT_MAX} characters')
+    if at is None and not selector:
+        raise PinError('A pin needs a point, an area, or a selector')
+    if selector is not None and (not isinstance(selector, str) or not selector.strip() or len(selector) > 300):
+        raise PinError('The selector must be 1 to 300 characters')
+    by = by if isinstance(by, str) and by.strip() else 'user'
+    cj = os.path.join(idea_dir, 'canvas.json')
+    with _canvas_lock:
+        canvas = load_canvas(idea_dir)
+        b = _pin_board(canvas, fname)
+        if len(board_pins(b)) >= PIN_MAX_PER_BOARD:
+            raise PinError(f'A board holds at most {PIN_MAX_PER_BOARD} pins')
+        bw, bh = _board_size(b)
+        entry = {'text': text, 'by': by.strip()[:40], 'created': _now(), 'id': 'p' + secrets.token_hex(4),
+                 'state': 'pending'}
+        if at is not None:
+            entry['at'] = _pin_box(at, bw, bh)
+        if selector:
+            entry['target'] = {'selector': selector.strip()}
+        cs = b.get('comments') if isinstance(b.get('comments'), list) else []
+        cs.append(entry)
+        b['comments'] = cs
+        save_canvas_atomic(cj, canvas)
+        return len(board_pins(b)), entry
+
+
+def set_pin_resolved(idea_dir, fname, ref, resolved=True, note=None, by='user'):
+    cj = os.path.join(idea_dir, 'canvas.json')
+    with _canvas_lock:
+        canvas = load_canvas(idea_dir)
+        n, c = _find_pin(_pin_board(canvas, fname), ref)
+        if resolved:
+            c['resolved'] = {'at': _now(), 'by': (by or 'user')[:40]}
+            if note:
+                c['resolved']['note'] = str(note)[:PIN_TEXT_MAX]
+        else:
+            c.pop('resolved', None)
+        save_canvas_atomic(cj, canvas)
+        return n, c
+
+
+def delete_pin(idea_dir, fname, ref):
+    cj = os.path.join(idea_dir, 'canvas.json')
+    with _canvas_lock:
+        canvas = load_canvas(idea_dir)
+        b = _pin_board(canvas, fname)
+        n, c = _find_pin(b, ref)
+        b['comments'] = [x for x in b['comments'] if x is not c]
+        if not b['comments']:
+            del b['comments']
+        save_canvas_atomic(cj, canvas)
+    try:
+        os.remove(os.path.join(idea_dir, PIN_DIR, c['id'] + '.png'))
+    except OSError:
+        pass
+    return n, c
+
+
+def pins_needing_probe(idea_dir, b, fname):
+    """Open pins of a board whose element is not known yet or was found in an older board file."""
+    ver = _board_ver(idea_dir, fname)
+    return [c for _, c in board_pins(b)
+            if not c.get('resolved') and (c.get('state') == 'pending' or (c.get('ver') and c.get('ver') != ver))]
+
+
 # ── SSE ────────────────────────────────────────────────────────────────────
 
 SSE_SEND_TIMEOUT = 5   # seconds a write to one live reload client may block
@@ -1674,8 +1813,10 @@ def _broadcast(key, data):
     for d in dead:
         _rm_sse(key, d)
 
-def _watch_thread(design_dirs):
+def _watch_thread(design_dirs, pins=False):
     """
+    pins: also probe pins that are new or whose board changed (_PINS; local servers only, since a
+      probe writes canvas.json)
     design_dirs: list of (design_dir, key_prefix)
       single-root: [(design_dir, '')]
       registry:    [(design_dir1, 'proj1/'), (design_dir2, 'proj2/')]
@@ -1707,6 +1848,8 @@ def _watch_thread(design_dirs):
                             mkey = (sse_key, fname)
                             if mkey in mtimes and mtimes[mkey] != mt:
                                 _broadcast(sse_key, {'type': 'board', 'file': fname})
+                                if pins:
+                                    _PINS.check(idea_dir, sse_key)
                             mtimes[mkey] = mt
                     cj = os.path.join(idea_dir, 'canvas.json')
                     if os.path.exists(cj):
@@ -1717,6 +1860,8 @@ def _watch_thread(design_dirs):
                         mkey = (sse_key, 'canvas.json')
                         if mkey in mtimes and mtimes[mkey] != mt:
                             _broadcast(sse_key, {'type': 'canvas'})
+                        if pins and mtimes.get(mkey) != mt:   # first seen too: pins added while no server ran
+                            _PINS.check(idea_dir, sse_key)
                         mtimes[mkey] = mt
             except Exception:
                 pass
@@ -1905,9 +2050,252 @@ class _ThumbQueue:
 _THUMBS = _ThumbQueue()
 
 
+# ── Pin probe: which element a pin points at ───────────────────────────────
+# The board is opened in the server's own headless Chrome (file://, guarded like a thumbnail
+# render), so the viewer never reads into a board's sandboxed iframe. For a new pin the element
+# under its center is taken (for an area, the smallest ancestor that covers it); for a pin whose
+# board changed, its selector is looked up again and the pin moves with the element.
+
+_PIN_PROBE_JS = r'''(function (P) {
+  const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/[^\w-]/g, '\\$&');
+  const count = (s) => { try { return document.querySelectorAll(s).length; } catch (_) { return 0; } };
+  function selectorOf(el) {
+    const parts = [];
+    for (let e = el; e && e.nodeType === 1 && e !== document.documentElement && parts.length < 8; e = e.parentElement) {
+      if (e.id && count('#' + esc(e.id)) === 1) { parts.unshift('#' + esc(e.id)); break; }
+      let s = e.localName;
+      const cls = [...e.classList].filter((c) => /^[A-Za-z_-][\w-]*$/.test(c)).slice(0, 2);
+      if (cls.length) s += '.' + cls.map(esc).join('.');
+      const p = e.parentElement;
+      if (p) {
+        const same = [...p.children].filter((c) => c.localName === e.localName);
+        if ([...p.children].filter((c) => c.matches(s)).length > 1) s += ':nth-of-type(' + (same.indexOf(e) + 1) + ')';
+      }
+      parts.unshift(s);
+      if (count(parts.join(' > ')) === 1) break;
+    }
+    return parts.join(' > ');
+  }
+  const box = (r) => ({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
+  function describe(el) {
+    const t = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('alt') || el.value || '').replace(/\s+/g, ' ').trim();
+    return { found: true, selector: selectorOf(el), text: t.slice(0, 160), html: el.outerHTML.replace(/\s+/g, ' ').slice(0, 300),
+             rect: box(el.getBoundingClientRect()) };
+  }
+  return P.map((p) => {
+    let el = null;
+    if (p.selector) { try { el = document.querySelector(p.selector); } catch (_) {} }
+    else if (p.at) {
+      const a = p.at, cx = a.x + a.w / 2, cy = a.y + a.h / 2;
+      el = document.elementFromPoint(Math.min(cx, innerWidth - 1), Math.min(cy, innerHeight - 1));
+      if (el && (a.w || a.h)) {
+        // the smallest ancestor that covers the area, but not one far larger than it (an area
+        // across two cards names the card under its center, not the whole page)
+        const big = Math.max(1, a.w * a.h) * 4;
+        while (el.parentElement && el !== document.body) {
+          const r = el.getBoundingClientRect(), q = el.parentElement.getBoundingClientRect();
+          if (r.left <= a.x + 2 && r.top <= a.y + 2 && r.right >= a.x + a.w - 2 && r.bottom >= a.y + a.h - 2) break;
+          if (q.width * q.height > big || el.parentElement === document.body) break;
+          el = el.parentElement;
+        }
+      }
+    }
+    return el && el !== document.documentElement ? describe(el) : { found: false };
+  });
+})'''
+
+
+def _pin_crop_box(at, rect, bw, bh):
+    """The part of the board to save as the pin's image: the area, else the element when it is
+    small, else 240 x 160 around the point. At most 600 x 400, inside the board."""
+    if at and (at['w'] or at['h']):
+        x, y, w, h = at['x'] - 16, at['y'] - 16, at['w'] + 32, at['h'] + 32
+    elif rect and rect['w'] * rect['h'] <= bw * bh / 2 and rect['w'] > 0 and rect['h'] > 0:
+        x, y, w, h = rect['x'] - 16, rect['y'] - 16, rect['w'] + 32, rect['h'] + 32
+    else:
+        cx, cy = (at['x'], at['y']) if at else (rect['x'] + rect['w'] / 2, rect['y'] + rect['h'] / 2)
+        x, y, w, h = cx - 120, cy - 80, 240, 160
+    if w > 600:
+        x, w = x + (w - 600) / 2, 600
+    if h > 400:
+        y, h = y + (h - 400) / 2, 400
+    x, y = max(0, min(x, bw - 1)), max(0, min(y, bh - 1))
+    return {'x': int(x), 'y': int(y), 'width': max(1, int(min(w, bw - x))), 'height': max(1, int(min(h, bh - y))),
+            'scale': 1}
+
+
+def _clean_probe(r):
+    if not isinstance(r, dict) or not r.get('found'):
+        return None
+    try:
+        rect = {k: int(r['rect'][k]) for k in 'xywh'}
+    except (KeyError, TypeError, ValueError):
+        return None
+    s = lambda v, n: v[:n] if isinstance(v, str) else ''
+    return {'selector': s(r.get('selector'), 300), 'text': s(r.get('text'), 160), 'html': s(r.get('html'), 300), 'rect': rect}
+
+
+def probe_pins(session, idea_dir, fname, timeout=30):
+    """Find the elements of the pins of one board that need it, crop their images, and save the
+    result in canvas.json. Returns the number of pins updated."""
+    src = _safe_path(idea_dir, 'boards', fname)
+    if not src or not os.path.isfile(src):
+        return 0
+    with _canvas_lock:
+        b = load_canvas(idea_dir).get('boards', {}).get(fname)
+        todo = [json.loads(json.dumps(c)) for c in pins_needing_probe(idea_dir, b, fname)] if isinstance(b, dict) else []
+        bw, bh = _board_size(b) if isinstance(b, dict) else (0, 0)
+    if not todo:
+        return 0
+    ver = _board_ver(idea_dir, fname)
+    spec = []
+    for c in todo:
+        t = c.get('target') if isinstance(c.get('target'), dict) else {}
+        follow = isinstance(t.get('selector'), str) and (c.get('state') != 'pending' or not c.get('at'))
+        spec.append({'selector': t['selector'] if follow else None, 'at': c.get('at')})
+    session.file_roots = [os.path.realpath(idea_dir)]
+    deadline = time.monotonic() + timeout
+    session.goto(pathlib.Path(src).as_uri(), bw, bh, deadline)
+    time.sleep(0.25)
+    session.call('Runtime.evaluate', awaitPromise=True, expression=(
+        'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(1))))'))
+    res = session.call('Runtime.evaluate', returnByValue=True,
+                       expression=_PIN_PROBE_JS + '(' + json.dumps(spec) + ')').get('result', {}).get('value')
+    res = res if isinstance(res, list) and len(res) == len(todo) else [None] * len(todo)
+    out_dir = os.path.join(idea_dir, PIN_DIR)
+    for d in (os.path.dirname(out_dir), out_dir):   # one level at a time: no copy of a moved idea
+        try:
+            os.mkdir(d)
+        except FileExistsError:
+            pass
+    if not _within(os.path.realpath(out_dir), os.path.realpath(idea_dir)):   # a linked render/ or .pins/
+        raise PinError('render/.pins is not inside the idea folder')
+    updates = {}
+    for c, s, r in zip(todo, spec, res):
+        found = _clean_probe(r)
+        at, old = c.get('at'), (c.get('target') or {}).get('rect')
+        u = {'ver': ver}
+        if found:
+            if s['selector'] is None:
+                u['state'], u['target'] = 'found', found
+            else:
+                u['state'] = 'found'
+                u['target'] = dict(found, selector=s['selector'])
+                if not at:
+                    at = {'x': found['rect']['x'], 'y': found['rect']['y'], 'w': found['rect']['w'], 'h': found['rect']['h']}
+                elif isinstance(old, dict) and all(isinstance(old.get(k), int) for k in 'xy'):
+                    at = _pin_box({'x': at['x'] + found['rect']['x'] - old['x'], 'y': at['y'] + found['rect']['y'] - old['y'],
+                                   'w': at['w'], 'h': at['h']}, bw, bh)
+                u['at'] = at
+        else:   # lost: the element was there before this board edit
+            u['state'] = 'lost' if s['selector'] and isinstance(old, dict) else 'none'
+        if at or found:
+            png = os.path.join(out_dir, c['id'] + '.png')
+            shot = session.call('Page.captureScreenshot', format='png',
+                                clip=_pin_crop_box(at, found and found['rect'], bw, bh))
+            tmp = png + '.part'
+            with open(tmp, 'wb') as f:
+                f.write(base64.b64decode(shot['data']))
+            os.replace(tmp, png)
+            u['img'] = c['id'] + '.png'
+        updates[c['id']] = u
+    cj = os.path.join(idea_dir, 'canvas.json')
+    with _canvas_lock:
+        canvas = load_canvas(idea_dir)
+        b = canvas.get('boards', {}).get(fname)
+        n = 0
+        for _, c in board_pins(b) if isinstance(b, dict) else []:
+            if c['id'] in updates:
+                c.update(updates[c['id']])
+                n += 1
+        if n:
+            save_canvas_atomic(cj, canvas)
+    return n
+
+
+class _PinQueue:
+    """One background Chrome that probes boards with new or moved pins, one board at a time."""
+    IDLE = 15
+    RETRY_AFTER = 30
+
+    def __init__(self):
+        self.cv = threading.Condition()
+        self.jobs, self.failed = [], {}
+        self.session, self.working, self.closed = None, False, False
+
+    def request(self, idea_dir, fname, sse_key):
+        with self.cv:
+            if self.closed or any(j[:2] == (idea_dir, fname) for j in self.jobs):
+                return
+            t = self.failed.get((idea_dir, fname, _board_ver(idea_dir, fname)))
+            if t is not None and time.time() - t < self.RETRY_AFTER:
+                return
+            self.jobs.append((idea_dir, fname, sse_key))
+            if not self.working:
+                self.working = True
+                threading.Thread(target=self._work, daemon=True).start()
+            self.cv.notify()
+
+    def check(self, idea_dir, sse_key):
+        """Queue every board of an idea whose pins need a probe (cheap when there are no pins)."""
+        try:
+            boards = load_canvas(idea_dir).get('boards', {})
+        except Exception:
+            return
+        for fname, b in boards.items() if isinstance(boards, dict) else ():
+            if board_pins(b) and pins_needing_probe(idea_dir, b, fname):
+                self.request(idea_dir, fname, sse_key)
+
+    def _work(self):
+        try:
+            while True:
+                with self.cv:
+                    if not self.jobs and not self.closed:
+                        self.cv.wait(self.IDLE)
+                    if not self.jobs or self.closed:
+                        self.working = False
+                        return
+                    idea_dir, fname, sse_key = self.jobs.pop(0)
+                try:
+                    if self.session is None:
+                        s = _CdpSession(background=True, block_private=True)
+                        with self.cv:
+                            if self.closed:
+                                s.close()
+                                raise CdpError('pin queue closed')
+                            self.session = s
+                    if probe_pins(self.session, idea_dir, fname):
+                        _broadcast(sse_key, {'type': 'canvas'})
+                except Exception as e:
+                    if not self.closed:
+                        print(f'[mockup-canvas] pin probe failed: {fname}: {e!r}', file=sys.stderr, flush=True)
+                    with self.cv:
+                        self.failed[(idea_dir, fname, _board_ver(idea_dir, fname))] = time.time()
+                    self._drop()
+        finally:
+            self._drop()
+
+    def _drop(self):
+        with self.cv:
+            s, self.session = self.session, None
+        if s:
+            s.close()
+
+    def close_all(self):
+        with self.cv:
+            self.closed = True
+            self.jobs.clear()
+            self.cv.notify_all()
+        self._drop()
+
+
+_PINS = _PinQueue()
+
+
 @atexit.register
 def _close_chrome_at_exit():
     _THUMBS.close_all(wait=0)   # no new jobs, and workers stay quiet about the kills below
+    _PINS.close_all()
     _kill_all_chrome()
     _THUMBS.close_all()         # wait for workers still starting a Chrome
 
@@ -2442,6 +2830,10 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._serve_thumb(idea_dir, parts[2], idea)
             return
 
+        if parts[1] == 'pins' and len(parts) == 3:
+            self._serve_pin_image(idea_dir, parts[2])
+            return
+
         if parts[1] == 'boards' and len(parts) == 3:
             fname = parts[2]
             p = self._safe(idea, 'boards', fname)
@@ -2475,6 +2867,9 @@ class CanvasHandler(BaseHTTPRequestHandler):
             return
         if parts in (['api', 'trash'], ['api', 'restore']):
             self._trash_api(parts[1])
+            return
+        if parts == ['api', 'pin']:
+            self._pin_api()
             return
 
         if len(parts) == 3 and parts[1] == 'api' and parts[2] == 'layout':
@@ -2599,6 +2994,54 @@ class CanvasHandler(BaseHTTPRequestHandler):
             self._json({'ok': False, 'error': 'Could not move the files'}, 500)
         else:
             _broadcast(DASH_SSE_KEY, {'type': 'canvas'})
+
+    def _pin_sse_key(self, body):
+        return str(body.get('idea'))
+
+    def _pin_api(self):
+        """POST /api/pin {project?, idea, file, action: add|resolve|reopen|delete, text?, at?, ref?, note?}.
+        Local mode only, like delete: share pages and read-only servers have no pins."""
+        if self.share_token or self.read_only:
+            self._json({'ok': False, 'error': 'Not allowed in share mode' if self.share_token else 'Read-only'}, 403)
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        design_dir = self._trash_design(body)
+        if not design_dir or not os.path.isdir(design_dir):
+            self._json({'ok': False, 'error': 'No such project'}, 404)
+            return
+        action, fname = body.get('action'), body.get('file')
+        try:
+            idea_dir = _idea_folder(design_dir, body.get('idea'))
+            if not _plain_name(fname) or not fname.endswith('.html'):
+                raise PinError(f'Not a board file name: {fname}')
+            if action == 'add':
+                n, c = add_pin(idea_dir, fname, body.get('text'), at=body.get('at'))
+                _PINS.request(idea_dir, fname, self._pin_sse_key(body))
+            elif action in ('resolve', 'reopen'):
+                n, c = set_pin_resolved(idea_dir, fname, body.get('ref'), action == 'resolve', body.get('note'))
+            elif action == 'delete':
+                n, c = delete_pin(idea_dir, fname, body.get('ref'))
+            else:
+                raise PinError('Unknown action')
+        except (PinError, TrashError) as e:
+            self._json({'ok': False, 'error': str(e)}, 400)
+            return
+        except OSError as e:
+            self._log_error('pin ' + str(action) + ' failed', e)
+            self._json({'ok': False, 'error': 'Could not save the pin'}, 500)
+            return
+        self._json({'ok': True, 'n': n, 'pin': c})
+
+    def _serve_pin_image(self, idea_dir, name):
+        """pins/<pin id>.png: the cropped part of the board (local mode only)."""
+        if self.share_token or self.read_only or not name.endswith('.png') or not _PIN_ID.match(name[:-4]):
+            self._404(); return
+        p = os.path.join(idea_dir, PIN_DIR, name)
+        if not os.path.isfile(p) or not _within(os.path.realpath(p), os.path.realpath(idea_dir)):
+            self._404(); return
+        self._serve_file(p, 'image/png', {'X-Content-Type-Options': 'nosniff'}, cache='no-cache')
 
     def _serve_viewer(self, scope):
         """Serve viewer.html, injecting CANVAS_READ_ONLY when the session is read-only.
@@ -2737,6 +3180,9 @@ class RegistryHandler(CanvasHandler):
     def _trash_design(self, body):
         return self._roots_map().get(str(body.get('project') or ''))
 
+    def _pin_sse_key(self, body):
+        return str(body.get('project')) + '/' + str(body.get('idea'))
+
     def _reveal_target(self, body):
         project = str(body.get('project') or '')
         return self._reveal_in(self._roots_map().get(project), body.get('idea'))
@@ -2808,6 +3254,10 @@ class RegistryHandler(CanvasHandler):
             self._serve_thumb(idea_dir, rest[1], project + '/' + idea)
             return
 
+        if rest[0] == 'pins' and len(rest) == 2:
+            self._serve_pin_image(idea_dir, rest[1])
+            return
+
         if rest[0] == 'boards' and len(rest) == 2:
             fname = rest[1]
             p = _safe_path(design_dir, idea, 'boards', fname)
@@ -2837,6 +3287,9 @@ class RegistryHandler(CanvasHandler):
             return
         if parts in (['api', 'trash'], ['api', 'restore']):
             self._trash_api(parts[1])
+            return
+        if parts == ['api', 'pin']:
+            self._pin_api()
             return
 
         # ── Save layout (/<project>/<idea>/api/layout) ───────────────────
@@ -3153,7 +3606,7 @@ def cmd_serve(args):
     CanvasHandler.share_host = lan_ip
     CanvasHandler.share_until = time.time() + minutes * 60 if share else 0.0
 
-    t = threading.Thread(target=_watch_thread, args=([(design_dir, '')],), daemon=True)
+    t = threading.Thread(target=_watch_thread, args=([(design_dir, '')], not share and not read_only), daemon=True)
     t.start()
 
     server = ThreadedHTTPServer((bind_addr, port), CanvasHandler)
@@ -3230,7 +3683,7 @@ def _cmd_serve_registry(args):
     def watch_list():
         current = RegistryHandler.frozen_roots if RegistryHandler.frozen_roots is not None else load_roots_safe()
         return [(r['path'], r['name'] + '/') for r in current if os.path.isdir(r['path'])]
-    t = threading.Thread(target=_watch_thread, args=(watch_list,), daemon=True)
+    t = threading.Thread(target=_watch_thread, args=(watch_list, not share), daemon=True)
     t.start()
 
     server = ThreadedHTTPServer((bind_addr, port), RegistryHandler)
@@ -4486,15 +4939,19 @@ def cmd_impl(args):
 
 def cmd_comment(args):
     usage = ('Usage: canvas.py comment <idea dir> <file> TEXT [--by NAME]   add a comment\n'
+             '       canvas.py comment <idea dir> <file> TEXT --at X,Y[,W,H] | --el SELECTOR [--by NAME]\n'
+             '                                                               add a pin (a point, an area, or an element)\n'
              '       canvas.py comment <idea dir> <file>                     list comments\n'
              '       canvas.py comment <idea dir> <file> --clear             remove all comments')
     if len(args) < 2 or _is_help(args):
         print(usage); return
-    parsed = _split_args(args, ('--by',), ('--clear',))
+    parsed = _split_args(args, ('--by', '--at', '--el'), ('--clear',))
     if parsed is None:
         return 1
     pos, vals, flags = parsed
-    if not 2 <= len(pos) <= 3 or (flags['--clear'] and (len(pos) == 3 or vals['--by'])):
+    pin = vals['--at'] or vals['--el']
+    if (not 2 <= len(pos) <= 3 or (flags['--clear'] and (len(pos) == 3 or vals['--by'] or pin))
+            or (pin and len(pos) != 3)):
         print(usage, file=sys.stderr); return 1
     idea_dir = os.path.abspath(pos[0])
     cj = os.path.join(idea_dir, 'canvas.json')
@@ -4520,11 +4977,87 @@ def cmd_comment(args):
     text = pos[2].strip()
     if not text:
         print('Error: comment text is empty', file=sys.stderr); return 1
-    entry = {'text': text, 'by': vals['--by'][-1] if vals['--by'] else 'user', 'created': _now()}
+    by = vals['--by'][-1] if vals['--by'] else 'user'
+    if pin:
+        try:
+            n, _ = add_pin(idea_dir, key, text, at=vals['--at'][-1] if vals['--at'] else None,
+                           selector=vals['--el'][-1] if vals['--el'] else None, by=by)
+        except PinError as e:
+            print(f'Error: {e}', file=sys.stderr); return 1
+        print(f'Pin {n} added: {key} (a running canvas server finds the element and crops the image)')
+        return
+    entry = {'text': text, 'by': by, 'created': _now()}
     comments.append(entry)
     b['comments'] = comments
     save_canvas_atomic(cj, canvas)
     print(f'Comment added: {key} ({len(comments)} total)')
+
+
+def _pin_row(idea_dir, key, n, c):
+    """One pin as printed by `canvas pins` (and its --json object)."""
+    t = c.get('target') if isinstance(c.get('target'), dict) else {}
+    at = c.get('at') if isinstance(c.get('at'), dict) else None
+    img = os.path.join(idea_dir, PIN_DIR, c['id'] + '.png') if c.get('img') else None
+    return {'board': key, 'n': n, 'id': c['id'], 'text': c.get('text', ''), 'by': c.get('by', ''),
+            'created': c.get('created', ''), 'at': at, 'state': c.get('state', ''),
+            'selector': t.get('selector'), 'element_text': t.get('text'), 'html': t.get('html'),
+            'image': img if img and os.path.isfile(img) else None, 'resolved': c.get('resolved')}
+
+
+def cmd_pins(args):
+    usage = ('Usage: canvas.py pins <idea dir> [file] [--all] [--json]   list open pins (--all: resolved too)\n'
+             '       canvas.py pins <idea dir> <file> --resolve N [--note TEXT] [--by NAME]\n'
+             '       canvas.py pins <idea dir> <file> --reopen N')
+    if not args or _is_help(args):
+        print(usage); return
+    parsed = _split_args(args, ('--resolve', '--reopen', '--note', '--by'), ('--all', '--json'))
+    if parsed is None:
+        return 1
+    pos, vals, flags = parsed
+    change = vals['--resolve'] or vals['--reopen']
+    if not 1 <= len(pos) <= 2 or (change and (len(pos) != 2 or (vals['--resolve'] and vals['--reopen']))):
+        print(usage, file=sys.stderr); return 1
+    idea_dir = os.path.abspath(pos[0])
+    canvas = load_canvas(idea_dir)
+    keys = list(canvas.get('boards', {}))
+    if len(pos) == 2:
+        key = _require_board(canvas, pos[1])
+        if not key:
+            return 1
+        keys = [key]
+    if change:
+        try:
+            n, c = set_pin_resolved(idea_dir, keys[0], change[-1], bool(vals['--resolve']),
+                                    vals['--note'][-1] if vals['--note'] else None,
+                                    vals['--by'][-1] if vals['--by'] else 'agent')
+        except PinError as e:
+            print(f'Error: {e}', file=sys.stderr); return 1
+        print(f'Pin {n} {"resolved" if vals["--resolve"] else "reopened"}: {keys[0]}')
+        return
+    rows = [_pin_row(idea_dir, k, n, c) for k in keys for n, c in board_pins(canvas['boards'][k])
+            if flags['--all'] or not c.get('resolved')]
+    if flags['--json']:
+        print(json.dumps(rows, ensure_ascii=False, indent=2)); return
+    if not rows:
+        print('No open pins' if not flags['--all'] else 'No pins'); return
+    board = None
+    for r in rows:
+        if r['board'] != board:
+            board = r['board']
+            print(board)
+        state = 'resolved' if r['resolved'] else {'pending': 'open, element not found yet', 'lost': 'open, element gone after a board edit',
+                                                   'none': 'open, no element found there'}.get(r['state'], 'open')
+        at = r['at']
+        where = '' if not at else (f' (area {at["x"]},{at["y"]} {at["w"]}x{at["h"]})' if at['w'] or at['h'] else f' (point {at["x"]},{at["y"]})')
+        print(f'  {r["n"]}. "{r["text"]}"{where} [{state}]')
+        if r['selector']:
+            print(f'     element: {r["selector"]}' + (f' "{r["element_text"]}"' if r['element_text'] else ''))
+        if r['html']:
+            print(f'     html: {r["html"]}')
+        if r['image']:
+            print(f'     image: {r["image"]}')
+        if r['resolved'] and r['resolved'].get('note'):
+            print(f'     resolved: {r["resolved"]["note"]}')
 
 # ── trash ──────────────────────────────────────────────────────────────────
 
@@ -4585,7 +5118,7 @@ def main():
         'link': cmd_link, 'status': cmd_status, 'artifact': cmd_artifact,
         'group': cmd_group,
         'snap': cmd_snap, 'compare': cmd_compare,
-        'impl': cmd_impl, 'comment': cmd_comment,
+        'impl': cmd_impl, 'comment': cmd_comment, 'pins': cmd_pins,
         'trash': cmd_trash, 'restore': cmd_restore,
     }
     if cmd in dispatch:
