@@ -6,6 +6,10 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A Privacy section in the four READMEs, and `documentationUrl`, `supportUrl`, and `privacyPolicyUrl` in `plugin.json`, for the listing in Anthropic's plugin directory.
+
 ### Fixed
 
 - A Chrome start over pipes that times out (a cold start on a busy machine) now fails instead of starting a `--remote-debugging-port` Chrome, which outlived a `kill -9` of the server (#16). A Chrome that cannot use pipes at all still falls back to the port.
