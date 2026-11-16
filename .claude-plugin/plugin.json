@@ -9,6 +9,9 @@
   },
   "homepage": "https://github.com/chrisjo-dev/mockup-canvas",
   "repository": "https://github.com/chrisjo-dev/mockup-canvas",
+  "documentationUrl": "https://github.com/chrisjo-dev/mockup-canvas#readme",
+  "supportUrl": "https://github.com/chrisjo-dev/mockup-canvas/issues",
+  "privacyPolicyUrl": "https://github.com/chrisjo-dev/mockup-canvas#privacy",
   "license": "MIT",
   "keywords": ["mockup", "wireframe", "prototyping", "ui-design", "design-tools", "html-mockup", "canvas", "figma-alternative", "screen-design", "codex", "skill", "claude-code", "claude-code-plugin", "ai-agents", "design-review"]
 }

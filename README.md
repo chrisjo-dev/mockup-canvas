@@ -341,6 +341,16 @@ User data lives in `~/.mockup-canvas/`, or in the folder set by `MOCKUP_CANVAS_H
 
 `forbidden_chars` is a list of characters that `canvas check` reports when they appear in an artboard. The agent also keeps them out of its documents and replies. Default: none.
 
+## Privacy
+
+mockup-canvas has no account, no telemetry, and no analytics. It sends none of your files, prompts, or usage data to the author or to a server of its own.
+
+- **Your data stays on your machine.** Mockups, approvals, comments, and pins are files in your repository under `design/<idea>/`. The list of registered folders and your options are in `~/.mockup-canvas/`, and they hold paths only.
+- **The canvas is local.** The server listens on `127.0.0.1`. With `--share`, people on the same network who have the link can open the canvas until the share ends.
+- **What leaves your machine.** The dashboard page, and artboards that use Google Fonts, load those fonts from Google in your browser. `snap` and `compare --url` open the address you give them. Installing or updating the plugin contacts GitHub.
+
+For questions or problems, open an issue at [github.com/chrisjo-dev/mockup-canvas/issues](https://github.com/chrisjo-dev/mockup-canvas/issues).
+
 ## Security model
 
 mockup-canvas is a local tool and is meant to stay one. Details are in [SECURITY.md](SECURITY.md).

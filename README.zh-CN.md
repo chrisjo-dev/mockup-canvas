@@ -341,6 +341,16 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 
 `forbidden_chars` 是一个字符列表，画板中出现这些字符时 `canvas check` 会报告。智能体在文档和回复中也会避开它们。默认为空。
 
+## 隐私
+
+mockup-canvas 没有账号，没有遥测，也没有统计分析。它不会把你的文件、提示词或使用情况发送给作者，也不会发送到自己的服务器。
+
+- **数据留在你的电脑上。** 原型、批准记录、评论和图钉都是仓库里 `design/<idea>/` 下的文件。已注册的文件夹列表和选项保存在 `~/.mockup-canvas/`，其中只有路径。
+- **画布在本地运行。** 服务器只监听 `127.0.0.1`。使用 `--share` 时，同一网络中拿到链接的人可以在分享结束前打开画布。
+- **会离开你电脑的内容。** 仪表盘页面和使用 Google Fonts 的画板会在浏览器中从 Google 加载字体。`snap` 和 `compare --url` 会打开你给出的地址。安装或更新插件时会访问 GitHub。
+
+有疑问或遇到问题，请在 [github.com/chrisjo-dev/mockup-canvas/issues](https://github.com/chrisjo-dev/mockup-canvas/issues) 提 issue。
+
 ## 安全模型
 
 mockup-canvas 是本地工具，设计上也不打算超出本地。详细说明见 [SECURITY.md](SECURITY.md)。

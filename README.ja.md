@@ -341,6 +341,16 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 
 `forbidden_chars` は、アートボードに含まれていると `canvas check` が報告する文字のリストです。エージェントはドキュメントや返答でもこれらの文字を使いません。既定値はなしです。
 
+## プライバシー
+
+mockup-canvas にはアカウントも、テレメトリも、アクセス解析もありません。あなたのファイル、プロンプト、利用状況を、作者や独自のサーバーに送ることはありません。
+
+- **データはあなたのマシンに残ります。** モックアップ、承認、コメント、ピンは、リポジトリの `design/<idea>/` 以下のファイルです。登録したフォルダの一覧とオプションは `~/.mockup-canvas/` にあり、パスだけを保存します。
+- **キャンバスはローカルで動きます。** サーバーは `127.0.0.1` だけで待ち受けます。`--share` を使うと、同じネットワークでリンクを持っている人が、共有が終わるまでキャンバスを開けます。
+- **マシンの外に出るもの。** ダッシュボードのページと、Google Fonts を使うアートボードは、ブラウザで Google からフォントを読み込みます。`snap` と `compare --url` は、あなたが指定したアドレスを開きます。プラグインのインストールと更新では GitHub に接続します。
+
+質問や問題は [github.com/chrisjo-dev/mockup-canvas/issues](https://github.com/chrisjo-dev/mockup-canvas/issues) に Issue を立ててください。
+
 ## セキュリティモデル
 
 mockup-canvas はローカルで使うツールで、その範囲から出ないように作っています。詳細は [SECURITY.md](SECURITY.md) を参照してください。
