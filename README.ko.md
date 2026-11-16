@@ -341,6 +341,16 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 
 `forbidden_chars`는 아트보드에 들어 있으면 `canvas check`가 알려 주는 문자 목록입니다. 에이전트는 문서와 답변에서도 이 문자를 쓰지 않습니다. 기본값은 없음입니다.
 
+## 개인정보
+
+mockup-canvas에는 계정, 텔레메트리, 분석 도구가 없습니다. 사용자의 파일, 프롬프트, 사용 기록을 만든 사람이나 자체 서버로 보내지 않습니다.
+
+- **데이터는 사용자 컴퓨터에 남습니다.** 목업, 승인, 코멘트, 핀은 저장소의 `design/<idea>/` 아래 파일입니다. 등록한 폴더 목록과 옵션은 `~/.mockup-canvas/`에 있고, 경로만 담습니다.
+- **캔버스는 로컬에서 돕니다.** 서버는 `127.0.0.1`에서만 받습니다. `--share`를 쓰면 같은 네트워크에서 링크를 가진 사람이 공유가 끝날 때까지 캔버스를 열 수 있습니다.
+- **컴퓨터 밖으로 나가는 것.** 대시보드 페이지와 Google Fonts를 쓰는 아트보드는 브라우저에서 Google의 글꼴을 불러옵니다. `snap`과 `compare --url`은 사용자가 준 주소를 엽니다. 플러그인을 설치하거나 업데이트할 때는 GitHub에 접속합니다.
+
+질문이나 문제는 [github.com/chrisjo-dev/mockup-canvas/issues](https://github.com/chrisjo-dev/mockup-canvas/issues)에 이슈로 남겨 주세요.
+
 ## 보안 모델
 
 mockup-canvas는 로컬에서 쓰는 도구이고, 그 범위를 벗어나지 않게 만들었습니다. 자세한 내용은 [SECURITY.md](SECURITY.md)를 보세요.
