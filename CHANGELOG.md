@@ -8,7 +8,7 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ### Added
 
-- A Privacy section in the four READMEs, and `documentationUrl`, `supportUrl`, and `privacyPolicyUrl` in `plugin.json`, for the listing in Anthropic's plugin directory.
+- A Privacy section in the four READMEs, and `documentationUrl`, `supportUrl`, and `privacyPolicyUrl` in `plugin.json`, and a listing icon at `.claude-plugin/icon.png`, for the listing in Anthropic's plugin directory.
 
 ### Fixed
 
