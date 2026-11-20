@@ -208,7 +208,7 @@ class SectionsServer(ServerCase):
     def test_new_idea_holds_the_moved_one_and_failures_leave_nothing(self):
         self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
         st, d = self.post('/api/move', {'project': 'p', 'idea': 'og', 'new': 'marketing'})
-        self.assertEqual((st, d), (200, {'ok': True, 'idea': 'marketing/og'}))
+        self.assertEqual((st, d), (200, {'ok': True, 'idea': 'marketing/og', 'made': True}))
         self.assertTrue(os.path.isfile(os.path.join(self.design, 'marketing', 'canvas.json')))
         for body, text in (({'project': 'p', 'idea': 'promo', 'new': 'marketing'}, 'already exists'),
                            ({'project': 'p', 'idea': 'nope', 'new': 'fresh'}, 'No idea named nope'),
@@ -347,3 +347,129 @@ class SectionsViewer(ServerCase):
         for needle in ('id="outline"', 'id="rej-btn"', 'function mergeSections', "secBase(sec) + '/api/layout'",
                        "post('/api/move'", 'b.x - (b._dx', ):
             self.assertIn(needle.replace('b.x - (b._dx', 'x - (b._dx'), page, needle)
+
+
+class ReviewFixes(ServerCase):
+    def setUp(self):
+        super().setUp()
+        self.design = os.path.join(self.home, 'p', 'design')
+        self.promo = self.make_idea(self.design, 'promo', boards=('P01-Join.html',))
+        self.og = self.make_idea(self.design, 'og', boards=('O02-Card.html',))
+        old = time.time() - 60
+        for d in (self.promo, self.og):
+            for base, _, files in os.walk(d):
+                for f in files:
+                    os.utime(os.path.join(base, f), (old, old))
+        self.write_json(os.path.join(self.data_dir, 'roots.json'), {'roots': [{'name': 'p', 'path': self.design}]})
+
+    def post(self, path, body):
+        status, _, data = self.request('POST', path, body, headers=self.origin())
+        return status, json.loads(data or b'{}')
+
+    def test_trash_lists_boards_deleted_inside_a_section(self):
+        canvas.move_idea(self.design, 'og', into='promo')
+        a = canvas.trash_board(self.design, 'promo/og', 'O02-Card.html')
+        b = canvas.trash_board(self.design, 'promo', 'P01-Join.html')
+        got = {e['id']: (e['idea'], e['file']) for e in canvas.list_trash(self.design)}
+        self.assertEqual(got, {a: ('promo/og', 'O02-Card.html'), b: ('promo', 'P01-Join.html')})
+        r = self.run_cli('trash', '--list', self.design)
+        self.assertIn(a, r.stdout)
+
+    def test_cli_trash_of_a_section_uses_the_design_trash(self):
+        canvas.move_idea(self.design, 'og', into='promo')
+        sec = os.path.join(self.promo, 'og')
+        r = self.run_cli('trash', sec, 'O02-Card.html')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.promo, '.trash')))
+        self.assertEqual([e['idea'] for e in canvas.list_trash(self.design)], ['promo/og'])
+        r = self.run_cli('trash', sec)   # a whole section is moved out, not deleted
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('Move it out of promo', r.stderr)
+        self.assertTrue(os.path.isdir(sec))
+
+    def test_undo_of_a_move_into_a_new_idea_leaves_no_empty_idea(self):
+        self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
+        st, d = self.post('/api/move', {'project': 'p', 'idea': 'og', 'new': 'marketing'})
+        self.assertEqual(d, {'ok': True, 'idea': 'marketing/og', 'made': True})
+        st, d = self.post('/api/move', {'project': 'p', 'idea': 'marketing/og', 'out': True, 'force': True, 'tidy': True})
+        self.assertEqual(d, {'ok': True, 'idea': 'og'})
+        self.assertEqual(canvas._list_ideas(self.design), ['og', 'promo'])
+        # an idea that holds anything else is kept
+        self.post('/api/move', {'project': 'p', 'idea': 'og', 'into': 'promo', 'force': True})
+        st, d = self.post('/api/move', {'project': 'p', 'idea': 'promo/og', 'out': True, 'force': True, 'tidy': True})
+        self.assertEqual(canvas._list_ideas(self.design), ['og', 'promo'])
+        st, d = self.post('/api/move', {'project': 'p', 'idea': 'og', 'into': 'promo', 'force': True})
+        self.assertNotIn('made', d)
+
+    def test_section_order_and_reserved_names(self):
+        self.make_idea(self.design, 'zed')
+        canvas.move_idea(self.design, 'og', into='promo')
+        canvas.move_idea(self.design, 'zed', into='promo')
+        r = self.run_cli('new', self.design, 'promo/og')   # run again on a section that exists
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(canvas._list_sections(self.promo), ['og', 'zed'])
+        r = self.run_cli('new', self.design, 'promo/_k')
+        self.assertEqual(r.returncode, 1)
+        os.rename(os.path.join(self.promo, 'zed'), os.path.join(self.promo, 'api2'))
+        self.assertEqual(canvas.move_idea(self.design, 'promo/api2'), 'api2')
+        self.assertFalse(canvas._section_name_ok('_k'))
+
+    def test_an_old_link_with_two_candidates_is_not_guessed(self):
+        other = self.make_idea(self.design, 'other')
+        canvas.move_idea(self.design, 'og', into='promo')
+        self.make_idea(other, 'og')
+        self.assertIsNone(canvas.moved_to(self.design, 'og'))
+        self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
+        self.assertEqual(self.request('GET', '/p/og/')[0], 404)
+
+    def test_watch_thread_names_the_parent_of_each_section(self):
+        canvas.move_idea(self.design, 'og', into='promo')
+        self.addCleanup(canvas._SSE_PARENT.clear)
+        import threading
+        t = threading.Thread(target=canvas._watch_thread, args=([(self.design, 'p/')],), daemon=True)
+        t.start()
+        end = time.time() + 5
+        while time.time() < end and not canvas._SSE_PARENT:
+            time.sleep(0.05)
+        self.assertEqual(dict(canvas._SSE_PARENT), {'p/promo/og': 'p/promo'})
+
+
+class NewIdeaRollback(ServerCase):
+    def setUp(self):
+        super().setUp()
+        self.design = os.path.join(self.home, 'p', 'design')
+        self.og = self.make_idea(self.design, 'og', boards=('O02-Card.html',))
+        self.write_json(os.path.join(self.data_dir, 'roots.json'), {'roots': [{'name': 'p', 'path': self.design}]})
+
+    def post(self, body):
+        status, _, data = self.request('POST', '/api/move', body, headers=self.origin())
+        return status, json.loads(data or b'{}')
+
+    def test_two_requests_at_once_never_lose_the_idea(self):
+        self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
+        real_create = canvas.create_idea
+
+        def slow(d):
+            time.sleep(0.3)   # the gap in which the second request used to pass the "exists" check
+            real_create(d)
+        import threading
+        from unittest import mock
+        out = []
+        with mock.patch.object(canvas, 'create_idea', slow):
+            ts = [threading.Thread(target=lambda: out.append(self.post({'project': 'p', 'idea': 'og', 'new': 'hold', 'force': True})))
+                  for _ in range(2)]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+        self.assertEqual(sorted(st for st, _ in out), [200, 400])
+        self.assertTrue(os.path.isfile(os.path.join(self.design, 'hold', 'og', 'boards', 'O02-Card.html')))
+
+    def test_a_failure_after_the_move_keeps_the_folder(self):
+        self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
+        from unittest import mock
+        with mock.patch.object(canvas, '_save_section_order', side_effect=OSError('disk full')):
+            st, d = self.post({'project': 'p', 'idea': 'og', 'new': 'hold', 'force': True})
+        self.assertEqual(st, 500)
+        self.assertTrue(os.path.isfile(os.path.join(self.design, 'hold', 'og', 'boards', 'O02-Card.html')))
+        self.assertEqual(canvas._list_sections(os.path.join(self.design, 'hold')), ['og'])   # still found without the saved order

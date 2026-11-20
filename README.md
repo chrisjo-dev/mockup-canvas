@@ -435,7 +435,7 @@ Yes. Write the HTML files yourself and use the CLI: `canvas new`, `canvas add`, 
 
 ## Contributing
 
-Issues and pull requests are welcome. Run the test suite (297 tests) before you open a pull request:
+Issues and pull requests are welcome. Run the test suite (305 tests) before you open a pull request:
 
 ```bash
 cd tests && python3 -m unittest discover .

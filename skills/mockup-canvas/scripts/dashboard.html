@@ -1115,8 +1115,10 @@ body.demo-mode main { padding: 0; }
     return el;
   }
   function sectionChips(x) {   // the ideas this idea holds: the two largest by name, then how many more
-    const secs = x.sections.slice().sort((a, b) => b.boards - a.boards), show = secs.slice(0, 2);
-    return h('div', { class: 'secs', 'aria-label': 'Sections: ' + x.sections.map((s) => s.name + ' ' + s.boards).join(', ') },
+    const own = x.boards.filter((b) => !b.p).length;   // the idea's own boards count as a section, as on its canvas
+    const all = (own ? [{ name: x.name, boards: own }] : []).concat(x.sections);
+    const secs = all.slice().sort((a, b) => b.boards - a.boards), show = secs.slice(0, 2);
+    return h('div', { class: 'secs', 'aria-label': 'Sections: ' + all.map((s) => s.name + ' ' + s.boards).join(', ') },
       h('span', { class: 'lead', text: plural(secs.length, 'section') }),
       show.map((s) => h('span', { class: 'sc' }, h('b', { text: s.name }), h('span', { class: 'num', text: String(s.boards) }))),
       secs.length > show.length ? h('span', { class: 'sc more', text: '+' + (secs.length - show.length) }) : null);

@@ -860,8 +860,15 @@
       const get = (u) => fetch(u + '/canvas.json' + stamp).then(r => r.ok ? r.json() : null);
       const [own, ...parts] = await Promise.all([get(BASE)].concat(SECTIONS.map(s => get(secBase(s)).catch(() => null))));
       const data = normalize(own);
+      const now = Array.isArray(data.sections) ? data.sections.filter(s => typeof s === 'string') : [];
+      if (!SECTIONS.length && now.length && !IDEA_NAME.includes('/')) {   // its first section came in
+        let again = false;
+        try { again = Date.now() - (+sessionStorage.getItem('mc:sec-reload') || 0) > 5000; sessionStorage.setItem('mc:sec-reload', String(Date.now())); } catch (_) {}
+        if (again) { location.reload(); return; }
+      }
       if (SECTIONS.length) {
-        if (parts.some(p => !p)) {   // a section moved away: the list this page was served with is old
+        const listed = Array.isArray(data.sections) ? data.sections.filter(s => typeof s === 'string') : [];
+        if (parts.some(p => !p) || listed.some(s => !SECTIONS.includes(s))) {   // a section moved away or came in: the list this page was served with is old
           let again = false;
           try { again = Date.now() - (+sessionStorage.getItem('mc:sec-reload') || 0) > 5000; sessionStorage.setItem('mc:sec-reload', String(Date.now())); } catch (_) {}
           if (again) { location.reload(); return; }
@@ -973,7 +980,7 @@
     // Click: copy the file ID
     bar.addEventListener('click', (e) => {
       if (dragging) return;
-      const id = file.replace('.html', '');
+      const id = keyParts(file)[1].replace('.html', '');
       if (navigator.clipboard) {
         navigator.clipboard.writeText(id)
           .then(() => showToast('Copied: ' + id))

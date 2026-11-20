@@ -126,8 +126,8 @@
     dlg.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
     yes.focus();   // Undo puts everything back, so Enter may confirm
   }
-  async function moveOut(x, sec, undoOf) {
-    const d = await post('/api/move', { project: x.project, idea: x.name + '/' + sec, out: true, force: !!undoOf });
+  async function moveOut(x, sec, undoOf, tidy) {
+    const d = await post('/api/move', { project: x.project, idea: x.name + '/' + sec, out: true, force: !!undoOf, tidy: !!tidy });
     if (!d.ok) { MC.toast((undoOf ? 'Could not undo: ' : '') + (d.error || 'Could not move')); return; }
     await MC.refresh(true);
     if (undoOf) { MC.toast('Moved ' + sec + ' back out'); return; }
@@ -152,7 +152,8 @@
       const d = await post('/api/move', body);
       if (!d.ok) { MC.toast(d.error || 'Could not move'); return; }
       await MC.refresh(true);
-      MC.toast('Moved ' + x.name + ' into ' + into, { label: 'Undo', run: () => moveOut({ project: x.project, name: into }, x.name, true) });
+      // Undo of a move into a new idea also removes that idea again (the server does, when nothing else is in it)
+      MC.toast('Moved ' + x.name + ' into ' + into, { label: 'Undo', run: () => moveOut({ project: x.project, name: into }, x.name, true, d.made === true) });
     });
   }
   function moveIntoList(menu, x, back) {
