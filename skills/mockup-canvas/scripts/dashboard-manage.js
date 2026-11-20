@@ -111,6 +111,77 @@
     cancel.focus();
   }
   const bold = (t) => h('b', { text: t });
+
+  // ── Sections: an idea moved into another idea opens on that idea's canvas ──
+  function confirmMove(title, lines, cli, onYes) {
+    const close = () => MC.closeLayer();
+    const cancel = h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel');
+    const yes = h('button', { class: 'btn primary', type: 'button', onclick: () => { close(); onYes(); } }, icon('into', 'sm'), 'Move');
+    const dlg = h('div', { class: 'dialog cf', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'cf-t', 'aria-describedby': 'cf-b' },
+      h('div', { class: 'grab' }),
+      h('div', { class: 'dh' }, h('span', { class: 'ic acc' }, icon('into', 'sm')), h('h2', { id: 'cf-t', text: title })),
+      h('div', { class: 'db', id: 'cf-b' }, lines.map((l) => h('p', null, l))),
+      h('div', { class: 'df' }, cli ? h('span', { class: 'mono', text: cli }) : null, h('span', { class: 'sp' }), cancel, yes));
+    MC.openLayer([h('div', { class: 'scrim', onclick: close }), dlg]);
+    dlg.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
+    yes.focus();   // Undo puts everything back, so Enter may confirm
+  }
+  async function moveOut(x, sec, undoOf) {
+    const d = await post('/api/move', { project: x.project, idea: x.name + '/' + sec, out: true, force: !!undoOf });
+    if (!d.ok) { MC.toast((undoOf ? 'Could not undo: ' : '') + (d.error || 'Could not move')); return; }
+    await MC.refresh(true);
+    if (undoOf) { MC.toast('Moved ' + sec + ' back out'); return; }
+    MC.toast('Moved ' + sec + ' out of ' + x.name, { label: 'Undo', run: async () => {
+      const r = await post('/api/move', { project: x.project, idea: sec, into: x.name, force: true });
+      if (!r.ok) { MC.toast('Could not undo: ' + (r.error || 'unknown error')); return; }
+      await MC.refresh(true);
+      MC.toast('Moved ' + sec + ' back into ' + x.name);
+    } });
+  }
+  function moveInto(x, into, isNew) {
+    const nb = x.boards.length;
+    const cli = isNew ? '' : 'canvas move design/' + x.name + ' design/' + into;
+    confirmMove('Move ' + x.name + ' into ' + into + '?', [
+      [bold(MC.plural(nb, 'board')), nb === 1 ? ' becomes the section ' : ' become the section ', bold(x.name), ' on the ' + into + ' canvas'
+        + (isNew ? ', a new idea.' : '.')],
+      ['Status, comments, pins, arrows, and built records stay as they are. The folder moves to ',
+        h('span', { class: 'mono', text: 'design/' + into + '/' + x.name + '/' }), ' and no file inside it is changed, so every board looks the same.'],
+    ], cli, async () => {
+      const body = { project: x.project, idea: x.name };
+      body[isNew ? 'new' : 'into'] = into;
+      const d = await post('/api/move', body);
+      if (!d.ok) { MC.toast(d.error || 'Could not move'); return; }
+      await MC.refresh(true);
+      MC.toast('Moved ' + x.name + ' into ' + into, { label: 'Undo', run: () => moveOut({ project: x.project, name: into }, x.name, true) });
+    });
+  }
+  function moveIntoList(menu, x, back) {
+    const others = MC.ideas.filter((o) => o.project === x.project && o.name !== x.name).sort((a, b) => b.boards.length - a.boards.length);
+    const title = 'Move into idea';
+    const items = [{ icon: 'chevron-left', label: title, cls: 'hd', keep: true, run: back }, { sep: true }];
+    for (const o of others) items.push({ label: o.name, n: o.boards.length, run: () => moveInto(x, o.name, false) });
+    if (others.length) items.push({ sep: true });
+    items.push({ icon: 'plus', label: 'New idea', run: () => {
+      const name = prompt('Name of the new idea that will hold ' + x.name);
+      if (name != null && name.trim()) moveInto(x, name.trim(), true);
+    } });
+    MC.swapMenu(menu, items, title, { cols: true, back });
+  }
+  function moveOutList(menu, x, back) {
+    const title = 'Move a section out';
+    const items = [{ icon: 'chevron-left', label: title, cls: 'hd', keep: true, run: back }, { sep: true }];
+    for (const s of x.sections) items.push({ label: s.name, n: s.boards, run: () => moveOut(x, s.name) });
+    MC.swapMenu(menu, items, title, { cols: true, back });
+  }
+  function submenu(label, iconName, open) {   // a card menu row that turns the menu into a list (Back returns)
+    return { icon: iconName, label, keep: true, more: true, run: () => {
+      const menu = MC.menu, saved = [...menu.childNodes], lab = menu.getAttribute('aria-label');
+      open(menu, () => {
+        menu.replaceChildren(...saved); menu.setAttribute('aria-label', lab); menu.classList.remove('cols'); menu._back = null;
+        const f = menu.querySelector('.has-more'); if (f) f.focus({ preventScroll: true });
+      });
+    } };
+  }
   async function deleteIdea(x) {
     const nb = x.boards.length, nc = x.c || 0;
     const what = [bold(MC.plural(nb, 'board'))].concat(nc ? [' and ', bold(MC.plural(nc, 'comment'))] : []);
@@ -367,6 +438,9 @@
           collectionList(menu, target, 'Move to collection', back);
         } });
       }
+      // One level only: an idea that holds sections is not moved into another idea
+      if (x.sections) items.push(submenu('Move a section out', 'into', (menu, back) => moveOutList(menu, x, back)));
+      else items.push(submenu('Move into idea', 'into', (menu, back) => moveIntoList(menu, x, back)));
       items.push({ sep: true }, { icon: 'trash', label: 'Delete idea', danger: true, run: () => deleteIdea(x) });
       return items;
     },
