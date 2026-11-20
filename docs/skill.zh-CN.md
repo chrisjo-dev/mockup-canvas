@@ -48,7 +48,7 @@ canvas() { python3 <skill-dir>/scripts/canvas.py "$@"; }
 
 ### 1. 找到创意
 
-如果 `design/` 下已有同一个创意，智能体就接着做。动笔之前，它会先看需求文档、现有界面，以及你喜欢或否决过的方向。如果是新创意：
+如果 `design/` 下已有同一个创意，智能体就接着做。动笔之前，它会先看需求文档、现有界面，以及你喜欢或否决过的方向。如果这项工作属于项目里已有的创意，智能体不会再建一个创意，而是在那个创意里加一个分组，或用 `canvas new design wallet/refunds` 在其中开一个分区。如果是新的产品领域：
 
 ```bash
 canvas new design wallet

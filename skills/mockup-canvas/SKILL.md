@@ -25,6 +25,8 @@ Usage for each command: `canvas <command> -h`.
   shared/tokens.css  color, type, spacing, radius. Every artboard links it
   assets/          images, fonts
   render/          PNGs for checking, and render/.thumbs/ for the canvas at low zoom (generated, ignored by git)
+  <section>/       optional: another idea folder inside this one (its own canvas.json, boards/, shared/, assets/).
+                   It shows as a section on this idea's canvas. Every command takes design/<idea>/<section> as an idea dir
 ```
 
 User data lives in `$MOCKUP_CANVAS_HOME` (default `~/.mockup-canvas/`):
@@ -34,7 +36,7 @@ User data lives in `$MOCKUP_CANVAS_HOME` (default `~/.mockup-canvas/`):
 
 ## Workflow
 
-1. **Find**: if the same idea already exists under `design/`, continue it. Otherwise run `canvas new <design dir> <idea>`. First check the spec, existing screens, and the directions the user liked or rejected.
+1. **Find**: list the ideas the project already has (`ls <design dir>`, or the dashboard). If the same idea exists, continue it. If the work belongs to an existing idea (another flow, state, or variant of the same product area), do not start a new idea: add the boards to that idea in a new group, or, when the work needs its own tokens or board IDs, start it as a section with `canvas new <design dir> <idea>/<section>`. Run `canvas new <design dir> <idea>` only for a new product area, and say in the report which you chose and why. First check the spec, existing screens, and the directions the user liked or rejected.
 2. **Tokens first**: before drawing, set colors, type, and spacing in `shared/tokens.css`. Artboards use only `var(--...)` and never invent new color values.
 3. **Draw**: an artboard HTML must look the same when opened on its own. Use only relative paths (`../shared/tokens.css`, `../assets/x.png`); the only external resource allowed is Google Fonts. No custom tags, no external scripts.
 4. **Register**: write the file into `boards/` first, then `canvas add <idea dir> boards/F06-Letter.html --group current [--size mobile|tablet|desktop|WxH]`. Put related screens on one row (flow order, left to right). If a board's content is cut off, run `add` again with a new `--size` to resize it instead of trimming the content.
@@ -42,8 +44,13 @@ User data lives in `$MOCKUP_CANVAS_HOME` (default `~/.mockup-canvas/`):
 6. **Check**: `canvas check <idea>` must report 0 problems. Look at the PNG from `canvas render` for each changed artboard yourself (renders are exact board size; add `--full-page` to see content below the fold); if you changed several, look at the whole thing with `canvas overview` (check flow arrows and groups in that PNG too). Checking the canvas page itself with browser tools is optional. Fix any error text or broken images you see.
 7. **Show**: registry mode (`canvas serve` with no arguments) serves every registered project from one server (default port 4400). `canvas new` registers the design folder automatically, so no separate `roots add` is needed. Add existing projects in one go with `canvas roots scan ~/work ~/projects`. To look at a single project, use `canvas serve <design dir>` (URL `/<idea>/`). Use the printed address as is. Registry mode URL: `http://localhost:4400/<project>/<idea>/`. Leave this server running. Projects can also be added or removed from the index page.
 8. **Phone**: see "View on a phone" below.
-9. **Old versions**: never delete them. Move them with `canvas group <idea> <file> "old drafts"` and mark them with `canvas status ... rejected`. Delete only when the user asks for it, and then with `canvas trash` (never `rm`): it moves the idea or board to `<design dir>/.trash/`, and `canvas restore` undoes it.
+9. **Old versions**: never delete them. Move them with `canvas group <idea> <file> "old drafts"` and mark them with `canvas status ... rejected` (the canvas leaves rejected boards out until the user presses H). Delete only when the user asks for it, and then with `canvas trash` (never `rm`): it moves the idea or board to `<design dir>/.trash/`, and `canvas restore` undoes it.
 10. **Approval**: for a screen the user approved, run `canvas status <idea> <file> approved --note "what was approved"`. That is the approval record. Simple praise is not approval.
+
+## Tidying a project with many ideas
+
+- `canvas move <design dir>/<idea> <design dir>/<other idea>` puts an idea inside another idea as a section: one card on the dashboard, one canvas, and the folder moves as it is (boards, statuses, comments, pins, and arrows are unchanged, and no file is rewritten). `canvas move <design dir>/<idea>/<section> <design dir>` moves it back out. Sections go one level deep, and arrows do not cross sections.
+- Suggest it when a project has many small ideas; move ideas only when the user asks, and tell them which ideas went where. The dashboard has the same move with Undo (card menu, Move into idea).
 
 ## After implementation
 
@@ -89,6 +96,6 @@ The very last step, after the first task on this machine is finished and the use
 
 ## Reference
 
-- `scripts/canvas.py`: serve, roots, new, add, group, link, status, artifact, render, overview, check, export, snap, compare, impl, comment, pins, trash, restore
-- `scripts/viewer.html`: the canvas page (drag to pan, wheel to zoom, F to fit, L to toggle arrows, click a title to copy its ID, double click to open alone, drag an artboard to move and save it, Cmd+Z undo, Cmd+Shift+Z redo)
+- `scripts/canvas.py`: serve, roots, new, add, group, link, status, artifact, render, overview, check, export, snap, compare, impl, comment, pins, trash, restore, move
+- `scripts/viewer.html`: the canvas page (drag to pan, wheel to zoom, F to fit, L to toggle arrows, H to show rejected boards, O to hide the section outline, click a title to copy its ID, double click to open alone, drag an artboard to move and save it, Cmd+Z undo, Cmd+Shift+Z redo)
 - `references/lessons.md`: log of approved improvements

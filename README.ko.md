@@ -54,6 +54,8 @@ UI를 글로 설명하면 모호합니다. "상단에 히어로 배너, 아래�
 - 구현이 기록된 보드에는 보라색 `built` 배지(마우스를 올리면 경로 표시)가, 리뷰 코멘트가 있는 보드에는 코멘트 수가 붙습니다. 코멘트 수를 누르면 패널에서 내용을 읽을 수 있습니다.
 - **핀.** `C`(또는 툴바의 Point)를 누르고 보드의 한 지점을 클릭하거나 영역을 드래그한 뒤 메모를 쓰면 보드에 번호 핀이 붙습니다. 서버가 자체 헤드리스 Chrome으로 보드를 열어 핀 아래 요소를 찾고, 그 요소의 CSS selector와 텍스트, 그 부분을 잘라낸 이미지를 저장합니다. Copy for AI는 보드, 핀 번호, 요소를 담은 한 줄을 클립보드에 넣고, 에이전트는 `canvas pins`로 열린 핀을 모두 봅니다. 보드 파일이 바뀌면 핀이 요소를 따라 움직입니다. `P`로 핀을 숨깁니다.
 - 아트보드를 접고 펼 수 있는 그룹으로 묶습니다. 예: `current`, `old drafts`.
+- **구역.** 아이디어를 다른 아이디어 안으로 옮기면(카드 메뉴의 Move into idea 또는 `canvas move`) 그 아이디어의 구역이 됩니다. 대시보드에서는 카드 한 장, 캔버스도 한 장이고, 구역이 위아래로 놓이며 왼쪽에 목차가 생깁니다. 구역마다 자기 폴더, 토큰, 보드 ID, `canvas.json`을 그대로 가지므로 파일이 바뀌지 않고, 에이전트 둘이 서로 다른 구역에서 작업할 수 있습니다. Undo나 `canvas move`로 다시 꺼냅니다.
+- **반려한 보드는 가려 둡니다.** 옛 시안은 디스크에 그대로 있지만, 캔버스는 반려한 보드를 빼고 개수만 알려 줍니다. `H`를 누르면 흐리게 보여 줍니다.
 - 보드가 많아도 부드럽게 움직입니다. 화면 근처의 보드만 실제 페이지를 띄웁니다. 배율 약 30~40% 미만으로 축소하면 캐시된 PNG 썸네일을 보여 줍니다(서버로 열었을 때). 한 번 본 보드는 다시 불러오는 동안 빈 카드 대신 썸네일이 보입니다. 화면 갱신은 애니메이션 프레임마다 한 번으로 묶고, 썸네일은 낮은 우선순위로 뒤에서 만듭니다. 아트보드 71개짜리 캔버스(1440x900, Apple M4, headless Chrome)에서 이동과 확대/축소는 약 59~60 FPS, p95 프레임 시간 약 20 ms이고 50 ms를 넘는 프레임은 없습니다. 처음 열 때와 썸네일이 캐시된 뒤 모두 그렇습니다. `python3 tests/perf_check.py <아이디어 폴더>`로 다시 측정할 수 있습니다.
 - 실시간으로 갱신됩니다. 서버가 1초마다 파일 변경을 확인하므로, 아트보드나 `canvas.json`을 고치면 열린 캔버스가 1초 안팎으로 바뀝니다.
 - 서버를 열면 등록된 모든 프로젝트의 대시보드가 나옵니다. 최근 보드 썸네일, 상태 수, 코멘트, built 보드를 보여 주는 아이디어 카드가 있고, 결정이 필요한 것만 거르는 필터, 검색과 명령 팔레트(`/` 또는 `Cmd K`), 프로젝트 추가와 디자인 폴더 찾기, 사라진 폴더 경고, 라이트와 다크 테마, 휴대폰 레이아웃이 있습니다. [대시보드](#대시보드)를 보세요.
@@ -68,7 +70,7 @@ UI를 글로 설명하면 모호합니다. "상단에 히어로 배너, 아래�
 
 **CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- 약 5,100줄짜리 Python 3 파일 하나입니다. 표준 라이브러리만 쓰고(Python 3.8 이상) pip 의존성은 없습니다. 명령은 19개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`, `pins`.
+- 약 5,500줄짜리 Python 3 파일 하나입니다. 표준 라이브러리만 쓰고(Python 3.8 이상) pip 의존성은 없습니다. 명령은 20개입니다: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`, `pins`, `move`.
 - Chrome(또는 Chromium, Edge)은 보드를 렌더링하거나 앱 화면을 PNG로 캡처할 때만 씁니다.
 
 ## 대시보드
@@ -208,7 +210,7 @@ lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
 
 ### 그리기 (mockup-canvas)
 
-1. **아이디어 찾기 또는 만들기.** `design/<idea>/`가 이미 있으면 이어서 작업합니다. 없으면 `canvas new <design dir> <idea>`를 실행하고, 이때 디자인 폴더가 캔버스 서버에 자동 등록됩니다.
+1. **아이디어 찾기 또는 만들기.** `design/<idea>/`가 이미 있으면 이어서 작업합니다. 프로젝트에 이미 있는 아이디어에 속하는 일이면 새 아이디어를 만들지 않고 그 아이디어에 그룹이나 구역을 더합니다. 둘 다 아니면 `canvas new <design dir> <idea>`를 실행하고, 이때 디자인 폴더가 캔버스 서버에 자동 등록됩니다.
 2. **토큰 먼저.** 화면을 그리기 전에 색, 글꼴, 간격, 모서리 반경을 `shared/tokens.css`에 정합니다. 아트보드는 `var(--...)`만 씁니다.
 3. **아트보드 그리기.** 화면 하나가 `boards/` 안의 HTML 파일 하나이고, 이름은 `W01-Home.html` 형식입니다. 파일만 단독으로 열어도 똑같이 보여야 합니다. 상대 경로만 쓰고, 외부 스크립트는 넣지 않으며, 외부 리소스는 Google Fonts만 허용합니다.
 4. **등록.** `canvas add <idea dir> boards/W01-Home.html --group current --size mobile`로 캔버스에 올립니다. 내용이 잘리면 새 `--size`로 `add`를 다시 실행해 보드 크기를 바꿉니다.
@@ -287,6 +289,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `pins` | 아이디어나 보드 하나의 열린 핀을, 각 핀이 가리키는 요소와 잘라낸 이미지 경로와 함께 보여 줍니다(`--all`은 해결된 핀까지, `--json`은 스크립트용). 고친 뒤 `--resolve N --note TEXT`로 닫고, `--reopen N`으로 다시 엽니다. 핀은 `canvas comment ... --at x,y[,w,h]`나 `--el SELECTOR`로 추가합니다. | `canvas pins design/wallet`<br>`canvas pins design/wallet W02-Send.html --resolve 3 --note "44 px button"` |
 | `trash` | 아이디어나 그 안의 보드 하나를 `<design dir>/.trash/`로 옮깁니다. 보드는 canvas.json 항목(위치, 그룹, 상태, 코멘트)과 흐름 화살표를 복원용 파일에 함께 남깁니다. `--list`로 들어 있는 것을 봅니다. 완전히 지우지는 않으니, 비우려면 폴더를 직접 지웁니다. | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
 | `restore` | `trash --list`에 나온 id로 되돌립니다. 같은 이름이 이미 있으면 되돌리지 않습니다. | `canvas restore design wallet/W02-Send-20261029T101034Z` |
+| `move` | 아이디어를 다른 아이디어 안으로 옮겨 그 캔버스의 구역으로 만들거나, 구역을 다시 꺼냅니다. 폴더는 그대로 옮겨집니다. | `canvas move design/og design/promo` |
 
 ## 캔버스 단축키
 
@@ -299,6 +302,9 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `L` | 흐름 화살표 보이기, 숨기기 |
 | `C` | 핀 모드: 보드의 한 지점을 클릭하거나 영역을 드래그해 메모를 꽂기(`Esc`로 취소) |
 | `P` | 핀 보이기, 숨기기 |
+| `H` | 반려한 보드 보이기, 숨기기(기본은 숨김) |
+| `O` | 구역 목차 보이기, 숨기기 |
+| 목차에서 구역 클릭 | 그 구역이 보이게 맞춤. 줄에 따로 열기와 밖으로 옮기기가 있습니다 |
 | 아트보드 제목 클릭 | ID 복사 (예: `W01-Home`) |
 | 아트보드 제목 더블클릭 | 새 탭에서 그 아트보드만 열기 |
 | 아트보드 제목 드래그 | 위치 이동 후 저장 |
@@ -429,7 +435,7 @@ mockup-canvas는 호스팅형 디자인 도구나 앱 생성기가 아닙니다.
 
 ## 기여하기
 
-이슈와 PR 모두 환영합니다. PR을 올리기 전에 테스트(278개)를 돌려 주세요.
+이슈와 PR 모두 환영합니다. PR을 올리기 전에 테스트(297개)를 돌려 주세요.
 
 ```bash
 cd tests && python3 -m unittest discover .
