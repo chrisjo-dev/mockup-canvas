@@ -644,7 +644,7 @@ class ViewerCsp(ServerCase):
         self.write_json(os.path.join(self.data_dir, 'roots.json'),
                         {'roots': [{'name': 'alpha', 'path': self.design}]})
 
-    def check(self, path, token='', n_scripts=1):
+    def check(self, path, token='', n_scripts=2):   # the page's own script and CANVAS_INFO
         headers = {'Cookie': 'canvas_token=' + token} if token else None
         status, hdrs, body = self.request('GET', path, headers=headers)
         self.assertEqual(status, 200)
@@ -676,7 +676,7 @@ class ViewerCsp(ServerCase):
     def test_local_read_only_share_hashes_the_injected_scripts(self):
         self.start_server(canvas.CanvasHandler, design_dir=self.design,
                           share_token=self.TOKEN, share_edit=False, read_only=False)
-        body = self.check('/demo/', self.TOKEN, n_scripts=3)
+        body = self.check('/demo/', self.TOKEN, n_scripts=4)
         self.assertIn(b'CANVAS_READ_ONLY=true', body)
         self.assertIn(b'CANVAS_ASSET_PREFIX="/_k/', body)
 
@@ -686,8 +686,9 @@ class ViewerCsp(ServerCase):
 
     def test_registry_editable_share(self):
         self.start_server(canvas.RegistryHandler, share_token=self.TOKEN, share_edit=True, read_only=False)
-        body = self.check('/alpha/demo/', self.TOKEN, n_scripts=2)
+        body = self.check('/alpha/demo/', self.TOKEN, n_scripts=3)
         self.assertNotIn(b'CANVAS_READ_ONLY=true', body)
+        self.assertIn(b'var CANVAS_INFO={"idea": "demo"};', body)
 
 
 # ── install.sh --dry-run ───────────────────────────────────────────────────
