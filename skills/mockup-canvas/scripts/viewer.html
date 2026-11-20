@@ -27,6 +27,45 @@
     .grp-hdr:hover { background: rgba(255,255,255,0.05); }
     .grp-arrow { font-size: 9px; opacity: 0.7; }
 
+    /* Sections (D-B31): the ideas this idea holds, one under the other */
+    .sec-hdr {
+      position: absolute; display: flex; align-items: baseline; gap: 24px; height: 96px;
+      border-bottom: 3px solid rgba(255,255,255,0.14); color: #fff; font-size: 56px; font-weight: 700;
+      white-space: nowrap; pointer-events: none;
+    }
+    .sec-hdr .m { color: rgba(255,255,255,0.45); font-size: 30px; font-weight: 400; }
+    .sec-hdr .p { margin-left: auto; color: rgba(255,255,255,0.35); font: 26px ui-monospace, monospace; }
+    .board.gone { display: none; }
+    .board.rej { opacity: 0.42; }
+    #outline {
+      position: fixed; left: 0; top: 0; bottom: 0; width: 196px; z-index: 20; overflow-y: auto;
+      background: #242424; border-right: 1px solid rgba(255,255,255,0.08); padding: 12px 8px 12px;
+      font-size: 12px; color: #cfcfcf; display: flex; flex-direction: column; gap: 1px;
+    }
+    #outline[hidden] { display: none; }
+    #outline .hd { display: flex; align-items: center; padding: 0 8px 8px; color: rgba(255,255,255,0.45); font-size: 11px; }
+    #outline .hd b { color: #fff; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #outline .n { margin-left: auto; padding-left: 8px; color: rgba(255,255,255,0.42); font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 400; flex: none; }
+    #outline .rj { color: rgba(255,255,255,0.3); font-size: 11px; font-weight: 400; margin-left: 4px; flex: none; }
+    #outline .row { display: flex; align-items: center; border-radius: 6px; }
+    #outline .row:hover { background: rgba(255,255,255,0.06); }
+    #outline .row.on { background: rgba(255,255,255,0.1); }
+    #outline button.s, #outline button.g {
+      flex: 1; min-width: 0; display: flex; align-items: center; height: 28px; padding: 0 8px; border: 0; background: none;
+      color: #fff; font: inherit; font-weight: 600; text-align: left; cursor: pointer; border-radius: 6px;
+    }
+    #outline button.g { height: 24px; padding-left: 20px; color: rgba(255,255,255,0.7); font-weight: 400; }
+    #outline button .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #outline button:focus-visible, #outline a:focus-visible { outline: none; box-shadow: 0 0 0 2px #7b9cff; }
+    #outline .act { display: none; width: 22px; height: 22px; margin-right: 3px; border: 0; border-radius: 5px; background: none;
+      color: rgba(255,255,255,0.75); cursor: pointer; align-items: center; justify-content: center; flex: none; }
+    #outline .row:hover .act, #outline .row:focus-within .act { display: inline-flex; }
+    #outline .row:hover .n, #outline .row:focus-within .n { display: none; }
+    #outline .row:hover .rj, #outline .row:focus-within .rj { display: none; }
+    #outline .act:hover { background: rgba(255,255,255,0.14); color: #fff; }
+    #outline .foot { margin-top: auto; padding: 10px 8px 0; color: rgba(255,255,255,0.45); display: flex; align-items: center; gap: 6px; }
+    @media (max-width: 700px) { #outline { display: none; } }
+
     /* Artboards */
     /* A board is a white card with its title until its content (live iframe or thumbnail) is shown */
     /* No blurred shadow: re-rastering 24px blurs on every board made zoom drop frames */
@@ -205,6 +244,8 @@
       border: 0; border-radius: 12px; background: none; color: rgba(255,255,255,0.8); font: inherit; cursor: pointer; }
     #toolbar .tb-btn:hover { background: rgba(255,255,255,0.1); }
     #toolbar .tb-btn.on { background: #3d7bff; color: #fff; }
+    #toolbar .tb-btn.act { background: rgba(255,255,255,0.14); color: #fff; }
+    #toolbar [hidden] { display: none; }
     #toolbar .tb-btn.on kbd { background: rgba(255,255,255,0.22); color: #fff; }
     #toolbar .tb-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px #7b9cff; }
     #stage.pinning .board { cursor: crosshair; }
@@ -284,6 +325,7 @@
 <body>
 <div id="loading">Loading...</div>
 <div id="stage"><div id="canvas"><div id="grp-layer"></div><div id="board-layer"></div><svg id="arrow-svg" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
+<nav id="outline" aria-label="Sections" hidden></nav>
 <div id="toolbar">
   <span class="idea-name" id="idea-lbl"></span>
   <span class="sep key-hint">|</span>
@@ -292,6 +334,8 @@
   <span class="key-hint"><kbd>L</kbd> Arrows</span>
   <span class="sep pin-ui">|</span>
   <button type="button" id="pin-btn" class="tb-btn pin-ui" aria-pressed="false" title="Point at a spot or an area on a board (C)"><svg class="v-ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2"/></svg>Point <kbd class="key-hint">C</kbd></button>
+  <span class="sep rej-ui" hidden>|</span>
+  <button type="button" id="rej-btn" class="tb-btn rej-ui" aria-pressed="false" hidden><svg class="v-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg><span class="lb"></span> <kbd class="key-hint">H</kbd></button>
   <span class="sep">|</span>
   <span id="zoom-lbl">35%</span>
   <span id="ro-badge" class="ro-badge" style="display:none">Read-only</span>
@@ -361,9 +405,30 @@
   // Share mode: sandboxed boards load their files through a keyed path (no cookie in an opaque origin)
   const ASSET_PREFIX = (!STATIC && typeof window.CANVAS_ASSET_PREFIX === 'string' &&
                         /^\/_k\/[0-9a-f]+$/.test(window.CANVAS_ASSET_PREFIX)) ? window.CANVAS_ASSET_PREFIX : '';
-  function boardUrl(file) {
-    return STATIC ? ('boards/' + encodeURIComponent(file)) : (ASSET_PREFIX + BASE + '/boards/' + encodeURIComponent(file));
+  // Sections (D-B31): ideas that were moved into this one. Their boards are on this canvas under
+  // the key '<section>/<file>' (a file name has no slash), each section below the one before.
+  const INFO = (!STATIC && window.CANVAS_INFO && typeof window.CANVAS_INFO === 'object') ? window.CANVAS_INFO : {};
+  const IDEA_NAME = typeof INFO.idea === 'string' && INFO.idea ? INFO.idea : IDEA;   // '<idea>/<section>' for a section opened alone
+  const SECTIONS = Array.isArray(INFO.sections) ? INFO.sections.filter(s => typeof s === 'string' && s && !s.includes('/')) : [];
+  const SEC_PREFIX = (INFO.prefix && typeof INFO.prefix === 'object') ? INFO.prefix : {};
+  function keyParts(key) { const i = key.indexOf('/'); return i < 0 ? ['', key] : [key.slice(0, i), key.slice(i + 1)]; }
+  function secBase(sec) { return sec ? BASE + '/' + encodeURIComponent(sec) : BASE; }
+  function secPrefix(sec) {
+    if (!sec) return ASSET_PREFIX;
+    const p = Object.prototype.hasOwnProperty.call(SEC_PREFIX, sec) ? SEC_PREFIX[sec] : '';
+    return (typeof p === 'string' && /^\/_k\/[0-9a-f]+$/.test(p)) ? p : '';
   }
+  function boardUrl(key) {
+    if (STATIC) return 'boards/' + encodeURIComponent(key);
+    const [sec, file] = keyParts(key);
+    return secPrefix(sec) + secBase(sec) + '/boards/' + encodeURIComponent(file);
+  }
+  // Rejected boards are left out until asked for (H). Exports and the overview render keep them.
+  const REJ_UI = !STATIC && !OVERVIEW;
+  const REJ_KEY = 'mc:rej:' + BASE.replace(/^\/+/, '');
+  let hideRej = REJ_UI;
+  try { if (REJ_UI && localStorage.getItem(REJ_KEY) === 'show') hideRej = false; } catch (_) {}
+  const rejHidden = (b) => hideRej && !!b && b.status === 'rejected';
   if (READ_ONLY) {
     const badge = document.getElementById('ro-badge');
     if (badge) badge.style.display = '';
@@ -421,8 +486,9 @@
   let SW = stage.clientWidth, SH = stage.clientHeight;
   window.addEventListener('resize', () => { SW = stage.clientWidth; SH = stage.clientHeight; visDirty = true; schedule(); });
 
-  function thumbUrl(file, v) {
-    return BASE + '/thumbs/' + encodeURIComponent(file.replace(/\.html$/, '')) + '.png?v=' + v + '&s=' + THUMB_PX;
+  function thumbUrl(key, v) {
+    const [sec, file] = keyParts(key);
+    return secBase(sec) + '/thumbs/' + encodeURIComponent(file.replace(/\.html$/, '')) + '.png?v=' + v + '&s=' + THUMB_PX;
   }
 
   // ── Frame scheduler: input handlers only update state; DOM writes happen once per frame ──
@@ -492,6 +558,7 @@
   }
   function goIdle() {
     idle = true; idleSeq++; visDirty = true;
+    updateCurSec();
     if (!layerScale && VIRTUAL) { promote(); warmLayer(); }
     schedule();
   }
@@ -741,12 +808,71 @@
   }
 
   // ── Load canvas ──────────────────────────────────────────────────────────
+  // Section offsets stay put while the page is open, so a saved drag does not shift the rest of
+  // its section; they are worked out again when a section gains or loses boards.
+  let secMeta = [];   // [{name, x, y, w, h, n, rej, groups}] top to bottom; name '' = this idea's own boards
+  let secOff = { sig: '', by: {} };
+  const SEC_GAP = 360, SEC_HEAD = 190;
+  function boundsOf(list) {
+    if (!list.length) return null;
+    return { x1: Math.min(...list.map(b => b.x)), y1: Math.min(...list.map(b => b.y)),
+             x2: Math.max(...list.map(b => b.x + b.w)), y2: Math.max(...list.map(b => b.y + b.h)) };
+  }
+  function secInfo(name, x, top, bb, list, groups) {
+    return { name, x, y: top, w: Math.max(bb ? bb.x2 - bb.x1 : 0, 1200), h: SEC_HEAD + (bb ? bb.y2 - bb.y1 : 0),
+             n: list.length, rej: list.filter(b => b.status === 'rejected').length, groups };
+  }
+  function secBox(m) {   // a section as shown now: its heading and the boards that are not hidden
+    const list = Object.entries(canvasData.boards).filter(([k, b]) => keyParts(k)[0] === m.name && !rejHidden(b)).map(e => e[1]);
+    const bb = boundsOf(list);
+    return { x1: m.x, y1: m.y, x2: Math.max(bb ? bb.x2 : 0, m.x + 1200), y2: bb ? bb.y2 : m.y + SEC_HEAD };
+  }
+  function mergeSections(own, parts) {
+    const ownList = Object.values(own.boards), ob = boundsOf(ownList);
+    const sig = ownList.length + '|' + SECTIONS.map((s, i) => s + ':' + (parts[i] ? Object.keys(parts[i].boards).length : 'x')).join('|');
+    if (sig !== secOff.sig) secOff = { sig, by: {} };
+    const left = ob ? ob.x1 : 0;
+    let top = ob ? ob.y2 + SEC_GAP : 0;
+    secMeta = ob ? [secInfo('', left, ob.y1 - SEC_HEAD, ob, ownList, own.groups.length)] : [];
+    SECTIONS.forEach((sec, i) => {
+      const d = parts[i];
+      if (!d) return;
+      const list = Object.values(d.boards), bb = boundsOf(list);
+      let off = secOff.by[sec];
+      if (!off) off = secOff.by[sec] = { dx: bb ? left - bb.x1 : 0, dy: bb ? top + SEC_HEAD - bb.y1 : 0, top };
+      for (const [file, b] of Object.entries(d.boards)) {
+        b._dx = off.dx; b._dy = off.dy; b.x += off.dx; b.y += off.dy;
+        if (b.group) b.group = sec + '/' + b.group;
+        own.boards[sec + '/' + file] = b;
+      }
+      for (const g of d.groups) if (g && typeof g === 'object') own.groups.push(Object.assign({}, g, { id: sec + '/' + g.id, label: g.label || g.id }));
+      for (const l of d.links) if (l && typeof l === 'object') own.links.push(Object.assign({}, l, { from: sec + '/' + l.from, to: sec + '/' + l.to }));
+      const moved = boundsOf(list);
+      secMeta.push(secInfo(sec, left, off.top, moved, list, d.groups.length));
+      top = Math.max(top, moved ? moved.y2 : off.top + SEC_HEAD) + SEC_GAP;
+    });
+  }
   async function loadCanvas(redraw) {
     if (STATIC) {
       canvasData = normalize(STATIC_CANVAS);
     } else {
-      const r = await fetch(BASE + '/canvas.json?_=' + Date.now());
-      canvasData = normalize(await r.json());
+      const stamp = '?_=' + Date.now();
+      const get = (u) => fetch(u + '/canvas.json' + stamp).then(r => r.ok ? r.json() : null);
+      const [own, ...parts] = await Promise.all([get(BASE)].concat(SECTIONS.map(s => get(secBase(s)).catch(() => null))));
+      const data = normalize(own);
+      // The page was served with a list of sections. It is old when one of them is gone, or when
+      // canvas.json names another one that really is there (a leftover name with no folder is not).
+      const named = (!IDEA_NAME.includes('/') && Array.isArray(data.sections) ? data.sections : [])
+        .filter(s => typeof s === 'string' && s && !s.includes('/') && !SECTIONS.includes(s));
+      let stale = parts.some(p => !p);
+      if (!stale && named.length) stale = (await Promise.all(named.map(s => get(secBase(s)).catch(() => null)))).some(Boolean);
+      if (stale) {
+        let again = false;
+        try { again = Date.now() - (+sessionStorage.getItem('mc:sec-reload') || 0) > 5000; sessionStorage.setItem('mc:sec-reload', String(Date.now())); } catch (_) {}
+        if (again) { location.reload(); return; }
+      }
+      if (SECTIONS.length) mergeSections(data, parts.map(p => p ? normalize(p) : null));
+      canvasData = data;
     }
     if (redraw !== false) renderAll();
   }
@@ -761,7 +887,7 @@
     const gBounds = {};
     for (const [, b] of Object.entries(boards)) {
       const g = b.group;
-      if (!g) continue;
+      if (!g || rejHidden(b)) continue;
       if (!gBounds[g]) gBounds[g] = { x1: Infinity, y1: Infinity, x2: -Infinity, y2: -Infinity };
       const gb = gBounds[g];
       gb.x1 = Math.min(gb.x1, b.x - 28);
@@ -793,15 +919,26 @@
       grpLayer.appendChild(hdr);
     }
 
+    for (const m of (SECTIONS.length ? secMeta : [])) {
+      const shown = hideRej ? m.n - m.rej : m.n;
+      const hdr = document.createElement('div');
+      hdr.className = 'sec-hdr';
+      hdr.style.cssText = `left:${m.x}px;top:${m.y}px;width:${secBox(m).x2 - m.x}px;`;
+      hdr.innerHTML = `<span>${escHtml(m.name || IDEA)}</span><span class="m">${plural(shown, 'board')}${m.groups ? ', ' + plural(m.groups, 'group') : ''}</span>` +
+        `<span class="p">${escHtml('design/' + IDEA_NAME + (m.name ? '/' + m.name : ''))}</span>`;
+      grpLayer.appendChild(hdr);
+    }
+
     // Render artboards
     for (const file of Object.keys(recs)) {
       if (!boards[file]) { recs[file].div.remove(); delete recs[file]; }
     }
     for (const [file, b] of Object.entries(boards)) {
       const r = recs[file] || createBoard(file);
-      const isHidden = !!(b.group && collapsed.has(b.group));
+      const gone = rejHidden(b);
+      const isHidden = gone || !!(b.group && collapsed.has(b.group));
       r.hidden = isHidden;
-      r.div.className = 'board' + (isHidden ? ' collapsed' : '');
+      r.div.className = 'board' + (gone ? ' gone' : (isHidden ? ' collapsed' : '')) + (REJ_UI && b.status === 'rejected' ? ' rej' : '');
       if (!dragging || dragging.file !== file) {
         r.div.style.cssText = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;`;
       }
@@ -817,6 +954,8 @@
     }
     if (pinOpen) openPin(pinOpen.file, pinOpen.id);   // a probe or an edit changed it
     renderArrows();
+    updateRejBtn();
+    renderOutline();
     // The overview screenshot waits for the page load event, so its iframes must exist before it
     if (!VIRTUAL) updateVisibility();
     else { visDirty = true; schedule(); }
@@ -838,7 +977,7 @@
     // Click: copy the file ID
     bar.addEventListener('click', (e) => {
       if (dragging) return;
-      const id = file.replace('.html', '');
+      const id = keyParts(file)[1].replace('.html', '');
       if (navigator.clipboard) {
         navigator.clipboard.writeText(id)
           .then(() => showToast('Copied: ' + id))
@@ -889,7 +1028,7 @@
         : '';
     const titleClass = b.status === 'rejected' ? ' rejected' : '';
     bar.innerHTML =
-      `<span class="board-id">${escHtml(file.replace('.html', ''))}</span>` +
+      `<span class="board-id">${escHtml(keyParts(file)[1].replace('.html', ''))}</span>` +
       badgeHtml +
       `<span class="board-title-text${titleClass}">${escHtml(b.title || '')}</span>`;
     if (b.note) bar.title = b.note; else bar.removeAttribute('title');
@@ -958,8 +1097,9 @@
     };
     const first = item(svgIcon('<path d="M5 11 11 5M6 5h5v5"/>'), 'Open in new tab', () => window.open(boardUrl(file), '_blank', 'noopener'), '', 'dbl-click');
     item(svgIcon('<path d="m5.5 4.5-3.5 3.5 3.5 3.5M10.5 4.5 14 8l-3.5 3.5"/>'), 'Copy file name', () => {
-      if (navigator.clipboard) navigator.clipboard.writeText(file).then(() => showToast('Copied: ' + file), () => showToast(file));
-      else showToast(file);
+      const name = keyParts(file)[1];
+      if (navigator.clipboard) navigator.clipboard.writeText(name).then(() => showToast('Copied: ' + name), () => showToast(name));
+      else showToast(name);
     });
     const sp = document.createElement('div');
     sp.className = 'sp';
@@ -1003,7 +1143,7 @@
     delDlg.innerHTML =
       '<h3 id="del-t">Delete ' + escHtml(file.replace(/\.html$/, '')) + '?</h3>' +
       (what.length ? '<p>Its ' + what.join(' and ') + ' go with it.</p>' : '<p>Its status, group, and position go with it.</p>') +
-      '<p>The file moves to <code>design/.trash/' + escHtml(IDEA) + '/</code>. Undo puts it back where it was.</p>' +
+      '<p>The file moves to <code>design/.trash/' + escHtml(scope(file).idea) + '/</code>. Undo puts it back where it was.</p>' +
       '<div class="ft"><button type="button" class="no">Cancel</button><button type="button" class="dg">' + TRASH_SVG + 'Delete</button></div>';
     const no = delDlg.querySelector('.no');
     no.addEventListener('click', closeDelete);
@@ -1031,9 +1171,16 @@
       return { ok: false, error: 'The server did not answer' };
     }
   }
-  const scope = () => (_pathParts.length > 1 ? { project: _pathParts[0], idea: IDEA } : { idea: IDEA });
+  // The API names of a board key: its idea ('<idea>/<section>' for a section's board) and, in registry mode, the project
+  const REGISTRY = _pathParts.length > IDEA_NAME.split('/').length;
+  function scope(key) {
+    const sec = key ? keyParts(key)[0] : '';
+    const idea = IDEA_NAME + (sec ? '/' + sec : '');
+    return REGISTRY ? { project: _pathParts[0], idea } : { idea };
+  }
+  const fileOf = (key) => keyParts(key)[1];
   async function deleteBoard(file) {
-    const d = await post('/api/trash', Object.assign(scope(), { file }));
+    const d = await post('/api/trash', Object.assign(scope(file), { file: fileOf(file) }));
     if (!d.ok) { showToast(d.error || 'Could not delete'); return; }
     await loadCanvas(true);
     const name = file.replace(/\.html$/, '');
@@ -1219,7 +1366,7 @@
     const save = async () => {
       if (!ta.value.trim() || busy) return;
       busy = yes.disabled = true;
-      const d = await post('/api/pin', Object.assign(scope(), { file, action: 'add', text: ta.value, at }));
+      const d = await post('/api/pin', Object.assign(scope(file), { file: fileOf(file), action: 'add', text: ta.value, at }));
       busy = false;
       if (!d.ok) { yes.disabled = false; showToast(d.error || 'Could not save the pin'); return; }
       pinDraft = null;
@@ -1247,7 +1394,7 @@
   function pinCopyText(file, n, c) {
     const t = (c.target && typeof c.target === 'object') ? c.target : {};
     const box = pinBox(c);
-    let s = (IDEA ? IDEA + '/' : '') + file + ' pin ' + n + ': ' + pinQuote(c.text);
+    let s = (IDEA_NAME ? IDEA_NAME + '/' : '') + file + ' pin ' + n + ': ' + pinQuote(c.text);
     if (typeof t.selector === 'string' && t.selector) {
       s += ' -> ' + t.selector.replace(/\s+/g, ' ');
       if (typeof t.text === 'string' && t.text) s += ' ' + pinQuote(t.text.slice(0, 60));
@@ -1292,7 +1439,7 @@
       if (typeof c.img === 'string' && PIN_ID.test(c.img.replace(/\.png$/, ''))) {
         const img = el('img');
         img.alt = '';
-        img.src = BASE + '/pins/' + encodeURIComponent(c.img) + '?v=' + encodeURIComponent(String(c.ver || ''));
+        img.src = secBase(keyParts(file)[0]) + '/pins/' + encodeURIComponent(c.img) + '?v=' + encodeURIComponent(String(c.ver || ''));
         tg.appendChild(img);
       }
       tg.appendChild(el('div', 'sel', sel));
@@ -1320,19 +1467,19 @@
     }, svgIcon('<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.8A1.3 1.3 0 0 0 9.2 2.5H3.8A1.3 1.3 0 0 0 2.5 3.8v5.4a1.3 1.3 0 0 0 1.3 1.3h1.7"/>'));
     ft.appendChild(el('span', 'sp'));
     btn(c.resolved ? 'Reopen' : 'Resolve', 'ghost', async () => {
-      const d = await post('/api/pin', Object.assign(scope(), { file, action: c.resolved ? 'reopen' : 'resolve', ref: c.id }));
+      const d = await post('/api/pin', Object.assign(scope(file), { file: fileOf(file), action: c.resolved ? 'reopen' : 'resolve', ref: c.id }));
       if (!d.ok) { showToast(d.error || 'Could not save the pin'); return; }
       await loadCanvas(true);
       openPin(file, c.id);
     });
     const del = btn('', 'ghost dg', async () => {
-      const d = await post('/api/pin', Object.assign(scope(), { file, action: 'delete', ref: c.id }));
+      const d = await post('/api/pin', Object.assign(scope(file), { file: fileOf(file), action: 'delete', ref: c.id }));
       if (!d.ok) { showToast(d.error || 'Could not delete the pin'); return; }
       closePin();
       await loadCanvas(true);
       const box = pinBox(c);
       showToast('Deleted pin ' + n, box ? { label: 'Undo', run: async () => {
-        const a = await post('/api/pin', Object.assign(scope(), { file, action: 'add', text: c.text, at: box }));
+        const a = await post('/api/pin', Object.assign(scope(file), { file: fileOf(file), action: 'add', text: c.text, at: box }));
         if (!a.ok) { showToast(a.error || 'Could not restore the pin'); return; }
         await loadCanvas(true);
       } } : undefined);
@@ -1392,7 +1539,8 @@
     arrowEls = [];
     arrowSvg.classList.toggle('hidden', !showArrows);
     if (!showArrows || !canvasData) return;
-    const { boards = {}, links = [] } = canvasData;
+    const { boards = {} } = canvasData;
+    const links = (canvasData.links || []).filter(l => l && !rejHidden(boards[l.from]) && !rejHidden(boards[l.to]));
     if (!links.length) return;
 
     const NS = 'http://www.w3.org/2000/svg';
@@ -1508,17 +1656,18 @@
     try { focus = decodeURIComponent(location.hash.slice(1)); } catch (_) {}
     const own = (k) => Object.prototype.hasOwnProperty.call(canvasData.boards, k) ? canvasData.boards[k] : null;   // not #__proto__
     const one = focus && (own(focus) || own(focus + '.html'));
-    const bds = one ? [one] : Object.values(canvasData.boards || {});
+    if (one && rejHidden(one)) { hideRej = false; renderAll(); }   // a link to a rejected board shows it
+    const bds = one ? [one] : Object.values(canvasData.boards || {}).filter(b => !rejHidden(b));
     if (!bds.length) return;
     const minX = Math.min(...bds.map(b => b.x));
-    const minY = Math.min(...bds.map(b => b.y));
+    const minY = Math.min(...bds.map(b => b.y)) - (!one && SECTIONS.length ? SEC_HEAD : 0);
     const maxX = Math.max(...bds.map(b => b.x + b.w));
     const maxY = Math.max(...bds.map(b => b.y + b.h));
     const cw = maxX - minX + 96, ch = maxY - minY + 120;
-    const sw = SW, sh = SH;
+    const ox = outlineW(), sw = SW - ox, sh = SH;
     const ns = Math.min(sw / cw, sh / ch, OVERVIEW ? Infinity : 1);
     sc = Math.max(0.05, ns);
-    vx = (sw - cw * sc) / 2 - minX * sc + 48 * sc;
+    vx = ox + (sw - cw * sc) / 2 - minX * sc + 48 * sc;
     vy = (sh - ch * sc) / 2 - minY * sc + 60 * sc;
     applyXform();
   }
@@ -1591,11 +1740,12 @@
     renderArrows();
     visDirty = true; schedule();
     try {
-      const resp = await fetch(BASE + '/api/layout', {
+      const [sec, name] = keyParts(file);
+      const resp = await fetch(secBase(sec) + '/api/layout', {
         method: 'POST',
         // The server checks this exact Content-Type and the browser-sent Origin
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ board: file, x, y })
+        body: JSON.stringify({ board: name, x: x - (b._dx || 0), y: y - (b._dy || 0) })
       });
       if (!resp.ok) showToast('Could not save position (' + resp.status + ')');
     } catch (_) {
@@ -1700,12 +1850,131 @@
       showToast(pinsHidden ? 'Pins hidden' : 'Pins shown');
     }
     if (e.key === 'f' || e.key === 'F') fitToView();
+    if (REJ_UI && (e.key === 'h' || e.key === 'H') && rejCount()) {
+      setHideRej(!hideRej);
+      showToast(hideRej ? 'Rejected boards hidden' : 'Rejected boards shown');
+    }
+    if (SECTIONS.length && (e.key === 'o' || e.key === 'O')) {
+      outlineOff = !outlineOff;
+      try { localStorage.setItem(OUT_KEY, outlineOff ? 'off' : 'on'); } catch (_) {}
+      renderOutline();
+    }
     if (e.key === 'l' || e.key === 'L') {
       showArrows = !showArrows;
       renderArrows();
       showToast(showArrows ? 'Arrows shown' : 'Arrows hidden');
     }
   });
+
+
+  // ── Outline and rejected boards (D-B31) ──────────────────────────────────
+  const outline = document.getElementById('outline');
+  const rejBtn = document.getElementById('rej-btn');
+  const OUT_KEY = 'mc:outline';
+  let outlineOff = false, curSec = null;
+  try { outlineOff = localStorage.getItem(OUT_KEY) === 'off'; } catch (_) {}
+  const outlineOn = () => !!SECTIONS.length && !outlineOff && !OVERVIEW && window.innerWidth > 700;
+  const outlineW = () => (outlineOn() ? 196 : 0);
+  const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+  function fitBox(x1, y1, x2, y2) {
+    const ox = outlineW(), cw = x2 - x1 + 96, ch = y2 - y1 + 120, sw = SW - ox;
+    sc = Math.max(0.05, Math.min(sw / cw, SH / ch, 1));
+    vx = ox + (sw - cw * sc) / 2 - x1 * sc + 48 * sc;
+    vy = (SH - ch * sc) / 2 - y1 * sc + 60 * sc;
+    applyXform();
+  }
+  function rejCount() { return canvasData ? Object.values(canvasData.boards).filter(b => b.status === 'rejected').length : 0; }
+  function setHideRej(on) {
+    hideRej = on;
+    try { localStorage.setItem(REJ_KEY, on ? 'hide' : 'show'); } catch (_) {}
+    closePin(); closeComments();
+    renderAll();
+  }
+  function updateRejBtn() {
+    if (!rejBtn) return;
+    const n = REJ_UI ? rejCount() : 0;
+    for (const el of document.querySelectorAll('.rej-ui')) el.hidden = !n;
+    if (!n) return;
+    rejBtn.classList.toggle('act', !hideRej);
+    rejBtn.setAttribute('aria-pressed', hideRej ? 'false' : 'true');
+    rejBtn.querySelector('.lb').textContent = hideRej ? n + ' hidden' : 'Showing ' + n + ' rejected';
+    rejBtn.title = hideRej ? plural(n, 'rejected board') + ' hidden. Show them (H)' : 'Hide rejected boards (H)';
+  }
+  if (rejBtn) rejBtn.addEventListener('click', () => setHideRej(!hideRej));
+  async function moveSectionOut(sec) {
+    if (!confirm('Move ' + sec + ' out of ' + IDEA + '? It becomes an idea of its own again. Nothing inside it changes.')) return;
+    const body = scope('');
+    body.idea = IDEA_NAME + '/' + sec; body.out = true;
+    const d = await post('/api/move', body);
+    if (!d.ok) { showToast(d.error || 'Could not move'); return; }
+    location.reload();
+  }
+  function renderOutline() {
+    if (!outline) return;
+    const on = outlineOn();
+    outline.hidden = !on;
+    if (!on || !canvasData) return;
+    outline.textContent = '';
+    const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+    const total = Object.values(canvasData.boards).filter(b => !rejHidden(b)).length;
+    const hd = el('div', 'hd');
+    hd.append(el('b', '', IDEA), el('span', 'n', total + ' shown'));
+    outline.append(hd);
+    for (const m of secMeta) {
+      const shown = hideRej ? m.n - m.rej : m.n;
+      const row = el('div', 'row' + (curSec === m.name ? ' on' : ''));
+      row.dataset.sec = m.name;
+      const b = el('button', 's');
+      b.type = 'button';
+      b.append(el('span', 'nm', m.name || IDEA), el('span', 'n', String(shown)));
+      if (hideRej && m.rej) b.append(el('span', 'rj', '+' + m.rej));
+      b.title = plural(shown, 'board') + (hideRej && m.rej ? ', ' + m.rej + ' rejected hidden' : '');
+      b.addEventListener('click', () => { const q = secBox(m); fitBox(q.x1, q.y1, q.x2, q.y2); });
+      row.append(b);
+      if (m.name) {
+        const open = el('a', 'act');
+        open.href = secBase(m.name) + '/';
+        open.title = 'Open ' + m.name + ' alone';
+        open.setAttribute('aria-label', open.title);
+        open.innerHTML = svgIcon('<path d="M5 11 11 5M6 5h5v5"/>');
+        row.append(open);
+        if (CAN_DELETE) {
+          const out = el('button', 'act');
+          out.type = 'button';
+          out.title = 'Move ' + m.name + ' out of ' + IDEA;
+          out.setAttribute('aria-label', out.title);
+          out.innerHTML = svgIcon('<path d="M6.5 3H3.5A1.5 1.5 0 0 0 2 4.5v7A1.5 1.5 0 0 0 3.5 13h3"/><path d="M7 8h7M11.5 5.5 14 8l-2.5 2.5"/>');
+          out.addEventListener('click', () => moveSectionOut(m.name));
+          row.append(out);
+        }
+      }
+      outline.append(row);
+      if (curSec !== m.name) continue;
+      const pre = m.name ? m.name + '/' : '';
+      for (const g of canvasData.groups) {   // the groups of the section in view
+        if (!g || typeof g.id !== 'string' || (m.name ? !g.id.startsWith(pre) : g.id.includes('/'))) continue;
+        const list = Object.values(canvasData.boards).filter(bd => bd.group === g.id && !rejHidden(bd));
+        if (!list.length) continue;
+        const grow = el('div', 'row'), gb = el('button', 'g');
+        gb.type = 'button';
+        gb.append(el('span', 'nm', g.label || g.id), el('span', 'n', String(list.length)));
+        const bb = boundsOf(list);
+        gb.addEventListener('click', () => fitBox(bb.x1, bb.y1 - 58, bb.x2, bb.y2));
+        grow.append(gb);
+        outline.append(grow);
+      }
+    }
+    const rej = rejCount();
+    if (rej && hideRej) outline.append(el('div', 'foot', plural(rej, 'rejected board') + ' hidden'));
+  }
+  function updateCurSec() {   // the section under the middle of the view
+    if (!outlineOn() || !secMeta.length) return;
+    const cy = (SH / 2 - vy) / sc;
+    let cur = secMeta[0].name;
+    for (const m of secMeta) if (cy >= m.y - SEC_GAP / 2) cur = m.name;
+    if (cur !== curSec) { curSec = cur; renderOutline(); }
+  }
+  window.addEventListener('resize', () => renderOutline());
 
   // ── SSE (server mode only) ───────────────────────────────────────────────
   // Changes arrive in bursts (an agent writing many boards, every saved drag), so they are
@@ -1747,9 +2016,10 @@
     es.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data);
-        if (d.type === 'board' && d.file) changedBoards.add(d.file);
+        const key = (typeof d.section === 'string' && d.section ? d.section + '/' : '') + (d.file || '');
+        if (d.type === 'board' && d.file) changedBoards.add(key);
         else if (d.type === 'canvas') canvasChanged = true;
-        else if (d.type === 'thumb' && d.file) { onThumbReady(d.file); return; }
+        else if (d.type === 'thumb' && d.file) { onThumbReady(key); return; }
         else return;
         if (!sseTimer) sseTimer = setTimeout(flushChanges, 250);
       } catch (_) {}

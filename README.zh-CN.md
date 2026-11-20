@@ -54,6 +54,8 @@ mockup-canvas 是三个免费开源（MIT）的 Claude Code 和 OpenAI Codex 技
 - 已记录实现的画板显示紫色 `built` 徽章（悬停可看到路由），有评审评论的画板显示评论数。点击评论数可以在面板中阅读评论。
 - **图钉。** 按 `C`（或工具栏中的 Point），在画板上单击一个点或拖出一个区域并写下备注，画板上就会出现一个带编号的图钉。服务器用自己的无头 Chrome 打开画板，找到图钉下的元素，保存它的 CSS 选择器、文字和该部分的截图。Copy for AI 会把一行写明画板、图钉编号和元素的文字放到剪贴板，智能体用 `canvas pins` 读取所有未解决的图钉。画板文件改动后，图钉会跟着元素移动。按 `P` 隐藏图钉。
 - 用可折叠的分组整理画板，例如 `current` 和 `old drafts`。
+- **分区。** 把一个创意移到另一个创意里（卡片菜单的 Move into idea，或 `canvas move`），它就成为那个创意的分区：仪表盘上只有一张卡片，画布也只有一张，各分区上下排列，左侧有大纲。每个分区保留自己的文件夹、令牌、画板 ID 和 `canvas.json`，文件不会被改写，两个智能体可以在不同分区里工作。用 Undo 或再次 `canvas move` 可以移出来。
+- **被否决的画板默认隐藏。** 旧稿仍保存在磁盘上，但画布不显示被否决的画板，只显示数量。按 `H` 会以半透明方式显示。
 - 画板很多时依然流畅。只有视图附近的画板保持实时页面。缩小到约 30% 到 40% 以下时，显示缓存的 PNG 缩略图（通过服务器打开时）。看过一次的画板在重新加载时显示缩略图，而不是空白卡片。界面更新按每个动画帧合并一次，缩略图在后台以低优先级渲染。在一个有 71 个画板的画布上（1440x900，Apple M4，headless Chrome），平移和缩放保持在约 59 到 60 FPS，p95 帧时间约 20 ms，没有超过 50 ms 的帧。首次打开和缩略图已缓存时都是如此。可用 `python3 tests/perf_check.py <创意文件夹>` 复现。
 - 实时刷新。服务器每秒检查一次文件变化，修改画板或 `canvas.json` 后，打开的画布大约一秒内更新。
 - 服务器打开后是所有已注册项目的仪表板。创意卡片显示最新画板的缩略图、状态数、评论和已实现的画板；还有筛选待决定内容的过滤器、搜索和命令面板（`/` 或 `Cmd K`）、添加项目或查找设计文件夹、缺失文件夹提醒、浅色和深色主题，以及手机布局。详见 [仪表板](#仪表板)。
@@ -68,7 +70,7 @@ mockup-canvas 是三个免费开源（MIT）的 Claude Code 和 OpenAI Codex 技
 
 **命令行工具**（`skills/mockup-canvas/scripts/canvas.py`）
 
-- 单个约 5,100 行的 Python 3 文件。只用标准库（Python 3.8 及以上），没有 pip 依赖。共 19 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`、`trash`、`restore`、`pins`。
+- 单个约 5,500 行的 Python 3 文件。只用标准库（Python 3.8 及以上），没有 pip 依赖。共 20 个命令：`serve`、`roots`、`new`、`add`、`group`、`render`、`check`、`overview`、`export`、`link`、`status`、`artifact`、`snap`、`compare`、`impl`、`comment`、`trash`、`restore`、`pins`、`move`。
 - Chrome（或 Chromium、Edge）只在渲染画板和把应用页面截取为 PNG 时使用。
 
 ## 仪表板
@@ -208,7 +210,7 @@ lsof -ti tcp:4400 -sTCP:LISTEN | xargs kill
 
 ### 绘制（mockup-canvas）
 
-1. **找到或创建创意。** 如果 `design/<idea>/` 已存在，就接着做。否则运行 `canvas new <design dir> <idea>`，这一步同时会把设计文件夹注册到画布服务器。
+1. **找到或创建创意。** 如果 `design/<idea>/` 已存在，就接着做。如果这项工作属于项目里已有的创意，就不新建创意，而是在那个创意里加一个分组或分区。否则运行 `canvas new <design dir> <idea>`，这一步同时会把设计文件夹注册到画布服务器。
 2. **先定设计令牌。** 画任何界面之前，先在 `shared/tokens.css` 中定好颜色、字体、间距和圆角。画板只使用 `var(--...)`。
 3. **绘制画板。** 每个界面是 `boards/` 中的一个 HTML 文件，命名如 `W01-Home.html`。单独打开时效果必须一致：只用相对路径，不引用外部脚本，外部资源只允许 Google Fonts。
 4. **注册。** `canvas add <idea dir> boards/W01-Home.html --group current --size mobile` 把它放到画布上。内容被截断时，用新的 `--size` 再次运行 `add` 即可调整画板尺寸。
@@ -287,6 +289,7 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `pins` | 列出某个创意或某个画板的未解决图钉，以及每个图钉指向的元素和截图路径（`--all` 包含已解决的，`--json` 供脚本使用）。修好后用 `--resolve N --note TEXT` 关闭，`--reopen N` 重新打开。用 `canvas comment ... --at x,y[,w,h]` 或 `--el SELECTOR` 添加图钉。 | `canvas pins design/wallet`<br>`canvas pins design/wallet W02-Send.html --resolve 3 --note "44 px button"` |
 | `trash` | 把创意或其中一个画板移到 `<design dir>/.trash/`。画板的 canvas.json 条目（位置、分组、状态、评论）和流程箭头会保存在一个用于恢复的文件里。`--list` 列出其中内容。不会彻底删除，清空时请手动删除该文件夹。 | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
 | `restore` | 按 `trash --list` 中的 id 恢复。已有同名内容时不会恢复。 | `canvas restore design wallet/W02-Send-20261029T101034Z` |
+| `move` | 把一个创意移到另一个创意里，成为其画布上的分区，或把分区移出来。文件夹原样移动。 | `canvas move design/og design/promo` |
 
 ## 画布快捷键
 
@@ -299,6 +302,9 @@ canvas() { python3 ~/.claude/skills/mockup-canvas/scripts/canvas.py "$@"; }
 | `L` | 显示或隐藏流程箭头 |
 | `C` | 图钉模式：在画板上单击一个点或拖出区域来钉上备注（`Esc` 取消） |
 | `P` | 显示或隐藏图钉 |
+| `H` | 显示或隐藏被否决的画板（默认隐藏） |
+| `O` | 显示或隐藏分区大纲 |
+| 点击大纲中的分区 | 让该分区适配视图；该行有单独打开和移出 |
 | 单击画板标题 | 复制其 ID，例如 `W01-Home` |
 | 双击画板标题 | 在新标签页中单独打开该画板 |
 | 拖动画板标题 | 移动并保存位置 |
@@ -429,7 +435,7 @@ mockup-canvas 不是托管式的设计工具或应用生成器。它负责规划
 
 ## 参与贡献
 
-欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 278 个）：
+欢迎提交 issue 和 PR。提交 PR 前请运行测试（共 305 个）：
 
 ```bash
 cd tests && python3 -m unittest discover .

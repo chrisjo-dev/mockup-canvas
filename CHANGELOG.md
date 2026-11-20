@@ -8,6 +8,10 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ### Added
 
+- Sections: an idea can be moved into another idea (`canvas move`, or Move into idea in the dashboard card menu, with Undo). It then opens as a section on that idea's canvas, and the dashboard shows one card that lists its sections. The folder moves as it is to `design/<idea>/<section>/`, so tokens, board IDs, statuses, comments, pins, and arrows are unchanged. `canvas new <design dir> <idea>/<section>` starts new work as a section, and an old `/<idea>/` link redirects to the section.
+- The canvas of an idea with sections has an outline on the left (`O` hides it): click a section to fit it, open it alone, or move it out.
+- The canvas leaves rejected boards out by default and shows how many are hidden. `H` or the toolbar button shows them, dimmed. Exports and `canvas overview` still include them.
+- The skill checks the project's existing ideas before `canvas new` and adds a group or a section to one of them unless the work is a new product area.
 - A Privacy section in the four READMEs, and `documentationUrl`, `supportUrl`, and `privacyPolicyUrl` in `plugin.json`, and a listing icon at `.claude-plugin/icon.png`, for the listing in Anthropic's plugin directory.
 
 ### Fixed

@@ -48,7 +48,7 @@ canvas() { python3 <skill-dir>/scripts/canvas.py "$@"; }
 
 ### 1. Find the idea
 
-If the same idea already exists under `design/`, the agent continues it. Before drawing, it reads the spec, the existing screens, and any directions you liked or rejected. For a new idea:
+If the same idea already exists under `design/`, the agent continues it. Before drawing, it reads the spec, the existing screens, and any directions you liked or rejected. When the work belongs to an idea the project already has, the agent adds a group to that idea, or starts a section inside it with `canvas new design wallet/refunds`, instead of creating one more idea. For a new product area:
 
 ```bash
 canvas new design wallet

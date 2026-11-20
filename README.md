@@ -54,6 +54,8 @@ The agent draws each screen as a small HTML file, and the canvas shows them side
 - A violet `built` badge on boards with a recorded implementation (the route is in its tooltip), and a comment count on boards with review comments. Click the count to read them in a panel.
 - **Pins.** Press `C` (or Point in the toolbar), click a spot or drag an area on a board, and write a note. The board gets a numbered pin. The server opens the board in its own headless Chrome, finds the element under the pin, and saves its CSS selector, its text, and a crop of that part of the board. Copy for AI puts one line on the clipboard that names the board, the pin, and the element, and `canvas pins` lists every open pin for the agent. When the board file changes, the pin follows its element. `P` hides pins.
 - Collapsible groups of artboards, for example `current` and `old drafts`.
+- **Sections.** Move an idea into another idea (card menu, Move into idea, or `canvas move`) and it becomes a section of that idea: one card on the dashboard and one canvas, with the sections one under the other and an outline on the left. Each section keeps its own folder, tokens, board IDs, and `canvas.json`, so nothing is rewritten and two agents can work in different sections. Undo, or `canvas move` again, takes it back out.
+- **Rejected boards stay out of the way.** Old drafts are kept on disk, but the canvas leaves rejected boards out and says how many. `H` shows them, dimmed.
 - It stays responsive on large boards. Only boards near the view keep a live page. When zoomed out below about 30 to 40%, boards show cached PNG thumbnails (when served). A board you have seen once shows its thumbnail, not a blank card, while it loads again. Screen updates are batched once per animation frame, and thumbnails render in the background at low priority. On a 71-artboard canvas (1440x900, Apple M4, Chrome headless), pan and zoom stay at about 59 to 60 FPS, with a p95 frame time of about 20 ms and no frame over 50 ms. That holds on first open and with cached thumbnails. To reproduce, run `python3 tests/perf_check.py <idea folder>`.
 - Live reload. The server checks for file changes every second, so an edit to an artboard or `canvas.json` shows up within about a second.
 - The server opens on a dashboard of every registered project. It has idea cards with the newest board thumbnails, status counts, comments, and built boards, filters for what needs a decision, search and a command palette (`/` or `Cmd K`), adding projects or finding design folders, warnings for missing folders, light and dark themes, and a phone layout. See [The dashboard](#the-dashboard).
@@ -68,7 +70,7 @@ The agent draws each screen as a small HTML file, and the canvas shows them side
 
 **The CLI** (`skills/mockup-canvas/scripts/canvas.py`)
 
-- One Python 3 file of about 5,100 lines, standard library only (Python 3.8+), no pip dependencies. It has 19 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`, `pins`.
+- One Python 3 file of about 5,500 lines, standard library only (Python 3.8+), no pip dependencies. It has 20 commands: `serve`, `roots`, `new`, `add`, `group`, `render`, `check`, `overview`, `export`, `link`, `status`, `artifact`, `snap`, `compare`, `impl`, `comment`, `trash`, `restore`, `pins`, `move`.
 - Chrome (or Chromium or Edge) is used only to render boards and capture app pages as PNGs.
 
 ## The dashboard
@@ -208,7 +210,7 @@ Each skill follows the workflow in its `SKILL.md`. See [docs/skill.md](docs/skil
 
 ### Draw (mockup-canvas)
 
-1. **Find or create the idea.** If `design/<idea>/` already exists, the agent continues it. Otherwise it runs `canvas new <design dir> <idea>`, which also registers the design folder with the canvas server.
+1. **Find or create the idea.** If `design/<idea>/` already exists, the agent continues it. If the work belongs to an idea the project already has, it adds a group or a section to that idea instead of starting a new one. Otherwise it runs `canvas new <design dir> <idea>`, which also registers the design folder with the canvas server.
 2. **Tokens first.** Colors, type, spacing, and radius go into `shared/tokens.css` before any screen is drawn. Artboards use only `var(--...)`.
 3. **Draw artboards.** Each screen is one HTML file in `boards/`, named like `W01-Home.html`. It must look the same when opened on its own: relative paths only, no external scripts, Google Fonts as the only external resource.
 4. **Register.** `canvas add <idea dir> boards/W01-Home.html --group current --size mobile` places it on the canvas. If content is cut off, running `add` again with a new `--size` resizes the board.
@@ -287,6 +289,7 @@ Run `canvas <command> -h` for the usage of any command.
 | `pins` | List the open pins of an idea or one board, with the element each one points at and the path of its cropped image (`--all` includes resolved ones, `--json` for scripts). `--resolve N --note TEXT` closes a pin after the fix, `--reopen N` opens it again. Add a pin with `canvas comment ... --at x,y[,w,h]` or `--el SELECTOR`. | `canvas pins design/wallet`<br>`canvas pins design/wallet W02-Send.html --resolve 3 --note "44 px button"` |
 | `trash` | Move an idea, or one board of it, to `<design dir>/.trash/`. A board keeps its canvas.json entry (position, group, status, comments) and its flow arrows in a sidecar file for restore. `--list` shows what is there. Nothing is ever removed for good; empty the folder by hand. | `canvas trash design/wallet W02-Send.html`<br>`canvas trash --list design` |
 | `restore` | Put a trash entry back by its id (from `trash --list`). It refuses when something now has the same name. | `canvas restore design wallet/W02-Send-20261029T101034Z` |
+| `move` | Move an idea into another idea as a section of its canvas, or a section back out. The folder moves as it is. | `canvas move design/og design/promo` |
 
 ## Canvas shortcuts
 
@@ -299,6 +302,9 @@ Run `canvas <command> -h` for the usage of any command.
 | `L` | Show or hide flow arrows |
 | `C` | Point mode: click a spot or drag an area on a board to pin a note to it (`Esc` cancels) |
 | `P` | Show or hide pins |
+| `H` | Show or hide rejected boards (hidden by default) |
+| `O` | Show or hide the section outline |
+| Click a section in the outline | Fit that section in view; its row has Open alone and Move out |
 | Click an artboard title | Copy its ID, for example `W01-Home` |
 | Double-click an artboard title | Open the artboard alone in a new tab |
 | Drag an artboard title | Move it and save the position |
@@ -429,7 +435,7 @@ Yes. Write the HTML files yourself and use the CLI: `canvas new`, `canvas add`, 
 
 ## Contributing
 
-Issues and pull requests are welcome. Run the test suite (278 tests) before you open a pull request:
+Issues and pull requests are welcome. Run the test suite (305 tests) before you open a pull request:
 
 ```bash
 cd tests && python3 -m unittest discover .

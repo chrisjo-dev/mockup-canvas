@@ -7,7 +7,8 @@ Commands:
   serve [<design dir>] [--port 4400] [--share [--minutes 30] [--share-edit]]
   serve --share --project NAME   (registry mode: share one project)
   roots [list|add|remove|scan] ...
-  new <design dir> <idea>
+  new <design dir> <idea>[/<section>]
+  move <idea dir> <another idea dir | design dir>   (into an idea as a section, or back out)
   add <idea dir> <file> [--group NAME] [--size mobile|tablet|desktop|WxH]
   group <idea dir> <file> <group name>
   render <idea dir> [file...] [--full-page] [--wait MS]
@@ -1443,6 +1444,163 @@ def _plain_name(name):
     return (isinstance(name, str) and bool(name) and name == os.path.basename(name) and not name.startswith('.')
             and '/' not in name and '\\' not in name and '\x00' not in name)
 
+# ── Sections: an idea inside an idea ───────────────────────────────────────
+# design/<idea>/<section>/ is a whole idea folder (its own canvas.json, boards/, shared/,
+# assets/) that was moved into another idea. Wherever an idea name goes (URLs, SSE keys, API
+# bodies) a section is named '<idea>/<section>'. One level deep. Nothing inside the folder is
+# rewritten by a move, so its boards keep their own tokens, assets, and board ids. The parent's
+# canvas shows its sections under its own boards, in the order of its canvas.json 'sections'.
+
+SECTION_RESERVED = frozenset(('boards', 'assets', 'shared', 'render', 'compare', 'api', 'thumbs', 'pins', 'canvas.json', '_k'))
+_SECTION_ORDER_CACHE = {}   # canvas.json path -> ((mtime_ns, size), [names])
+
+class MoveError(Exception):
+    pass
+
+def _section_name_ok(name):
+    return _plain_name(name) and name not in SECTION_RESERVED
+
+def _split_idea(idea):
+    """'promo' -> ('promo', None), 'promo/og' -> ('promo', 'og'), anything else -> None."""
+    bits = idea.split('/') if isinstance(idea, str) else []
+    if len(bits) == 1 and _plain_name(bits[0]):
+        return bits[0], None
+    if len(bits) == 2 and _plain_name(bits[0]) and _section_name_ok(bits[1]):
+        return bits[0], bits[1]
+    return None
+
+def _is_idea_dir(d):
+    return os.path.isdir(d) and not os.path.islink(d) and os.path.isfile(os.path.join(d, 'canvas.json'))
+
+def _section_order(cj):
+    """The 'sections' list of a canvas.json (names only), cached by its mtime and size."""
+    try:
+        st = os.stat(cj)
+    except OSError:
+        return []
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _SECTION_ORDER_CACHE.get(cj)
+    if hit and hit[0] == key:
+        return hit[1]
+    try:
+        with open(cj, encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    order = data.get('sections') if isinstance(data, dict) else None
+    out = [n for n in order if isinstance(n, str)] if isinstance(order, list) else []
+    _SECTION_ORDER_CACHE[cj] = (key, out)
+    return out
+
+def _list_sections(idea_dir):
+    """Section names of an idea: the saved order first, then any others by name."""
+    try:
+        names = [d for d in sorted(os.listdir(idea_dir))
+                 if _section_name_ok(d) and _is_idea_dir(os.path.join(idea_dir, d))]
+    except OSError:
+        return []
+    if not names:
+        return []
+    have = set(names)
+    ranked = []
+    for n in _section_order(os.path.join(idea_dir, 'canvas.json')):
+        if n in have and n not in ranked:
+            ranked.append(n)
+    return ranked + [n for n in names if n not in ranked]
+
+def _save_section_order(idea_dir, add=None, remove=None):
+    """Caller holds _canvas_lock."""
+    canvas = load_canvas(idea_dir)
+    order = [n for n in (canvas.get('sections') if isinstance(canvas.get('sections'), list) else [])
+             if isinstance(n, str) and n != remove]
+    if add and add not in order:
+        order.append(add)
+    if order:
+        canvas['sections'] = order
+    else:
+        canvas.pop('sections', None)
+    save_canvas_atomic(os.path.join(idea_dir, 'canvas.json'), canvas)
+
+def _newest_change(idea_dir):
+    newest = 0.0
+    paths = [os.path.join(idea_dir, 'canvas.json')]
+    try:
+        bd = os.path.join(idea_dir, 'boards')
+        paths += [os.path.join(bd, f) for f in os.listdir(bd) if f.endswith('.html')]
+    except OSError:
+        pass
+    for q in paths:
+        try:
+            newest = max(newest, os.stat(q).st_mtime)
+        except OSError:
+            pass
+    return newest
+
+def move_idea(design_dir, idea, into=None, quiet_secs=0):
+    """into: the name of another top-level idea, and `idea` becomes its section. Without `into`,
+    the section `idea` ('<parent>/<section>') moves back out into the design folder. The folder
+    is renamed as a whole; no file inside it changes. Returns the idea's new name.
+    quiet_secs: refuse when the idea changed that recently (an agent may be in the middle of it)."""
+    real = os.path.realpath(design_dir)
+    sp = _split_idea(idea)
+    if not sp:
+        raise MoveError(f'Not an idea name: {idea}')
+    parent, sec = sp
+    try:
+        src = _idea_folder(design_dir, idea)
+    except TrashError as e:
+        raise MoveError(str(e))
+    if os.path.islink(src):
+        raise MoveError(f'{idea} is a link, not a folder')
+
+    def quiet():
+        age = time.time() - _newest_change(src)
+        if quiet_secs and 0 <= age < quiet_secs:
+            raise MoveError(f'{idea} changed {int(age)} seconds ago. Try again when the agent is done.')
+
+    with _canvas_lock:
+        try:
+            if into is not None:
+                if sec is not None:
+                    raise MoveError(f'{idea} is already a section. Move it out first.')
+                if not _plain_name(into) or into == parent:
+                    raise MoveError(f'Not an idea to move into: {into}')
+                if not _section_name_ok(parent):
+                    raise MoveError(f'A section cannot be named {parent}. Rename it first.')
+                dst_idea = os.path.join(real, into)
+                if not _is_idea_dir(dst_idea) or not _within(dst_idea, real):
+                    raise MoveError(f'No idea named {into}')
+                if _list_sections(src):
+                    raise MoveError(f'{parent} holds sections itself. Sections go one level deep.')
+                dst = os.path.join(dst_idea, parent)
+                if os.path.lexists(dst):
+                    raise MoveError(f'{into} already has a section named {parent}. Rename one first.')
+                quiet()
+                _move(src, dst)
+                _save_section_order(dst_idea, add=parent)
+                return into + '/' + parent
+            if sec is None:
+                raise MoveError(f'{idea} is not a section')
+            dst = os.path.join(real, sec)
+            if sec in _RESERVED_NAMES:
+                raise MoveError(f'An idea cannot be named {sec}. Rename the section first.')
+            if os.path.lexists(dst):
+                raise MoveError(f'design/{sec} already exists. Rename one first.')
+            quiet()
+            _move(src, dst)
+            _save_section_order(os.path.join(real, parent), remove=sec)
+            return sec
+        except TrashError as e:   # _move: the target appeared meanwhile
+            raise MoveError(str(e))
+
+def moved_to(design_dir, idea):
+    """Where a top-level idea name went: '<parent>/<idea>' when exactly one idea has a section of
+    that name, else None. Lets an old /<idea>/ link follow a move."""
+    if not _section_name_ok(idea):
+        return None
+    hits = [p for p in _list_ideas(design_dir) if _is_idea_dir(os.path.join(design_dir, p, idea))]
+    return hits[0] + '/' + idea if len(hits) == 1 else None
+
 def _trash_root(design_dir, create=False):
     t = os.path.join(os.path.realpath(design_dir), TRASH_DIR)
     if os.path.islink(t) or (os.path.lexists(t) and not os.path.isdir(t)):
@@ -1477,10 +1635,12 @@ def _move(src, dst):
         shutil.move(src, dst)   # another volume (a linked trash is refused, but design/ may be a mount)
 
 def _idea_folder(design_dir, idea):
-    if not _plain_name(idea):
+    """The folder of an idea or of a section ('<idea>/<section>')."""
+    sp = _split_idea(idea)
+    if not sp:
         raise TrashError(f'Not an idea name: {idea}')
     real = os.path.realpath(design_dir)
-    d = os.path.join(real, idea)
+    d = os.path.join(real, sp[0], sp[1]) if sp[1] else os.path.join(real, sp[0])
     if not os.path.isdir(d) or not _within(d, real) or not os.path.isfile(os.path.join(d, 'canvas.json')):
         raise TrashError(f'No idea named {idea}')
     return d
@@ -1488,6 +1648,8 @@ def _idea_folder(design_dir, idea):
 def trash_idea(design_dir, idea):
     """Move an idea folder into the trash. Returns its trash id."""
     src = _idea_folder(design_dir, idea)
+    if '/' in idea:
+        raise TrashError(f'{idea} is a section. Move it out of {idea.split("/")[0]} before deleting it.')
     with _canvas_lock:
         t = _trash_root(design_dir, create=True)
         tid = _stamped(t, idea)
@@ -1522,7 +1684,10 @@ def trash_board(design_dir, idea, fname):
             raise TrashError(f'No board named {fname} in {idea}')
         links = canvas.get('links') if isinstance(canvas.get('links'), list) else []
         mine = [l for l in links if isinstance(l, dict) and fname in (l.get('from'), l.get('to'))]
-        folder = _trash_sub(os.path.join(_trash_root(design_dir, create=True), idea), create=True)
+        troot = _trash_root(design_dir, create=True)
+        if '/' in idea:
+            _trash_sub(os.path.join(troot, idea.split('/')[0]), create=True)
+        folder = _trash_sub(os.path.join(troot, idea), create=True)
         name = _stamped(folder, fname[:-5], '.html', '.json')
         side = os.path.join(folder, name + '.json')
         with open(side, 'x', encoding='utf-8') as f:
@@ -1547,7 +1712,7 @@ def trash_board(design_dir, idea, fname):
 
 def _trash_id_parts(tid):
     parts = tid.split('/') if isinstance(tid, str) else []
-    if len(parts) not in (1, 2) or not all(_plain_name(p) for p in parts) or not _TRASH_NAME.match(parts[-1]):
+    if len(parts) not in (1, 2, 3) or not all(_plain_name(p) for p in parts) or not _TRASH_NAME.match(parts[-1]):
         raise TrashError(f'Not a trash id: {tid}')
     return parts
 
@@ -1567,7 +1732,9 @@ def restore_trash(design_dir, tid):
                 raise TrashError(f'design/{idea} already exists')
             _move(src, dst)
             return {'kind': 'idea', 'idea': idea}
-        idea, name = parts
+        idea, name = '/'.join(parts[:-1]), parts[-1]
+        if len(parts) == 3:
+            _trash_sub(os.path.join(t, parts[0]))
         folder = _trash_sub(os.path.join(t, idea))
         side = os.path.join(folder, name + '.json')
         try:
@@ -1608,6 +1775,8 @@ def restore_trash(design_dir, tid):
         os.remove(side)
         try:
             os.rmdir(folder)   # only when nothing else of this idea is in the trash
+            if len(parts) == 3:
+                os.rmdir(os.path.dirname(folder))
         except OSError:
             pass
         return {'kind': 'board', 'idea': idea, 'file': fname}
@@ -1626,16 +1795,22 @@ def list_trash(design_dir):
         if m and os.path.isdir(p) and not os.path.islink(p):
             out.append({'id': n, 'kind': 'idea', 'idea': m.group(1), 'deleted': m.group(2)})
         elif _plain_name(n) and os.path.isdir(p) and not os.path.islink(p):
-            for f in sorted(os.listdir(p)):
-                m = _TRASH_NAME.match(f[:-5]) if f.endswith('.json') else None
-                if not m:
-                    continue
-                try:
-                    with open(os.path.join(p, f), encoding='utf-8') as fh:
-                        meta = json.load(fh)
-                except (OSError, ValueError):
-                    continue
-                out.append({'id': n + '/' + f[:-5], 'kind': 'board', 'idea': n, 'file': meta.get('file'), 'deleted': m.group(2)})
+            folders = [(n, p)]   # boards of the idea, then of its sections (.trash/<idea>/<section>/)
+            for sub in sorted(os.listdir(p)):
+                q = os.path.join(p, sub)
+                if _plain_name(sub) and os.path.isdir(q) and not os.path.islink(q):
+                    folders.append((n + '/' + sub, q))
+            for idea, folder in folders:
+                for f in sorted(os.listdir(folder)):
+                    m = _TRASH_NAME.match(f[:-5]) if f.endswith('.json') else None
+                    if not m:
+                        continue
+                    try:
+                        with open(os.path.join(folder, f), encoding='utf-8') as fh:
+                            meta = json.load(fh)
+                    except (OSError, ValueError):
+                        continue
+                    out.append({'id': idea + '/' + f[:-5], 'kind': 'board', 'idea': idea, 'file': meta.get('file'), 'deleted': m.group(2)})
     out.sort(key=lambda e: e['deleted'])
     return out
 
@@ -1801,9 +1976,13 @@ def _rm_sse(key, wfile):
             pass
 
 DASH_SSE_KEY = '*'   # the dashboard listens to every idea's events on one stream (/api/events)
+_SSE_PARENT: dict = {}   # SSE key of a section -> SSE key of the idea that holds it (set by _watch_thread)
 
 def _broadcast(key, data):
-    if key != DASH_SSE_KEY:
+    parent = _SSE_PARENT.get(key)
+    if parent:   # the parent's canvas shows this section; the dashboard hears it under the parent
+        _broadcast(parent, dict(data, section=key[len(parent) + 1:]))
+    elif key != DASH_SSE_KEY:
         _broadcast(DASH_SSE_KEY, dict(data, key=key))
     msg = ('data: ' + json.dumps(data, ensure_ascii=False) + '\n\n').encode()
     dead = []
@@ -1817,6 +1996,36 @@ def _broadcast(key, data):
             dead.append(wf)
     for d in dead:
         _rm_sse(key, d)
+
+def _watch_idea(idea_dir, sse_key, mtimes, pins):
+    boards_dir = os.path.join(idea_dir, 'boards')
+    if os.path.isdir(boards_dir):
+        for fname in os.listdir(boards_dir):
+            if not fname.endswith('.html'):
+                continue
+            p = os.path.join(boards_dir, fname)
+            try:
+                mt = os.stat(p).st_mtime
+            except Exception:
+                continue
+            mkey = (sse_key, fname)
+            if mkey in mtimes and mtimes[mkey] != mt:
+                _broadcast(sse_key, {'type': 'board', 'file': fname})
+                if pins:
+                    _PINS.check(idea_dir, sse_key)
+            mtimes[mkey] = mt
+    cj = os.path.join(idea_dir, 'canvas.json')
+    if os.path.exists(cj):
+        try:
+            mt = os.stat(cj).st_mtime
+        except Exception:
+            return
+        mkey = (sse_key, 'canvas.json')
+        if mkey in mtimes and mtimes[mkey] != mt:
+            _broadcast(sse_key, {'type': 'canvas'})
+        if pins and mtimes.get(mkey) != mt:   # first seen too: pins added while no server ran
+            _PINS.check(idea_dir, sse_key)
+        mtimes[mkey] = mt
 
 def _watch_thread(design_dirs, pins=False):
     """
@@ -1833,43 +2042,24 @@ def _watch_thread(design_dirs, pins=False):
             dirs = design_dirs() if callable(design_dirs) else design_dirs
         except Exception:
             dirs = []
+        parents = {}
         for design_dir, prefix in dirs:
             try:
                 for idea in os.listdir(design_dir):
                     idea_dir = os.path.join(design_dir, idea)
                     if idea.startswith('.') or not os.path.isdir(idea_dir):
                         continue
-                    sse_key = prefix + idea
-                    boards_dir = os.path.join(idea_dir, 'boards')
-                    if os.path.isdir(boards_dir):
-                        for fname in os.listdir(boards_dir):
-                            if not fname.endswith('.html'):
-                                continue
-                            p = os.path.join(boards_dir, fname)
-                            try:
-                                mt = os.stat(p).st_mtime
-                            except Exception:
-                                continue
-                            mkey = (sse_key, fname)
-                            if mkey in mtimes and mtimes[mkey] != mt:
-                                _broadcast(sse_key, {'type': 'board', 'file': fname})
-                                if pins:
-                                    _PINS.check(idea_dir, sse_key)
-                            mtimes[mkey] = mt
-                    cj = os.path.join(idea_dir, 'canvas.json')
-                    if os.path.exists(cj):
-                        try:
-                            mt = os.stat(cj).st_mtime
-                        except Exception:
-                            continue
-                        mkey = (sse_key, 'canvas.json')
-                        if mkey in mtimes and mtimes[mkey] != mt:
-                            _broadcast(sse_key, {'type': 'canvas'})
-                        if pins and mtimes.get(mkey) != mt:   # first seen too: pins added while no server ran
-                            _PINS.check(idea_dir, sse_key)
-                        mtimes[mkey] = mt
+                    targets = [(idea_dir, prefix + idea)]
+                    for sec in _list_sections(idea_dir):
+                        parents[prefix + idea + '/' + sec] = prefix + idea
+                        targets.append((os.path.join(idea_dir, sec), prefix + idea + '/' + sec))
+                    for one_dir, sse_key in targets:
+                        _watch_idea(one_dir, sse_key, mtimes, pins)
             except Exception:
                 pass
+        if parents != _SSE_PARENT:
+            _SSE_PARENT.clear()
+            _SSE_PARENT.update(parents)
         time.sleep(1)
 
 # ── Board thumbnails (viewer level of detail) ──────────────────────────────
@@ -2429,6 +2619,23 @@ def _idea_summary(project, idea, idea_dir, url):
         rows.append(dict(b, m=round(m or cj_mtime, 3)))
     return {'project': project, 'name': idea, 'url': url, 'boards': rows, 'mtime': round(last, 3)}
 
+def _idea_summary_with_sections(project, idea, idea_dir, url):
+    """The idea's own boards, then each section's with 'p': <section>. 'sections' lists them in
+    canvas order: [{'name', 'boards'}]. A section board's files are under <url><section>/."""
+    s = _idea_summary(project, idea, idea_dir, url)
+    secs = []
+    for sec in _list_sections(idea_dir):
+        try:
+            sub = _idea_summary(project, idea + '/' + sec, os.path.join(idea_dir, sec), url + _urlquote(sec, safe='') + '/')
+        except OSError:
+            continue
+        s['boards'] += [dict(b, p=sec) for b in sub['boards']]
+        s['mtime'] = max(s['mtime'], sub['mtime'])
+        secs.append({'name': sec, 'boards': len(sub['boards'])})
+    if secs:
+        s['sections'] = secs
+    return s
+
 
 def _list_ideas(design_dir):
     try:
@@ -2457,7 +2664,7 @@ def build_index(roots, single=False, share=False):
                 else:
                     url = '/' + _urlquote(name, safe='') + '/' + _urlquote(idea, safe='') + '/'
                 try:
-                    s = _idea_summary(name, idea, os.path.join(path, idea), url)
+                    s = _idea_summary_with_sections(name, idea, os.path.join(path, idea), url)
                 except OSError:
                     continue
                 ideas.append(s)
@@ -2491,6 +2698,8 @@ def _design_folder_info(real):
     for idea in ideas:
         try:
             boards += len(_idea_boards(os.path.join(real, idea, 'canvas.json'))[0])
+            for sec in _list_sections(os.path.join(real, idea)):
+                boards += len(_idea_boards(os.path.join(real, idea, sec, 'canvas.json'))[0])
         except OSError:
             pass
     return len(ideas), boards
@@ -2728,7 +2937,37 @@ class CanvasHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = unquote(parsed.path).rstrip('/')
         parts = [p for p in path.split('/') if p]
-        return parts, parsed
+        return self._fold_section(parts), parsed
+
+    def _design_for(self, project):
+        """The design folder of a project path part (single root: the one served)."""
+        return self.design_dir
+
+    def _fold_section(self, parts):
+        """[..., 'promo', 'og', ...] -> [..., 'promo/og', ...] when og is a section of promo, so
+        the rest of the handler treats a section as an idea whose name has one slash."""
+        i = self.STATIC_DIR_INDEX - 1 + (2 if parts[:1] == ['_k'] else 0)
+        if len(parts) < i + 2:
+            return parts
+        idea, sec = parts[i], parts[i + 1]
+        if not _plain_name(idea) or not _section_name_ok(sec):
+            return parts
+        design = self._design_for(parts[i - 1] if i else None)
+        if not design or not os.path.isfile(os.path.join(design, idea, sec, 'canvas.json')):
+            return parts
+        return parts[:i] + [idea + '/' + sec] + parts[i + 2:]
+
+    def _redirect_moved(self, design_dir, idea, prefix):
+        """302 an old /<idea>/ link to the section it became. False when there is no such section."""
+        to = moved_to(design_dir, idea) if design_dir else None
+        if not to:
+            return False
+        self.send_response(302)
+        self.send_header('Location', prefix + _urlquote(to) + '/')
+        self.send_header('Content-Length', '0')
+        self._add_root_header()
+        self.end_headers()
+        return True
 
     def _safe(self, *parts):
         return _safe_path(self.design_dir, *parts)
@@ -2827,6 +3066,8 @@ class CanvasHandler(BaseHTTPRequestHandler):
         idea = parts[0]
         idea_dir = self._safe(idea) if not idea.startswith('.') else None   # .trash is not served
         if not idea_dir or not os.path.isdir(idea_dir):
+            if len(parts) == 1 and self._redirect_moved(self.design_dir, idea, '/'):
+                return
             self._404(); return
 
         if len(parts) == 1:
@@ -2886,6 +3127,9 @@ class CanvasHandler(BaseHTTPRequestHandler):
             return
         if parts == ['api', 'pin']:
             self._pin_api()
+            return
+        if parts == ['api', 'move']:
+            self._move_api()
             return
 
         if len(parts) == 3 and parts[1] == 'api' and parts[2] == 'layout':
@@ -2952,7 +3196,7 @@ class CanvasHandler(BaseHTTPRequestHandler):
         if idea is None or idea == '':
             return os.path.realpath(design_dir)
         idea = str(idea)
-        if idea != os.path.basename(idea) or idea in ('.', '..'):
+        if not _split_idea(idea):
             return None
         p = _safe_path(design_dir, idea)
         return p if p and os.path.isdir(p) else None
@@ -3014,6 +3258,68 @@ class CanvasHandler(BaseHTTPRequestHandler):
     def _pin_sse_key(self, body):
         return str(body.get('idea'))
 
+    MOVE_QUIET_SECS = 10
+
+    def _move_api(self):
+        """POST /api/move {project?, idea, into} | {project?, idea, new} | {project?, idea: '<parent>/<section>', out: true}.
+        into: an existing idea of the same project. new: a name for a new idea that then holds `idea`.
+        Local mode only, like delete: share pages and read-only servers never move files."""
+        if self.share_token or self.read_only:
+            self._json({'ok': False, 'error': 'Not allowed in share mode' if self.share_token else 'Read-only'}, 403)
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        design_dir = self._trash_design(body)
+        if not design_dir or not os.path.isdir(design_dir):
+            self._json({'ok': False, 'error': 'No such project'}, 404)
+            return
+        idea, into, new = body.get('idea'), body.get('into'), body.get('new')
+        quiet = 0 if body.get('force') is True else self.MOVE_QUIET_SECS
+        made = None
+        try:
+            if body.get('out') is True:
+                name = move_idea(design_dir, idea, quiet_secs=quiet)
+                parent = str(idea).split('/')[0]
+                if body.get('tidy') is True:   # the undo of `new`: the idea made to hold it goes when it is empty
+                    try:   # the move out is done either way
+                        pdir = _idea_folder(design_dir, parent)
+                        if not _list_sections(pdir) and not load_canvas(pdir).get('boards'):
+                            trash_idea(design_dir, parent)
+                    except (TrashError, OSError) as e:
+                        self._log_error('tidy after move failed', e)
+            else:
+                if new is not None:
+                    if not _plain_name(new) or new in _RESERVED_NAMES:
+                        raise MoveError(f'Not an idea name: {new}')
+                    target = os.path.join(os.path.realpath(design_dir), new)
+                    _idea_folder(design_dir, idea)   # the idea must exist before anything is created
+                    try:
+                        os.mkdir(target)   # only the request that makes the folder may remove it again
+                    except FileExistsError:
+                        raise MoveError(f'design/{new} already exists')
+                    made = target
+                    create_idea(made)
+                    into = new
+                elif into is None:
+                    raise MoveError('Say where it goes: into, new, or out')
+                try:
+                    name = move_idea(design_dir, idea, into=into, quiet_secs=quiet)
+                except Exception:
+                    # never when the idea is already inside it (the move worked and a later step failed)
+                    if made and not os.path.lexists(os.path.join(made, str(idea))):
+                        shutil.rmtree(made, ignore_errors=True)
+                    raise
+        except (MoveError, TrashError) as e:
+            self._json({'ok': False, 'error': str(e)}, 400)
+            return
+        except OSError as e:
+            self._log_error('move failed', e)
+            self._json({'ok': False, 'error': 'Could not move the folder'}, 500)
+            return
+        self._json(dict({'ok': True, 'idea': name}, **({'made': True} if made else {})))
+        _broadcast(DASH_SSE_KEY, {'type': 'canvas'})
+
     def _pin_api(self):
         """POST /api/pin {project?, idea, file, action: add|resolve|reopen|delete, text?, at?, ref?, note?}.
         Local mode only, like delete: share pages and read-only servers have no pins."""
@@ -3068,6 +3374,18 @@ class CanvasHandler(BaseHTTPRequestHandler):
                 data = fh.read()
         except Exception:
             self._404(); return
+        # The idea's name as the APIs know it ('<idea>/<section>' for a section opened alone), and
+        # the sections its canvas shows. In share mode each section has its own asset key.
+        idea = scope[-1]
+        info = {'idea': idea}
+        design = self._design_for(scope[0] if len(scope) > 1 else None)
+        secs = _list_sections(os.path.join(design, idea)) if design and '/' not in idea else []
+        if secs:
+            info['sections'] = secs
+            if self.share_token:
+                info['prefix'] = {s: '/_k/' + self._asset_key(scope[:-1] + [idea + '/' + s]) for s in secs}
+        inject = ('<script>var CANVAS_INFO=' + _embed_json(info) + ';</script>\n').encode()
+        data = data.replace(b'</head>', inject + b'</head>', 1)
         if is_ro:
             inject = b'<script>var CANVAS_READ_ONLY=true;</script>\n'
             data = data.replace(b'</head>', inject + b'</head>', 1)
@@ -3181,6 +3499,9 @@ class RegistryHandler(CanvasHandler):
     def _roots_map(self):
         return {r['name']: r['path'] for r in self._roots()}
 
+    def _design_for(self, project):
+        return self._roots_map().get(project) if project else None
+
     def _index_roots(self):
         return self._roots(), False
 
@@ -3248,6 +3569,8 @@ class RegistryHandler(CanvasHandler):
 
         project, idea, design_dir, idea_dir = resolved
         if not os.path.isdir(idea_dir):
+            if len(parts) == 2 and self._redirect_moved(design_dir, idea, '/' + _urlquote(project, safe='') + '/'):
+                return
             self._404(); return
 
         rest = parts[2:]
@@ -3306,6 +3629,9 @@ class RegistryHandler(CanvasHandler):
             return
         if parts == ['api', 'pin']:
             self._pin_api()
+            return
+        if parts == ['api', 'move']:
+            self._move_api()
             return
 
         # ── Save layout (/<project>/<idea>/api/layout) ───────────────────
@@ -3853,28 +4179,8 @@ def cmd_roots(args):
 
 # ── new ────────────────────────────────────────────────────────────────────
 
-def cmd_new(args):
-    if len(args) < 2 or _is_help(args):
-        print('Usage: canvas.py new <design dir> <idea>'); return
-    design_dir, idea = args[0], args[1]
-    design_abs = os.path.realpath(os.path.expanduser(design_dir))
-
-    # Register the design folder automatically if it is new
-    roots = load_roots()
-    if not any(os.path.realpath(r['path']) == design_abs for r in roots):
-        parent = os.path.dirname(design_abs)
-        name = os.path.basename(parent) or os.path.basename(design_abs)
-        existing_names = {r['name'] for r in roots}
-        base_name = name
-        suffix = 2
-        while name in existing_names:
-            name = f'{base_name}-{suffix}'
-            suffix += 1
-        roots.append({'name': name, 'path': design_abs})
-        save_roots(roots)
-        print(f'Registered design folder: {name} -> {design_abs}')
-
-    idea_dir = os.path.join(design_abs, idea)
+def create_idea(idea_dir):
+    """Create the folders and starter files of an idea (or section). Existing files are kept."""
     for d in ('boards', 'assets', 'render', 'shared'):
         os.makedirs(os.path.join(idea_dir, d), exist_ok=True)
     cj = os.path.join(idea_dir, 'canvas.json')
@@ -3932,6 +4238,45 @@ def cmd_new(args):
         with open(gitignore, 'w', encoding='utf-8') as f:
             f.write('render/\ncompare/\n')
 
+
+def cmd_new(args):
+    if len(args) < 2 or _is_help(args):
+        print('Usage: canvas.py new <design dir> <idea>[/<section>]\n'
+              '  <idea>/<section> starts new work as a section of an existing idea, on the same canvas'); return
+    design_dir, idea = args[0], args[1]
+    design_abs = os.path.realpath(os.path.expanduser(design_dir))
+    if os.path.isfile(os.path.join(design_abs, 'canvas.json')):
+        print(f'Error: {design_abs} is an idea folder. For a section, run: new <design dir> {os.path.basename(design_abs)}/{idea}'); return 1
+    if not _split_idea(idea):
+        print(f'Error: not an idea name: {idea}'); return 1
+
+    # Register the design folder automatically if it is new
+    roots = load_roots()
+    if not any(os.path.realpath(r['path']) == design_abs for r in roots):
+        parent = os.path.dirname(design_abs)
+        name = os.path.basename(parent) or os.path.basename(design_abs)
+        existing_names = {r['name'] for r in roots}
+        base_name = name
+        suffix = 2
+        while name in existing_names:
+            name = f'{base_name}-{suffix}'
+            suffix += 1
+        roots.append({'name': name, 'path': design_abs})
+        save_roots(roots)
+        print(f'Registered design folder: {name} -> {design_abs}')
+
+    sp = _split_idea(idea)
+    if not sp:
+        print(f'Error: not an idea name: {idea}'); return 1
+    idea_dir = os.path.join(design_abs, *[n for n in sp if n])
+    if sp[1]:   # a section of an existing idea
+        parent_dir = os.path.join(design_abs, sp[0])
+        if not _is_idea_dir(parent_dir):
+            print(f'Error: no idea named {sp[0]} in {design_abs}. Create it first, or pass a plain idea name.'); return 1
+    create_idea(idea_dir)
+    if sp[1]:
+        with _canvas_lock:
+            _save_section_order(parent_dir, add=sp[1])
     print(f'Created: {idea_dir}')
 
 # ── add ────────────────────────────────────────────────────────────────────
@@ -5104,6 +5449,8 @@ def cmd_trash(args):
             print(usage, file=sys.stderr); return 1
         idea_dir = os.path.abspath(args[0]).rstrip(os.sep)
         design_dir, idea = os.path.dirname(idea_dir), os.path.basename(idea_dir)
+        if os.path.isfile(os.path.join(design_dir, 'canvas.json')):   # a section: its idea is the folder above
+            design_dir, idea = os.path.dirname(design_dir), os.path.basename(design_dir) + '/' + idea
         if len(args) == 1:
             tid = trash_idea(design_dir, idea)
         else:
@@ -5112,6 +5459,31 @@ def cmd_trash(args):
         print(f'Error: {e}', file=sys.stderr); return 1
     print(f'Moved to the trash: {tid}')
     print(f'Undo: canvas.py restore {_display_path(design_dir)} {tid}')
+
+def cmd_move(args):
+    if len(args) != 2 or _is_help(args):
+        print('Usage: canvas.py move <idea dir> <another idea dir>   the idea becomes a section of the other idea\n'
+              '       canvas.py move <section dir> <design dir>      the section becomes an idea of its own again\n'
+              '  The folder moves as it is: boards, statuses, comments, pins, and arrows are unchanged.')
+        return
+    src = os.path.realpath(os.path.expanduser(args[0]))
+    dst = os.path.realpath(os.path.expanduser(args[1]))
+    if not _is_idea_dir(src):
+        print(f'Error: not an idea folder (no canvas.json): {src}'); return 1
+    try:
+        if _is_idea_dir(dst):
+            design = os.path.dirname(dst)
+            if os.path.dirname(src) != design:
+                print('Error: both ideas must be in the same design folder (a section moves out first)'); return 1
+            name = move_idea(design, os.path.basename(src), into=os.path.basename(dst))
+        elif os.path.dirname(os.path.dirname(src)) == dst and _is_idea_dir(os.path.dirname(src)):
+            design = dst
+            name = move_idea(design, os.path.basename(os.path.dirname(src)) + '/' + os.path.basename(src))
+        else:
+            print(f'Error: {dst} is neither an idea folder nor the design folder that holds this section'); return 1
+    except MoveError as e:
+        print(f'Error: {e}'); return 1
+    print(f'Moved: {os.path.join(design, name)}')
 
 def cmd_restore(args):
     if len(args) != 2 or _is_help(args):
@@ -5141,7 +5513,7 @@ def main():
         'group': cmd_group,
         'snap': cmd_snap, 'compare': cmd_compare,
         'impl': cmd_impl, 'comment': cmd_comment, 'pins': cmd_pins,
-        'trash': cmd_trash, 'restore': cmd_restore,
+        'trash': cmd_trash, 'restore': cmd_restore, 'move': cmd_move,
     }
     if cmd in dispatch:
         ret = dispatch[cmd](sys.argv[2:])
