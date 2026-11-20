@@ -860,21 +860,18 @@
       const get = (u) => fetch(u + '/canvas.json' + stamp).then(r => r.ok ? r.json() : null);
       const [own, ...parts] = await Promise.all([get(BASE)].concat(SECTIONS.map(s => get(secBase(s)).catch(() => null))));
       const data = normalize(own);
-      const now = Array.isArray(data.sections) ? data.sections.filter(s => typeof s === 'string') : [];
-      if (!SECTIONS.length && now.length && !IDEA_NAME.includes('/')) {   // its first section came in
+      // The page was served with a list of sections. It is old when one of them is gone, or when
+      // canvas.json names another one that really is there (a leftover name with no folder is not).
+      const named = (!IDEA_NAME.includes('/') && Array.isArray(data.sections) ? data.sections : [])
+        .filter(s => typeof s === 'string' && s && !s.includes('/') && !SECTIONS.includes(s));
+      let stale = parts.some(p => !p);
+      if (!stale && named.length) stale = (await Promise.all(named.map(s => get(secBase(s)).catch(() => null)))).some(Boolean);
+      if (stale) {
         let again = false;
         try { again = Date.now() - (+sessionStorage.getItem('mc:sec-reload') || 0) > 5000; sessionStorage.setItem('mc:sec-reload', String(Date.now())); } catch (_) {}
         if (again) { location.reload(); return; }
       }
-      if (SECTIONS.length) {
-        const listed = Array.isArray(data.sections) ? data.sections.filter(s => typeof s === 'string') : [];
-        if (parts.some(p => !p) || listed.some(s => !SECTIONS.includes(s))) {   // a section moved away or came in: the list this page was served with is old
-          let again = false;
-          try { again = Date.now() - (+sessionStorage.getItem('mc:sec-reload') || 0) > 5000; sessionStorage.setItem('mc:sec-reload', String(Date.now())); } catch (_) {}
-          if (again) { location.reload(); return; }
-        }
-        mergeSections(data, parts.map(p => p ? normalize(p) : null));
-      }
+      if (SECTIONS.length) mergeSections(data, parts.map(p => p ? normalize(p) : null));
       canvasData = data;
     }
     if (redraw !== false) renderAll();
@@ -1100,8 +1097,9 @@
     };
     const first = item(svgIcon('<path d="M5 11 11 5M6 5h5v5"/>'), 'Open in new tab', () => window.open(boardUrl(file), '_blank', 'noopener'), '', 'dbl-click');
     item(svgIcon('<path d="m5.5 4.5-3.5 3.5 3.5 3.5M10.5 4.5 14 8l-3.5 3.5"/>'), 'Copy file name', () => {
-      if (navigator.clipboard) navigator.clipboard.writeText(file).then(() => showToast('Copied: ' + file), () => showToast(file));
-      else showToast(file);
+      const name = keyParts(file)[1];
+      if (navigator.clipboard) navigator.clipboard.writeText(name).then(() => showToast('Copied: ' + name), () => showToast(name));
+      else showToast(name);
     });
     const sp = document.createElement('div');
     sp.className = 'sp';

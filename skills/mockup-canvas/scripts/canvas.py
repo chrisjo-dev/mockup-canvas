@@ -3282,9 +3282,12 @@ class CanvasHandler(BaseHTTPRequestHandler):
                 name = move_idea(design_dir, idea, quiet_secs=quiet)
                 parent = str(idea).split('/')[0]
                 if body.get('tidy') is True:   # the undo of `new`: the idea made to hold it goes when it is empty
-                    pdir = _idea_folder(design_dir, parent)
-                    if not _list_sections(pdir) and not load_canvas(pdir).get('boards'):
-                        trash_idea(design_dir, parent)
+                    try:   # the move out is done either way
+                        pdir = _idea_folder(design_dir, parent)
+                        if not _list_sections(pdir) and not load_canvas(pdir).get('boards'):
+                            trash_idea(design_dir, parent)
+                    except (TrashError, OSError) as e:
+                        self._log_error('tidy after move failed', e)
             else:
                 if new is not None:
                     if not _plain_name(new) or new in _RESERVED_NAMES:
