@@ -295,3 +295,55 @@ class SectionEvents(TempHomeCase):
             ('p/promo', {'type': 'board', 'file': 'O02-Card.html', 'section': 'og'}),
             (canvas.DASH_SSE_KEY, {'type': 'board', 'file': 'O02-Card.html', 'section': 'og', 'key': 'p/promo'}),
         ])
+
+
+class SectionsViewer(ServerCase):
+    """What the server tells the canvas page about sections."""
+
+    def setUp(self):
+        super().setUp()
+        self.design = os.path.join(self.home, 'p', 'design')
+        self.promo = self.make_idea(self.design, 'promo', boards=('P01-Join.html',))
+        self.make_idea(self.design, 'og', boards=('O02-Card.html',))
+        self.make_idea(self.design, 'zed')
+        canvas.move_idea(self.design, 'zed', into='promo')
+        canvas.move_idea(self.design, 'og', into='promo')
+        self.write_json(os.path.join(self.data_dir, 'roots.json'), {'roots': [{'name': 'p', 'path': self.design}]})
+
+    def info(self, path, headers=None):
+        st, hdrs, body = self.request('GET', path, headers=headers)
+        self.assertEqual(st, 200, path)
+        html = body.decode()
+        raw = html.split('var CANVAS_INFO=', 1)[1].split(';</script>', 1)[0]
+        # the injected script is covered by the page's CSP hash list
+        self.assertIn(canvas._script_hashes(html).split(' ')[0], hdrs['Content-Security-Policy'])
+        return json.loads(raw)
+
+    def test_parent_page_lists_its_sections_in_order(self):
+        self.start_server(canvas.RegistryHandler, share_token='', share_edit=True, read_only=False)
+        self.assertEqual(self.info('/p/promo/'), {'idea': 'promo', 'sections': ['zed', 'og']})
+        self.assertEqual(self.info('/p/promo/og/'), {'idea': 'promo/og'})   # a section has no sections of its own
+
+    def test_single_root_and_plain_idea(self):
+        self.make_idea(self.design, 'plain')
+        self.start_server(canvas.CanvasHandler, design_dir=self.design, share_token='', share_edit=True, read_only=False)
+        self.assertEqual(self.info('/promo/')['sections'], ['zed', 'og'])
+        self.assertEqual(self.info('/promo/zed/'), {'idea': 'promo/zed'})
+        self.assertEqual(self.info('/plain/'), {'idea': 'plain'})
+
+    def test_share_page_gets_a_key_per_section(self):
+        tok = 'tok123'
+        self.start_server(canvas.RegistryHandler, share_token=tok, share_edit=False, read_only=False,
+                          frozen_roots=[{'name': 'p', 'path': self.design}], share_host='127.0.0.1', share_until=0.0)
+        info = self.info('/p/promo/', headers={'Cookie': 'canvas_token=' + tok})
+        self.assertEqual(set(info['prefix']), {'zed', 'og'})
+        self.assertNotEqual(info['prefix']['og'], info['prefix']['zed'])
+        self.assertEqual(self.request('GET', info['prefix']['og'] + '/p/promo/og/boards/O02-Card.html')[0], 200)
+        self.assertIn(self.request('GET', info['prefix']['og'] + '/p/promo/zed/canvas.json')[0], (401, 404))
+
+    def test_viewer_page_has_the_section_ui(self):
+        with open(canvas.VIEWER_PATH, encoding='utf-8') as f:
+            page = f.read()
+        for needle in ('id="outline"', 'id="rej-btn"', 'function mergeSections', "secBase(sec) + '/api/layout'",
+                       "post('/api/move'", 'b.x - (b._dx', ):
+            self.assertIn(needle.replace('b.x - (b._dx', 'x - (b._dx'), page, needle)

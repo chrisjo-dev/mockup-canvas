@@ -3354,6 +3354,18 @@ class CanvasHandler(BaseHTTPRequestHandler):
                 data = fh.read()
         except Exception:
             self._404(); return
+        # The idea's name as the APIs know it ('<idea>/<section>' for a section opened alone), and
+        # the sections its canvas shows. In share mode each section has its own asset key.
+        idea = scope[-1]
+        info = {'idea': idea}
+        design = self._design_for(scope[0] if len(scope) > 1 else None)
+        secs = _list_sections(os.path.join(design, idea)) if design and '/' not in idea else []
+        if secs:
+            info['sections'] = secs
+            if self.share_token:
+                info['prefix'] = {s: '/_k/' + self._asset_key(scope[:-1] + [idea + '/' + s]) for s in secs}
+        inject = ('<script>var CANVAS_INFO=' + _embed_json(info) + ';</script>\n').encode()
+        data = data.replace(b'</head>', inject + b'</head>', 1)
         if is_ro:
             inject = b'<script>var CANVAS_READ_ONLY=true;</script>\n'
             data = data.replace(b'</head>', inject + b'</head>', 1)
