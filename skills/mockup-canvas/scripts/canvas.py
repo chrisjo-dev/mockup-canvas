@@ -4575,7 +4575,7 @@ def cmd_check(args):
             infos.append(f'link label "{label}" not found in the text of {src}')
 
     # impl files are paths in the project that holds the design folder (<project>/<design>/<idea>)
-    project_root = os.path.dirname(os.path.dirname(idea_dir))
+    project_root = _project_root(idea_dir)
     for fname, b in boards.items():
         impl = b.get('impl')
         if not isinstance(impl, dict):
@@ -5209,6 +5209,15 @@ def cmd_compare(args):
 
 # ── impl ───────────────────────────────────────────────────────────────────
 
+def _project_root(idea_dir):
+    """The project that holds the design folder: <project>/<design>/<idea>, or
+    <project>/<design>/<idea>/<section> when the idea is a section of another idea."""
+    idea_dir = os.path.abspath(idea_dir)
+    parent = os.path.dirname(idea_dir)
+    if _is_idea_dir(parent):
+        parent = os.path.dirname(parent)
+    return os.path.dirname(parent)
+
 def _in_project(project_root, f):
     """True when f is a relative path that stays inside project_root (no absolute path, no ..)."""
     if not isinstance(f, str) or not f or os.path.isabs(f):
@@ -5283,7 +5292,7 @@ def cmd_impl(args):
             print(f'  {f}')
         return
     files = []
-    project_root = os.path.dirname(os.path.dirname(idea_dir))
+    project_root = _project_root(idea_dir)
     for f in vals['--file']:
         if not _in_project(project_root, f):
             print(f'Error: --file must be a path relative to the project root ({project_root}) '

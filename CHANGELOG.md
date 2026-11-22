@@ -16,6 +16,7 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ### Fixed
 
+- `canvas check` and `canvas impl` on a section look for implementation files in the project again. They looked one folder too low, so every recorded file of a moved idea was reported as not found.
 - A Chrome start over pipes that times out (a cold start on a busy machine) now fails instead of starting a `--remote-debugging-port` Chrome, which outlived a `kill -9` of the server (#16). A Chrome that cannot use pipes at all still falls back to the port.
 - Copy for AI and `canvas pins` quote a note on one line: runs of whitespace become one space, and backslashes and double quotes are escaped (#16).
 - The pin probe keeps its Chrome for 60 seconds between pins instead of 15, so pins placed during a review do not each start a new Chrome (#17).

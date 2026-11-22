@@ -473,3 +473,31 @@ class NewIdeaRollback(ServerCase):
         self.assertEqual(st, 500)
         self.assertTrue(os.path.isfile(os.path.join(self.design, 'hold', 'og', 'boards', 'O02-Card.html')))
         self.assertEqual(canvas._list_sections(os.path.join(self.design, 'hold')), ['og'])   # still found without the saved order
+
+
+class SectionImplRoot(TempHomeCase):
+    """impl files of a section are paths in the project, the same as before the move."""
+
+    def setUp(self):
+        super().setUp()
+        self.project = os.path.join(self.home, 'proj')
+        self.design = os.path.join(self.project, 'design')
+        self.make_idea(self.design, 'site')
+        self.idea = self.make_idea(self.design, 'lock', boards=('K01-Lock.html',))
+        os.makedirs(os.path.join(self.project, 'src'))
+        with open(os.path.join(self.project, 'src', 'lock.js'), 'w') as f:
+            f.write('//')
+        r = self.run_cli('impl', self.idea, 'boards/K01-Lock.html', '--route', '/', '--file', 'src/lock.js')
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_check_and_impl_use_the_project_root_after_a_move(self):
+        self.assertEqual(canvas._project_root(self.idea), self.project)
+        canvas.move_idea(self.design, 'lock', into='site')
+        sec = os.path.join(self.design, 'site', 'lock')
+        self.assertEqual(os.path.realpath(canvas._project_root(sec)), os.path.realpath(self.project))
+        r = self.run_cli('check', sec)
+        self.assertNotIn('impl file not found', r.stdout + r.stderr)
+        r = self.run_cli('impl', sec, 'boards/K01-Lock.html', '--route', '/', '--file', 'src/lock.js')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.run_cli('impl', sec, 'boards/K01-Lock.html', '--route', '/', '--file', '../outside.js')
+        self.assertNotEqual(r.returncode, 0)
