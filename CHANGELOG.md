@@ -6,6 +6,8 @@ All notable changes to mockup-canvas are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-22
+
 ### Added
 
 - Sections: an idea can be moved into another idea (`canvas move`, or Move into idea in the dashboard card menu, with Undo). It then opens as a section on that idea's canvas, and the dashboard shows one card that lists its sections. The folder moves as it is to `design/<idea>/<section>/`, so tokens, board IDs, statuses, comments, pins, and arrows are unchanged. `canvas new <design dir> <idea>/<section>` starts new work as a section, and an old `/<idea>/` link redirects to the section.
@@ -194,7 +196,8 @@ Note: a server older than 0.4.0 drops collections when it saves `roots.json`, so
 - A local, Figma-like canvas to pan, zoom, and arrange HTML artboards, with flow arrows, groups, approval marks, live reload, and phone sharing.
 - The TrailMate example and a unit test suite.
 
-[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/chrisjo-dev/mockup-canvas/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.8.0
 [0.7.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.7.0
 [0.6.0]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.6.0
 [0.5.1]: https://github.com/chrisjo-dev/mockup-canvas/releases/tag/v0.5.1
